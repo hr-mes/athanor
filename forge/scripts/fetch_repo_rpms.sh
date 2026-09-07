@@ -33,13 +33,13 @@ readarray -t UPSTREAM_DESKTOP < <(jq -r '.upstream_desktop[] // empty' config/pa
 readarray -t UPSTREAM_MEDIA < <(jq -r '.upstream_media[] // empty' config/packages.json)
 readarray -t UPSTREAM_CLI < <(jq -r '.upstream_cli[] // empty' config/packages.json)
 
-# Per-tier package images. An entry without a tag means :latest. The kernel and the
-# NVIDIA modules are published by kernel-build.yml and nvidia-kmod.yml under the NVR
-# derived from the pins (:latest exists only for builds from main).
+# Per-tier package images. An entry without a tag means :latest. The kernel is
+# published by kernel-build.yml under the NVR derived from the pins (:latest exists
+# only for builds from main). The NVIDIA modules (azoth-nvidia:<nvr>-<branch>) are
+# not RPMs: system/Containerfile copies them from their image.
 KERNEL_NVR=$(bash "$(dirname "${BASH_SOURCE[0]}")/../specs/azoth/nvr.sh")
 TIER0_IMAGES=(
   "azoth:${KERNEL_NVR}"
-  "azoth-nvidia:${KERNEL_NVR}-open"
 )
 for pkg in "${CUSTOM_TIER0[@]}"; do
   [[ -n "$pkg" ]] && TIER0_IMAGES+=("athanor-forge-$pkg")

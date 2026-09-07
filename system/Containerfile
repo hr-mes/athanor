@@ -1,3 +1,10 @@
+# The NVIDIA modules are built for the kernel NVR of the pins, signed with the
+# project MOK by nvidia-kmod.yml and published as azoth-nvidia:<nvr>-<branch>: a
+# scratch image with lib/modules/<kver>/extra/nvidia/*.ko, copied next to the kernel
+# in tier 0. AZOTH_NVR is passed by call-system-image.yml from forge/specs/azoth/nvr.sh.
+ARG AZOTH_NVR
+FROM ghcr.io/hr-mes/azoth-nvidia:${AZOTH_NVR}-open AS nvidia-modules
+
 # The base image is built by the separate repository hr-mes/ermete-base-nvidia and
 # has not been renamed: no athanor-base-nvidia image has ever been published.
 FROM ghcr.io/hr-mes/ermete-base-nvidia:latest
@@ -21,19 +28,19 @@ RUN --mount=type=bind,from=ghcr.io/hr-mes/athanor-forge-tier0-repo:latest,source
         rpm -e --nodeps fedora-logos || true && \
         rpm -Uvh --replacefiles --replacepkgs --nodeps "$BASE_CONFIG"; \
     fi && \
-    RAW_RPM_LIST=$(find /mnt/tier0-repo -name "*.rpm" 2>/dev/null | awk '!/systemd-standalone-|.*-free-.*\.rpm|glibc32|kernel-debug|rpm-.*\.rpm|fedora-release-|selinux-policy|athanor-base-config|-doc-|debuginfo|debugsource/ && (!/-devel-/ || /kernel-devel/)' || true) && \
-    RPM_LIST="" && \
-    for rpm in $RAW_RPM_LIST; do \
-        if [[ "$rpm" == *kmod-nvidia-* ]] && [[ "$rpm" != *chimera* ]]; then \
-            continue; \
-        fi; \
-        RPM_LIST="$RPM_LIST $rpm"; \
-    done && \
+    RPM_LIST=$(find /mnt/tier0-repo -name "*.rpm" 2>/dev/null | awk '!/systemd-standalone-|.*-free-.*\.rpm|glibc32|kernel-debug|rpm-.*\.rpm|fedora-release-|selinux-policy|athanor-base-config|-doc-|debuginfo|debugsource/ && (!/-devel-/ || /kernel-devel/)') && \
     if [ -n "$RPM_LIST" ]; then \
-        echo "Tier 0: Installing Bedrock hardware, kernel Chimera & NVIDIA dependencies..." && \
+        echo "Tier 0: Installing the hardware foundation and the Azoth kernel..." && \
         dnf5 install -y --allowerasing --setopt=install_weak_deps=False --setopt=tsflags=nodocs $RPM_LIST; \
     fi && \
     rm -rf /usr/lib/firmware/{mellanox,qlogic,netronome,liquidio,cxgb4,bnx2x,cavium,dpaa2}
+
+# The signed NVIDIA modules of the Azoth kernel; depmod runs in assemble_uki.sh. The
+# test ties the modules to the kernel installed above: both come from the same NVR.
+ARG AZOTH_NVR
+COPY --from=nvidia-modules /lib/modules/ /usr/lib/modules/
+RUN test -f "/usr/lib/modules/${AZOTH_NVR}.x86_64/vmlinuz" && \
+    test -f "/usr/lib/modules/${AZOTH_NVR}.x86_64/extra/nvidia/nvidia.ko"
 
 # Tier 0: Install Cilium Tetragon eBPF Runtime Security is now delegated to athanor-tetragon RPM
 
