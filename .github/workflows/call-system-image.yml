@@ -4,23 +4,23 @@ on:
   workflow_call:
     inputs:
       builder_content_hash:
-        description: 'Content hash of the builder container image'
+        description: "Content hash of the builder container image"
         required: true
         type: string
       has_changes:
-        description: 'Flag indicating if repository changes were detected'
+        description: "Flag indicating if repository changes were detected"
         required: false
         type: boolean
         default: true
     secrets:
       RPM_GPG_KEY:
-        description: 'GPG key for RPM signing'
+        description: "GPG key for RPM signing"
         required: false
       RPM_GPG_PASSPHRASE:
-        description: 'Passphrase for GPG key'
+        description: "Passphrase for GPG key"
         required: false
       MOK_PRIVATE_KEY:
-        description: 'Project MOK private key (PEM) that signs the UKI; supplied by the signing environment'
+        description: "Project MOK private key (PEM) that signs the UKI; supplied by the signing environment"
         required: false
 
 jobs:
@@ -313,16 +313,20 @@ jobs:
           nix shell nixpkgs#cosign -c bash forge/scripts/sign_attest.sh "${image}" system-sbom.spdx.json
 
       - name: 💿 Build ISO (osbuild)
-        # bootc-image-builder formats the installed root with ext4, xfs or btrfs
-        # (its --rootfs option knows no other type): btrfs is the closest to the
-        # bcachefs root the design targets, until osbuild supports it.
-        uses: osbuild/bootc-image-builder-action@019bb59c5100ecec4e78c9e94e18a840110f7a0b # v0.0.2
-        with:
-          builder-image: quay.io/centos-bootc/bootc-image-builder:latest
-          config-file: ./system/disk_config/iso.toml
-          image: ghcr.io/hr-mes/athanor-system:${{ github.run_id }}
-          types: anaconda-iso
-          additional-args: --use-librepo=True --rootfs=btrfs
+        # Not osbuild/bootc-image-builder-action: the builder needs our own installer
+        # package list mounted over its definitions (build_iso.sh explains why) and the
+        # action passes no volumes of its own.
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # The builder writes through the root container storage, which the runner's
+          # podman does not use by default (bootc-image-builder issue 446).
+          sudo mkdir -p /etc/containers
+          printf '[storage]\ndriver = "overlay"\nrunroot = "/run/containers/storage"\ngraphroot = "/var/lib/containers/storage"\n' \
+            | sudo tee /etc/containers/storage.conf > /dev/null
+          bash forge/scripts/build_iso.sh "${IMAGE_REGISTRY}/${IMAGE_NAME}:${RUN_ID}" ./output
+          ls -la ./output
 
       - name: 🧹 Fix Workspace Permissions (GH Actions Cleanup)
         if: always()
@@ -333,4 +337,3 @@ jobs:
           else
             chown -R 1001:1001 . || chown -R 1000:1000 . || true
           fi
-
