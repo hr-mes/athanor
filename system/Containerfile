@@ -72,12 +72,14 @@ RUN --mount=type=bind,from=ghcr.io/hr-mes/athanor-forge-tier3-repo:latest,source
         fi; \
     fi
 
-# DECLARATIVE DYNAMIC FLATPAK LAYER & PROVISIONING ENGINE
+# FLATPAK MANIFEST: the applications are provisioned on the installed system, not at
+# build time. Extra-data apps such as Chrome run an apply_extra script under
+# bubblewrap, which a build container cannot host, and bootc carries /var into the
+# first deployment only.
 COPY forge/config/packages.json /usr/share/athanor/packages.json
-RUN dnf5 install -y --setopt=install_weak_deps=False --setopt=tsflags=nodocs flatpak jq || true
+RUN dnf5 install -y --setopt=install_weak_deps=False --setopt=tsflags=nodocs flatpak jq
 
 COPY system/scripts/ /scripts/
-RUN /bin/bash /scripts/provision_flatpak.sh
 
 
 # TPM 2.0 PCR Sealing Provisioning Service & Script for LUKS /var/home
