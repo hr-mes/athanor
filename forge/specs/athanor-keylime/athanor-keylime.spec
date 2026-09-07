@@ -1,6 +1,6 @@
 Name:           athanor-keylime
 Version:        1.0
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        Athanor OS Keylime Agent Configuration
 License:        GPL-3.0-or-later
 URL:            https://github.com/hr-mes/athanor
@@ -23,11 +23,15 @@ measurements for remote attestation (phase 3) and seals the security enclave.
 install -D -m 0644 %{SOURCE0} %{buildroot}/etc/keylime/agent.conf.d/99-athanor.conf
 
 %files
-%defattr(-,root,root,-)
-%dir /etc/keylime/agent.conf.d
+# The drop-in directory belongs to keylime-agent-rust-common, which keylime-agent
+# pulls in; owning it here with other attributes is an RPM file conflict.
 %config(noreplace) /etc/keylime/agent.conf.d/99-athanor.conf
 
 %changelog
+* Sun Sep 07 2026 Athanor Forge <forge@athanor.os> - 1.0-3
+- Stop owning /etc/keylime/agent.conf.d: keylime-agent-rust-common owns it and
+  the two sets of attributes conflicted at install time
+
 * Sun Sep 06 2026 Athanor Forge <forge@athanor.os> - 1.0-2
 - Install the drop-in from Source0 instead of an empty placeholder file
 
