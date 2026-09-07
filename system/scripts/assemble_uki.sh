@@ -120,7 +120,7 @@ if command -v "$UKIFY_BIN" >/dev/null 2>&1 || [ -f "$UKIFY_BIN" ]; then
         --secureboot-private-key="$KEY_FILE" \
         --secureboot-certificate="$CRT_FILE" \
         --pcr-private-key="$KEY_FILE" \
-        --pcr-public-key="$CRT_FILE" \
+        --pcr-certificate="$CRT_FILE" \
         --phases="enter-initrd" \
         --output="/usr/lib/modules/${QUALIFIED_KERNEL}/vmlinuz.efi"
 else
