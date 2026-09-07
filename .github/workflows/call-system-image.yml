@@ -320,11 +320,6 @@ jobs:
           RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          # The builder writes through the root container storage, which the runner's
-          # podman does not use by default (bootc-image-builder issue 446).
-          sudo mkdir -p /etc/containers
-          printf '[storage]\ndriver = "overlay"\nrunroot = "/run/containers/storage"\ngraphroot = "/var/lib/containers/storage"\n' \
-            | sudo tee /etc/containers/storage.conf > /dev/null
           bash forge/scripts/build_iso.sh "${IMAGE_REGISTRY}/${IMAGE_NAME}:${RUN_ID}" ./output
           ls -la ./output
 

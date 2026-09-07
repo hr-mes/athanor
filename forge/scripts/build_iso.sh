@@ -23,10 +23,8 @@ defs="${repo}/system/disk_config/defs"
 [[ -f $config ]] || { echo "ISO configuration missing: $config" >&2; exit 2; }
 [[ -d $defs ]] || { echo "distro definitions missing: $defs" >&2; exit 2; }
 
-mkdir -p "$output"
-
 # The builder needs the root container storage. Already root (a container): run
-# directly. Otherwise sudo, which must be there.
+# directly. Otherwise sudo, which must be there. Defined before its first use.
 sudo() {
   if [[ $(id -u) -eq 0 ]]; then
     "$@"
@@ -37,6 +35,19 @@ sudo() {
     return 1
   fi
 }
+
+mkdir -p "$output"
+
+# The builder works through the root container storage, which on a hosted runner is
+# either absent or left by another tool with a different graph driver recorded in its
+# database; podman then refuses to open it ("database graph driver does not match").
+# Declare the driver and start that store empty, as the upstream action does
+# (osbuild/bootc-image-builder issue 446). Nothing of ours lives there: the image is
+# built rootless, in the user's own store, and pushed to the registry before this runs.
+sudo mkdir -p /etc/containers
+printf '[storage]\ndriver = "overlay"\nrunroot = "/run/containers/storage"\ngraphroot = "/var/lib/containers/storage"\n' \
+  | sudo tee /etc/containers/storage.conf > /dev/null
+sudo rm -rf /var/lib/containers/storage
 
 sudo podman pull "$builder"
 sudo podman pull "$image"
