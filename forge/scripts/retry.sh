@@ -2,10 +2,13 @@
 # Run a command until it succeeds, for operations whose failures are transient by
 # nature: a registry push that the server aborts with a stalled chunked upload (run
 # 34051055291, builder push, HTTP 400 after 16 minutes), a network read that drops, a
-# public service that answers 502 while it is being restarted (run 34123978083, Rekor,
-# every attempt inside 90 seconds). The delay doubles from 15 s, so the default five
-# attempts span about four minutes, long enough to outlast a service restart; a command
-# that fails them all is a real error and the caller sees its exit status.
+# public service restarting under a signature. The delay doubles from 15 s, so the
+# default five attempts span about four minutes, long enough to outlast a restart; a
+# command that fails them all is a real error and the caller sees its exit status.
+#
+# Retries are for failures that pass. The Rekor 502 of runs 34123978083 and
+# 34131187743 was not one of them: the service was refusing an oversized body, and no
+# number of attempts could have helped (see sbom_rootfs.sh). Read the error first.
 #
 # Usage: [RETRY_ATTEMPTS=n] retry.sh COMMAND [ARG...]
 set -euo pipefail
