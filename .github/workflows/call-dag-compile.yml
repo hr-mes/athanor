@@ -75,6 +75,10 @@ jobs:
         run: |
           set -euo pipefail
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+          # Pull the builder explicitly: the podman run below would pull it implicitly,
+          # where a blob read that the registry drops fails the job outright (run
+          # 34148155801, shell-rs, four blobs lost to pkg-containers.githubusercontent.com).
+          bash scripts/retry.sh podman pull ghcr.io/hr-mes/athanor-builder:${{ inputs.builder_hash }}
           img_name="athanor-forge-${PKG_NAME}"
           if [ ! -d "specs/athanor-${PKG_NAME}" ] && [ ! -d "specs/${PKG_NAME}" ]; then
             img_name="athanor-forge-rolling-${PKG_NAME}"
@@ -110,6 +114,10 @@ jobs:
           mkdir -p RPMS
           mkdir -p ${{ github.workspace }}/.sccache
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+          # Pull the builder explicitly: the podman run below would pull it implicitly,
+          # where a blob read that the registry drops fails the job outright (run
+          # 34148155801, shell-rs, four blobs lost to pkg-containers.githubusercontent.com).
+          bash scripts/retry.sh podman pull ghcr.io/hr-mes/athanor-builder:${{ inputs.builder_hash }}
           
           PKG_CLEAN=$(echo "$PKG_NAME" | tr -cd '[:alnum:]-')
           SPEC_DIR=""
@@ -270,6 +278,10 @@ jobs:
         run: |
           set -euo pipefail
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+          # Pull the builder explicitly: the podman run below would pull it implicitly,
+          # where a blob read that the registry drops fails the job outright (run
+          # 34148155801, shell-rs, four blobs lost to pkg-containers.githubusercontent.com).
+          bash scripts/retry.sh podman pull ghcr.io/hr-mes/athanor-builder:${{ inputs.builder_hash }}
           img_name="athanor-forge-${PKG_NAME}"
           if [ ! -d "specs/athanor-${PKG_NAME}" ] && [ ! -d "specs/${PKG_NAME}" ]; then
             img_name="athanor-forge-rolling-${PKG_NAME}"
@@ -305,6 +317,10 @@ jobs:
           mkdir -p RPMS
           mkdir -p ${{ github.workspace }}/.sccache
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+          # Pull the builder explicitly: the podman run below would pull it implicitly,
+          # where a blob read that the registry drops fails the job outright (run
+          # 34148155801, shell-rs, four blobs lost to pkg-containers.githubusercontent.com).
+          bash scripts/retry.sh podman pull ghcr.io/hr-mes/athanor-builder:${{ inputs.builder_hash }}
           
           PKG_CLEAN=$(echo "$PKG_NAME" | tr -cd '[:alnum:]-')
           SPEC_DIR=""
@@ -465,6 +481,10 @@ jobs:
         run: |
           set -euo pipefail
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+          # Pull the builder explicitly: the podman run below would pull it implicitly,
+          # where a blob read that the registry drops fails the job outright (run
+          # 34148155801, shell-rs, four blobs lost to pkg-containers.githubusercontent.com).
+          bash scripts/retry.sh podman pull ghcr.io/hr-mes/athanor-builder:${{ inputs.builder_hash }}
           img_name="athanor-forge-${PKG_NAME}"
           if [ ! -d "specs/athanor-${PKG_NAME}" ] && [ ! -d "specs/${PKG_NAME}" ]; then img_name="athanor-forge-rolling-${PKG_NAME}"; fi
           podman run -i --rm --security-opt label=disable --security-opt seccomp=unconfined --privileged --userns=keep-id -e GITHUB_TOKEN="${GITHUB_TOKEN}" -v ${{ github.workspace }}:/workspace -w /workspace/forge ghcr.io/hr-mes/athanor-builder:${{ inputs.builder_hash }} bash scripts/check_idempotency.sh --package "${PKG_NAME}" --registry ${{ env.REGISTRY }} --owner ${{ github.repository_owner }} --image-name "$img_name" > idemp.out
@@ -498,6 +518,10 @@ jobs:
           mkdir -p RPMS
           mkdir -p ${{ github.workspace }}/.sccache
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+          # Pull the builder explicitly: the podman run below would pull it implicitly,
+          # where a blob read that the registry drops fails the job outright (run
+          # 34148155801, shell-rs, four blobs lost to pkg-containers.githubusercontent.com).
+          bash scripts/retry.sh podman pull ghcr.io/hr-mes/athanor-builder:${{ inputs.builder_hash }}
           
           PKG_CLEAN=$(echo "$PKG_NAME" | tr -cd '[:alnum:]-')
           SPEC_DIR=""
