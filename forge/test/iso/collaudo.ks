@@ -6,8 +6,15 @@
 #
 # It includes the kickstart the builder wrote into the ISO rather than restating it:
 # that file carries the ostreecontainer line and the pinned `bootc switch`, which are the
-# two things the test exists to exercise. Everything added here is only what a human
-# would otherwise type: disk, timezone, and an account to log in with.
+# two things the test exists to exercise. A copy here would be a copy that can drift, and
+# a test that installs something other than what the ISO installs is worth nothing.
+# Everything added below is only what a human would otherwise type: disk, timezone, and
+# an account to log in with.
+#
+# The include reaches into the ISO's own mount point, which is where the installer's
+# kickstart already reads it from: the file that ships is itself
+# "%include /run/install/repo/osbuild-base.ks" followed by a %post. So this path is
+# resolvable at include time on this media, and that is observed rather than assumed.
 
 %include /run/install/repo/osbuild-base.ks
 
