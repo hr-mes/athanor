@@ -1,0 +1,109 @@
+name: ISO Acceptance
+
+# Installs a published Athanor ISO in a virtual machine, restarts into what was
+# installed, and reports whether the greeter came up. It answers the one question the
+# build cannot: not whether an ISO was produced, but whether it installs a system that
+# starts.
+#
+# It is deliberately not part of every orchestrator run. The build already takes half an
+# hour and this adds a full install on top of it, so it runs weekly and on request. What
+# it produces is meant to be looked at: the console log, the verdict, and a screenshot
+# every couple of minutes of both the installer and the first boot, published as an
+# artifact. The assertion says the session started; the pictures say whether it started
+# looking the way it should, and that judgement is a person's.
+#
+# The published ISO is used exactly as it ships, with its attended installer intact. The
+# answers a person would give are handed to it on a second disk (forge/test/iso), so
+# nothing inside the artifact under test is rewritten.
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      iso_tag:
+        description: "tag of ghcr.io/hr-mes/athanor-iso to install (a run id, or latest)"
+        type: string
+        default: latest
+  push:
+    branches: [main, iso-v0]
+    paths:
+      - .github/workflows/iso-acceptance.yml
+      - forge/test/iso/**
+
+concurrency:
+  group: iso-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    uses: ./.github/workflows/call-lint.yml
+
+  install:
+    needs: [lint]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: read
+    env:
+      ISO_IMAGE: ghcr.io/${{ github.repository_owner }}/athanor-iso
+      ISO_TAG: ${{ inputs.iso_tag || 'latest' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: ./.github/actions/kvm
+
+      - name: 🧰 Install QEMU and the tools the run needs
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            qemu-system-x86 qemu-utils ovmf e2fsprogs
+
+      - name: 💽 Fetch the published ISO
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "${GITHUB_TOKEN}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          # The ISO ships inside a scratch image with one file in it, so a container of
+          # that image is the only thing to unpack.
+          podman pull "${ISO_IMAGE}:${ISO_TAG}"
+          ctr=$(podman create "${ISO_IMAGE}:${ISO_TAG}" /bin/true)
+          mkdir -p iso
+          podman cp "${ctr}:/." iso/
+          podman rm "$ctr" > /dev/null
+          iso=$(find iso -name '*.iso' -type f | head -n 1)
+          [[ -n $iso ]] || { echo "the published image contains no .iso" >&2; exit 1; }
+          echo "ISO_PATH=${iso}" >> "${GITHUB_ENV}"
+          echo "installing $(basename "$iso"), $(du -h "$iso" | cut -f1)"
+
+      - name: 🖥️ Install unattended and restart into the system
+        env:
+          TIMEOUT: "5400"
+          VCPUS: "4"
+          MEMORY_MIB: "6144"
+        run: bash forge/test/iso/run_iso_test.sh "${ISO_PATH}" ./iso-test
+
+      - name: 🖼️ Convert the screenshots
+        if: always()
+        run: python3 forge/test/iso/screenshots.py ./iso-test
+
+      - name: 📋 Report
+        if: always()
+        run: cat ./iso-test/verdict.md >> "${GITHUB_STEP_SUMMARY}"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iso-acceptance-${{ github.run_id }}
+          path: |
+            iso-test/*.png
+            iso-test/serial.log
+            iso-test/phases.txt
+            iso-test/verdict.md
+          retention-days: 30

@@ -1,0 +1,37 @@
+# Unattended kickstart for the ISO acceptance test. It is never part of the published
+# ISO: the shipped installer stays attended on purpose, because the person installing
+# Athanor has to see and answer what is being done to their disk. This file is handed to
+# the installer at boot time instead, through inst.ks= on the kernel command line, so the
+# very ISO that ships is the one under test.
+#
+# It includes the kickstart the builder wrote into the ISO rather than restating it:
+# that file carries the ostreecontainer line and the pinned `bootc switch`, which are the
+# two things the test exists to exercise. Everything added here is only what a human
+# would otherwise type: disk, timezone, and an account to log in with.
+
+%include /run/install/repo/osbuild-base.ks
+
+# The whole disk, no questions. The test VM has one virtio disk and nothing to preserve.
+clearpart --all --initlabel
+autopart --type=btrfs
+timezone UTC --utc
+keyboard us
+lang en_US.UTF-8
+
+# The account the greeter check logs in as. This password never leaves the test VM, which
+# is created and destroyed inside one job; it is not a credential of anything.
+user --name=collaudo --password=collaudo --plaintext --groups=wheel
+rootpw --lock
+
+# Restart into the installed system rather than stopping at the summary, so the same run
+# proves the second half: that what was written to the disk boots.
+reboot --eject
+
+%post --erroronfail
+set -eu
+# The greeter check reads the installed system over the serial console, so the console
+# has to exist on it too, not only in the installer.
+if [ -c /dev/ttyS0 ]; then
+    echo "Athanor kickstart finished" > /dev/ttyS0
+fi
+%end
