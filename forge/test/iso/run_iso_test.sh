@@ -40,18 +40,31 @@ disk="${output}/disk.raw"
 ksimg="${output}/kickstart.img"
 vars="${output}/OVMF_VARS.fd"
 
-# UEFI, because that is how the ISO is meant to be booted. Debian and Fedora put the
-# firmware in different places, so both are tried rather than one being assumed.
+# UEFI, because that is how the ISO is meant to be booted. Distributions disagree on both
+# the directory and the file name: Debian and Ubuntu ship OVMF_CODE_4M.fd under
+# /usr/share/OVMF, Fedora ships OVMF_CODE.fd under /usr/share/edk2/ovmf. Both spellings
+# are tried rather than one being assumed, and the 4M pair is preferred because it is what
+# a current Ubuntu runner actually has. The plain names come second so a Fedora host, or
+# an older Ubuntu, still works.
 ovmf_code=''
 ovmf_vars=''
-for dir in /usr/share/OVMF /usr/share/edk2/ovmf; do
-    if [[ -f "${dir}/OVMF_CODE.fd" && -f "${dir}/OVMF_VARS.fd" ]]; then
-        ovmf_code="${dir}/OVMF_CODE.fd"
-        ovmf_vars="${dir}/OVMF_VARS.fd"
-        break
-    fi
+for dir in /usr/share/OVMF /usr/share/edk2/ovmf /usr/share/ovmf; do
+    for suffix in _4M ''; do
+        candidate_code="${dir}/OVMF_CODE${suffix}.fd"
+        candidate_vars="${dir}/OVMF_VARS${suffix}.fd"
+        if [[ -f $candidate_code && -f $candidate_vars ]]; then
+            ovmf_code=$candidate_code
+            ovmf_vars=$candidate_vars
+            break 2
+        fi
+    done
 done
-[[ -n $ovmf_code ]] || { echo "OVMF firmware not found" >&2; exit 2; }
+[[ -n $ovmf_code ]] || {
+    echo "OVMF firmware not found; looked for OVMF_CODE[_4M].fd in:" >&2
+    echo "  /usr/share/OVMF /usr/share/edk2/ovmf /usr/share/ovmf" >&2
+    exit 2
+}
+echo "=== firmware: ${ovmf_code}"
 # The firmware writes to its variable store, so it cannot be the read-only system copy.
 cp "$ovmf_vars" "$vars"
 
