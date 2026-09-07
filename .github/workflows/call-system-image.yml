@@ -306,7 +306,10 @@ jobs:
           set -euo pipefail
           image="${IMAGE_REGISTRY}/${IMAGE_NAME}:${RUN_ID}"
           nix run nixpkgs#cosign -- login ghcr.io -u "${GITHUB_ACTOR}" -p "${GITHUB_TOKEN}"
-          nix run nixpkgs#syft -- packages "${image}" -o spdx-json=system-sbom.spdx.json
+          # The SBOM comes from the mounted root filesystem of the local image, not from
+          # syft's image source: with about 120 layers and 270k files that source needs
+          # more than 20 GiB and took the runner down (sbom_rootfs.sh).
+          nix shell nixpkgs#syft -c bash forge/scripts/sbom_rootfs.sh "${image}" system-sbom.spdx.json
           nix shell nixpkgs#cosign -c bash forge/scripts/sign_attest.sh "${image}" system-sbom.spdx.json
 
       - name: 💿 Build ISO (osbuild)
