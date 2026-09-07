@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:16.fc43}
+Release:        %{?autorelease}%{!?autorelease:17.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -57,6 +57,12 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) /etc/security/limits.d/99-athanor-realtime.conf
 
 %changelog
+* Mon Sep 08 2026 Athanor Forge <forge@athanor.os> - 1.0.0-17
+- Run the greeter as greetd, the user that exists: the greeter configuration and
+  the tmpfiles rules both named "greeter", which no package creates, so greetd
+  refused to start with "configured default session user 'greeter' not found"
+  and systemd-tmpfiles could not resolve the owner of its state directories
+
 * Sun Sep 07 2026 Athanor Forge <forge@athanor.os> - 1.0.0-16
 - Recommend athanor-sysmon-ebpf and athanor-cloud-rs instead of requiring them:
   the v0 image ships neither
