@@ -3,7 +3,8 @@
 # its root filesystem. syft's image source keeps one file tree per layer and, on the
 # system image (about 120 layers and 270k files), needs more memory than a hosted
 # runner has; the image is mounted instead and scanned as a directory. The binary
-# catalogers are left out: on an RPM system they only duplicate the RPM database.
+# catalogers are left out, and so is the kernel one: on an RPM system all three only
+# duplicate the RPM database, which already records the kernel and its 5000 modules.
 # With rootless podman the mount only exists inside podman's user namespace, so the
 # script re-executes itself under podman unshare.
 set -euo pipefail
@@ -15,7 +16,8 @@ if [[ $(id -u) -ne 0 ]]; then
 fi
 rootfs=$(podman image mount "$image")
 trap 'podman image unmount "$image" >/dev/null' EXIT
+SYFT_FILE_METADATA_SELECTION=none SYFT_RELATIONSHIPS_PACKAGE_FILE_OWNERSHIP=false \
 syft scan "dir:${rootfs}" \
   --source-name "${image%:*}" --source-version "${image##*:}" \
-  --select-catalogers "-binary-classifier-cataloger,-elf-binary-package-cataloger" \
+  --select-catalogers "-binary-classifier-cataloger,-elf-binary-package-cataloger,-linux-kernel-cataloger" \
   -o "spdx-json=${sbom}"
