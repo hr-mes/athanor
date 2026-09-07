@@ -310,13 +310,16 @@ jobs:
           nix shell nixpkgs#cosign -c bash forge/scripts/sign_attest.sh "${image}" system-sbom.spdx.json
 
       - name: 💿 Build ISO (osbuild)
+        # bootc-image-builder formats the installed root with ext4, xfs or btrfs
+        # (its --rootfs option knows no other type): btrfs is the closest to the
+        # bcachefs root the design targets, until osbuild supports it.
         uses: osbuild/bootc-image-builder-action@019bb59c5100ecec4e78c9e94e18a840110f7a0b # v0.0.2
         with:
           builder-image: quay.io/centos-bootc/bootc-image-builder:latest
           config-file: ./system/disk_config/iso.toml
           image: ghcr.io/hr-mes/athanor-system:${{ github.run_id }}
           types: anaconda-iso
-          additional-args: --use-librepo=True --rootfs=bcachefs
+          additional-args: --use-librepo=True --rootfs=btrfs
 
       - name: 🧹 Fix Workspace Permissions (GH Actions Cleanup)
         if: always()
