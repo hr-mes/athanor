@@ -191,6 +191,68 @@ def test_console_boots_our_kickstart(tmp: pathlib.Path) -> None:
         assert expected in phases, f"{expected} not recorded: {sorted(phases)}"
 
 
+def test_installed_systems_own_grub_is_not_a_loop(tmp: pathlib.Path) -> None:
+    """The GRUB of the installed system must not be mistaken for another install."""
+    if not hasattr(socket, "AF_UNIX"):
+        print(
+            "  skip test_installed_systems_own_grub_is_not_a_loop: no unix sockets here"
+        )
+        return
+
+    run = tmp / "notloop"
+    shutil.rmtree(run, ignore_errors=True)
+    run.mkdir(parents=True)
+    sock = str(run / "serial.sock")
+
+    server = socket.socket(socket.AF_UNIX)
+    server.bind(sock)
+    server.listen(1)
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            str(HERE / "console.py"),
+            sock,
+            str(run / "serial.log"),
+            str(run / "phases.txt"),
+        ],
+        stdout=subprocess.DEVNULL,
+    )
+    try:
+        conn, _ = server.accept()
+        conn.settimeout(2)
+        conn.sendall(b"GRUB version 2.12\r\n")
+        # Let it type the boot commands, then play back the shape of a good run: the
+        # install finishes, the machine restarts, and the system it wrote shows its own
+        # GRUB before starting. None of that is a reinstall.
+        time.sleep(14)
+        conn.sendall(b"Install finished\r\n")
+        time.sleep(0.5)
+        conn.sendall(b"Athanor kickstart finished\r\n")
+        time.sleep(0.5)
+        conn.sendall(
+            b'BdsDxe: starting Boot0004 "Athanor OS" from HD(1,GPT,...)/shimx64.efi\r\n'
+        )
+        time.sleep(0.5)
+        conn.sendall(b"GRUB version 2.12\r\n")
+        time.sleep(0.5)
+        conn.sendall(b"Started Greeter daemon.\r\n")
+        time.sleep(1.0)
+        conn.close()
+        proc.wait(timeout=30)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        server.close()
+
+    phases = dict(
+        line.split() for line in (run / "phases.txt").read_text().splitlines()
+    )
+    assert "reinstall-loop" not in phases, (
+        "the installed system's own GRUB was called a reinstall: " + str(sorted(phases))
+    )
+    assert "greeter-unit" in phases, sorted(phases)
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as name:
         tmp = pathlib.Path(name)
@@ -202,6 +264,7 @@ def main() -> int:
             test_nothing_recorded,
             test_screenshot_keeps_the_pixels,
             test_console_boots_our_kickstart,
+            test_installed_systems_own_grub_is_not_a_loop,
         ):
             test(tmp)
             print(f"  ok  {test.__name__}")

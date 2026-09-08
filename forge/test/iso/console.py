@@ -46,6 +46,10 @@ MARKERS = (
 )
 
 GRUB_MENU = b"GRUB version"
+# What the UEFI firmware prints when it hands control to the ISO. The installed system is
+# announced the same way but from a disk, as `starting Boot0004 "Athanor OS" from HD(...)`,
+# which is how the two are told apart after an install.
+BOOTED_FROM_CD = b'starting Boot0001 "UEFI QEMU QEMU CD-ROM'
 
 # The boot commands, in the order GRUB wants them. They restate what the ISO's own menu
 # entry does, with two additions: our kickstart, and a serial console so the installed
@@ -139,11 +143,15 @@ def main() -> int:
             boot_with_our_kickstart()
             tail = b""
 
-        # Reaching the installer a second time means the machine booted the ISO again
-        # instead of the disk it just wrote, and it will keep doing that until the run is
-        # killed. Say so and stop, rather than spending the rest of the budget installing
-        # the same system over and over into a log nobody will read to the end.
-        if "installed" in seen and GRUB_MENU in tail and grub_done:
+        # Booting the CD again after an install means the machine ignored the disk it just
+        # wrote and will keep reinstalling until the run is killed. Say so and stop rather
+        # than spending the rest of the budget on it.
+        #
+        # The test is what the firmware announces it is starting, not the presence of a
+        # GRUB menu: the installed system has a GRUB of its own and shows it on the way
+        # up, so treating any second menu as a loop ends the run at the exact moment it
+        # was about to succeed. That is what an earlier version of this check did.
+        if "installed" in seen and BOOTED_FROM_CD in tail:
             note("reinstall-loop")
             break
 
