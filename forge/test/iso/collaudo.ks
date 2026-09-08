@@ -27,6 +27,17 @@ lang en_US.UTF-8
 
 # The account the greeter check logs in as. This password never leaves the test VM, which
 # is created and destroyed inside one job; it is not a credential of anything.
+# Give the installed system a serial console. Without this the test is blind after the
+# restart: console=ttyS0 is on the installer's kernel command line only, the installed
+# system does not inherit it, and its own kargs carry no console= at all. The serial log
+# then stops the moment systemd starts a getty, which is why run 34262503262 recorded no
+# multi-user.target and no graphical.target anywhere -- not a boot that stalled, a log
+# that ended. The greeter markers this test waits for could never have arrived.
+#
+# It belongs here rather than in athanor-base-config's kargs.d, because a serial console
+# is a property of this test VM, not of Athanor: a real laptop has no ttyS0 to talk to.
+bootloader --append="console=tty0 console=ttyS0,115200n8"
+
 user --name=collaudo --password=collaudo --plaintext --groups=wheel
 rootpw --lock
 
