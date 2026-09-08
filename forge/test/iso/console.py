@@ -100,6 +100,12 @@ DIAGNOSTICS = (
     b"systemctl list-jobs --no-pager",
     b"systemctl status greetd.service --no-pager -l | head -20",
     b"systemctl list-units --failed --no-pager",
+    # Where the default target actually comes from. /etc wins over /usr, so if the
+    # installer wrote one there it decides the boot, and the image's own
+    # /usr/lib/systemd/system/default.target -> graphical.target never gets a say.
+    # Fedora Silverblue ships exactly what we ship, so the difference is made at
+    # install time rather than in the image.
+    b"ls -l /etc/systemd/system/default.target /usr/lib/systemd/system/default.target",
 )
 # Let each answer arrive before asking the next; these are cheap queries on an idle guest.
 DIAGNOSTIC_PAUSE = 3.0
