@@ -106,6 +106,11 @@ DIAGNOSTICS = (
     # Fedora Silverblue ships exactly what we ship, so the difference is made at
     # install time rather than in the image.
     b"ls -l /etc/systemd/system/default.target /usr/lib/systemd/system/default.target",
+    # What greetd itself said before giving up. `systemctl status` shows the unit's fate
+    # but only the last few lines of its output, and in run 34288274184 it exited
+    # 0/SUCCESS after 2.3s with nothing on the console: a daemon that decided there was
+    # no work to do rather than one that crashed. Its own log lines say why.
+    b"journalctl -u greetd.service -b --no-pager | tail -40",
 )
 # Let each answer arrive before asking the next; these are cheap queries on an idle guest.
 DIAGNOSTIC_PAUSE = 3.0
