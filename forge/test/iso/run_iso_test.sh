@@ -127,6 +127,13 @@ shots_pid=$!
 # QEMU life. With the CD first the guest reinstalls forever, which is what it did: the
 # kickstart's `reboot --eject` does not persuade the firmware to skip a CD that is still
 # attached and still first in the boot order.
+# virtio-vga gives the guest a GPU its compositor can actually use. QEMU's default is a
+# bochs VGA, whose DRM driver offers no GBM, so cage exits without a word and greetd logs
+# "greeter exited without creating a session" three times before hitting its start limit
+# (run 34290131076). The image already carries virtio-gpu.ko, libgbm and
+# virtio_gpu_dri.so, so nothing has to be added to the product for this. virtio-vga rather
+# than virtio-gpu-pci because it keeps a VGA framebuffer, which is what the screenshots
+# read; a machine with no display device at all is also not what anyone installs onto.
 set +e
 timeout "$TIMEOUT" qemu-system-x86_64 \
     -machine q35 -accel "$accel" -cpu max -smp "${VCPUS:-4}" -m "${MEMORY_MIB:-6144}" \
@@ -138,6 +145,7 @@ timeout "$TIMEOUT" qemu-system-x86_64 \
     -drive "file=${iso},if=none,id=cd,media=cdrom,readonly=on" \
     -device virtio-scsi-pci -device scsi-cd,drive=cd,bootindex=1 \
     -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
+    -device virtio-vga \
     -display none -serial "unix:${serial},server,nowait" \
     -monitor "unix:${monitor},server,nowait" &
 qemu_pid=$!
