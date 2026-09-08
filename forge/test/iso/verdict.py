@@ -24,7 +24,11 @@ answer.
 import pathlib
 import sys
 
-GREETER_SIGNALS = ("greeter-unit", "graphical-target", "login-prompt")
+# A serial getty is not a greeter. It comes up on the way to graphical.target and says
+# nothing about whether the session started, so accepting it passed a run whose console
+# held no trace of greetd at all (34259567237). Only the graphical target and the greeter
+# unit count.
+GREETER_SIGNALS = ("greeter-unit", "graphical-target")
 # "reinstall-loop" is not a crash but it is a failure, and a distinctive one: the machine
 # booted the installer again instead of the system it had just written, so the run says
 # nothing about first boot no matter how long it is left going.

@@ -62,6 +62,23 @@ def test_installed_but_no_greeter(tmp: pathlib.Path) -> None:
     assert "killed by the timeout" in report, report
 
 
+def test_text_login_is_not_a_greeter(tmp: pathlib.Path) -> None:
+    """The gate is the greeter, not a serial getty.
+
+    Run 34259567237 installed correctly, booted, and reached `athanor login:` with no
+    trace of greetd anywhere in its console. The verdict called that a pass. A text login
+    prompt appears on the way to graphical.target, so it proves the system booted and
+    nothing at all about the session.
+    """
+    code, report = verdict(
+        tmp,
+        [("installed", 100), ("kickstart-done", 110), ("login-prompt", 400)],
+        qemu_status=124,
+    )
+    assert code == 1, "a boot that only reached a text login must not pass"
+    assert "greeter reached: NO" in report, report
+
+
 def test_panic_fails_despite_markers(tmp: pathlib.Path) -> None:
     # A login prompt after a panic is not a pass: the guest already broke.
     code, report = verdict(
@@ -314,6 +331,7 @@ def main() -> int:
         for test in (
             test_pass,
             test_installed_but_no_greeter,
+            test_text_login_is_not_a_greeter,
             test_panic_fails_despite_markers,
             test_reinstall_loop_fails,
             test_nothing_recorded,

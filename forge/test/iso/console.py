@@ -73,9 +73,12 @@ BETWEEN_COMMANDS = 2.0
 # Milestones that settle the run: once one of these is seen there is nothing left to wait
 # for, so the watcher stops and the machine is shut down. A greeter is the answer the test
 # wants; the rest are answers too, just unwelcome ones.
-DECIDED = frozenset(
-    {"greeter-unit", "graphical-target", "login-prompt", "panic", "emergency"}
-)
+# A text login prompt is deliberately NOT here. The serial getty appears on the way to
+# graphical.target, not instead of it, so stopping at it ends the run before the greeter
+# has had a chance to start and reports a pass on a boot that never showed one. That is
+# exactly what run 34259567237 did. It stays in MARKERS, because knowing the system got
+# as far as a getty is useful when no greeter follows, but it no longer settles anything.
+DECIDED = frozenset({"greeter-unit", "graphical-target", "panic", "emergency"})
 
 # How long the guest may say nothing before the run is called over. A first boot that has
 # to relabel the filesystem is the slowest legitimate silence there is, and it does not
