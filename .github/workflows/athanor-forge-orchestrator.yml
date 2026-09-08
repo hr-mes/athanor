@@ -5,21 +5,25 @@ on:
   push:
     # iso-v0 as well: GitHub registers a workflow on a non-default branch only through a
     # push matching its trigger; without it workflow_dispatch answers 404 on that branch.
-    branches: [ main, iso-v0 ]
+    branches: [main, iso-v0]
     paths:
-      - 'forge/**'
+      - "forge/**"
+      # The ISO acceptance test lives under forge/ but builds nothing: it installs an
+      # already published ISO. Rebuilding the whole DAG when one of its files changes
+      # costs an hour and produces the same images.
+      - "!forge/test/**"
       # Workspace crates under system/ feed the DAG packages; the Containerfile,
       # scripts and disk configuration under it feed the system image.
-      - 'system/**'
-      - 'Cargo.toml'
+      - "system/**"
+      - "Cargo.toml"
       # Inputs of the builder image (build-builder hashes both).
-      - 'flake.nix'
-      - 'flake.lock'
-      - '.github/workflows/athanor-forge-orchestrator.yml'
-      - '.github/workflows/call-*.yml'
+      - "flake.nix"
+      - "flake.lock"
+      - ".github/workflows/athanor-forge-orchestrator.yml"
+      - ".github/workflows/call-*.yml"
   workflow_dispatch:
   schedule:
-    - cron: '0 4 * * *'
+    - cron: "0 4 * * *"
 
 env:
   REGISTRY: ghcr.io
@@ -94,4 +98,3 @@ jobs:
       builder_content_hash: ${{ needs.build-builder.outputs.content_hash }}
       has_changes: ${{ needs.orchestrator-brain.outputs.has_changes == 'true' }}
     secrets: inherit
-
