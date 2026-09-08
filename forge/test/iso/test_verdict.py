@@ -3,18 +3,22 @@
 
 Run it directly: python3 forge/test/iso/test_verdict.py
 
-The verdict is the only part of the ISO test whose logic can be wrong quietly. A VM that
-does not boot is loud; a verdict that calls a broken run green is not. So the four cases
-that decide a pass or a fail are pinned here, along with the PNG conversion, which is
-checked on the pixels rather than on the file existing.
+Two parts of the ISO test can be wrong quietly. A VM that does not boot is loud; a verdict
+that calls a broken run green is not, and neither is a console that types the wrong thing
+at GRUB, which just leaves the installer waiting for a person until the timeout. So the
+four cases that decide a pass or a fail are pinned here, together with the boot commands
+console.py sends, the markers it recognises, and the PNG conversion, checked on the pixels
+rather than on the file existing.
 """
 
 import pathlib
 import shutil
+import socket
 import struct
 import subprocess
 import sys
 import tempfile
+import time
 import zlib
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -103,6 +107,77 @@ def test_screenshot_keeps_the_pixels(tmp: pathlib.Path) -> None:
     assert back == pixels, "the image changed on the way through"
 
 
+def test_console_boots_our_kickstart(tmp: pathlib.Path) -> None:
+    """console.py must name our kickstart at GRUB, in the order GRUB accepts."""
+    if not hasattr(socket, "AF_UNIX"):
+        # QEMU serves its console on a unix socket, so this check only means something
+        # where the test itself runs. Skipping rather than failing keeps the suite usable
+        # from a Windows workstation while it still runs in full on the job's runner.
+        print("  skip test_console_boots_our_kickstart: no unix sockets here")
+        return
+
+    run = tmp / "console"
+    shutil.rmtree(run, ignore_errors=True)
+    run.mkdir(parents=True)
+    sock = str(run / "serial.sock")
+
+    server = socket.socket(socket.AF_UNIX)
+    server.bind(sock)
+    server.listen(1)
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            str(HERE / "console.py"),
+            sock,
+            str(run / "serial.log"),
+            str(run / "phases.txt"),
+        ],
+        stdout=subprocess.DEVNULL,
+    )
+    try:
+        conn, _ = server.accept()
+        conn.settimeout(2)
+        conn.sendall(b"GRUB version 2.12\r\n")
+
+        typed = b""
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            try:
+                typed += conn.recv(65536)
+            except socket.timeout:
+                pass
+            if typed.rstrip().endswith(b"boot"):
+                break
+        assert b"search --no-floppy" in typed, typed[:200]
+        assert b"inst.ks=hd:LABEL=ATHANORKS:/collaudo.ks" in typed, typed[:400]
+        assert b"initrd /images/pxeboot/initrd.img" in typed, (
+            "the initrd was never named"
+        )
+        assert typed.rstrip().endswith(b"boot"), typed[-40:]
+
+        # Markers split across reads, which is how a real console delivers them.
+        conn.sendall(b"Install fin")
+        time.sleep(0.4)
+        conn.sendall(b"ished\r\n")
+        time.sleep(0.4)
+        conn.sendall(b"Athanor kickstart finished\r\n")
+        time.sleep(0.4)
+        conn.sendall(b"Started Greeter daemon.\r\n")
+        time.sleep(0.8)
+        conn.close()
+        proc.wait(timeout=30)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        server.close()
+
+    phases = dict(
+        line.split() for line in (run / "phases.txt").read_text().splitlines()
+    )
+    for expected in ("grub-booted", "installed", "kickstart-done", "greeter-unit"):
+        assert expected in phases, f"{expected} not recorded: {sorted(phases)}"
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as name:
         tmp = pathlib.Path(name)
@@ -112,6 +187,7 @@ def main() -> int:
             test_panic_fails_despite_markers,
             test_nothing_recorded,
             test_screenshot_keeps_the_pixels,
+            test_console_boots_our_kickstart,
         ):
             test(tmp)
             print(f"  ok  {test.__name__}")

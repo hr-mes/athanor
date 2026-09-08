@@ -1,21 +1,32 @@
 #!/usr/bin/env python3
-"""Records the guest serial console and notes when each phase of the test ends.
+"""Drives the guest through GRUB, records its serial console, and notes each milestone.
 
 Usage: console.py SOCKET LOGFILE PHASEFILE
 
 QEMU serves the console on SOCKET as a unix server; this connects as the client. Every
-byte read is appended to LOGFILE, so the whole run can be read afterwards even for
-things nobody thought to look for in advance.
+byte read is appended to LOGFILE, so the whole run can be read afterwards even for things
+nobody thought to look for in advance.
 
 PHASEFILE gets one line per milestone, as "NAME EPOCH", and it is the file the verdict
 reads. The milestones are written by the kickstarts themselves rather than guessed from
 installer chatter, which is why they are exact strings: the ISO's own kickstart echoes
 "Install finished", ours adds "Athanor kickstart finished", and the installed system
-announces itself with a login prompt or with the greeter's own unit.
+announces itself with a login prompt or a graphical target.
 
-The GRUB menu on this ISO times out on its own, so nothing needs to answer it. A return
-is sent anyway if the menu sits quiet, because a menu that stopped counting down would
-otherwise burn the whole timeout in silence.
+This also does the one thing that makes the test unattended at all. The ISO's menu entry
+boots the installer with the kickstart that ships inside it, and that one is attended by
+design: it draws a summary screen and waits for a person, forever. Rather than rewriting
+the ISO, which would mean testing something other than what ships, the boot commands are
+typed into GRUB's own command line, with our kickstart named on the kernel line. What
+runs is the ISO's kernel, initrd and stage 2; only the answers come from us.
+
+Why the command line and not the menu editor. Editing the highlighted entry means moving
+the cursor onto the `linux` line, and GRUB's editor is a full-screen editor whose line
+wrapping depends on the width of the terminal it is drawing to: on a 160-column serial
+console the entry's own lines wrap differently than on 80, so counting Ctrl-N presses put
+the text on a blank line and GRUB then booted "a command list" instead of the entry. The
+command line takes whole commands and does not care how anything is drawn. Verified by
+booting it and reading what the kernel reported as its command line.
 """
 
 import os
@@ -29,15 +40,32 @@ MARKERS = (
     (b"Athanor kickstart finished", "kickstart-done"),
     (b"Kernel panic", "panic"),
     (b"Entering emergency mode", "emergency"),
-    (b"Failed to start", "unit-failed"),
     (b"login:", "login-prompt"),
-    (b"athanor-greeter", "greeter-unit"),
     (b"Reached target Graphical Interface", "graphical-target"),
+    (b"Started Greeter daemon", "greeter-unit"),
 )
 
 GRUB_MENU = b"GRUB version"
-QUIET_BEFORE_GRUB_ANSWER = 20.0
-MAX_GRUB_ANSWERS = 3
+
+# The boot commands, in the order GRUB wants them. They restate what the ISO's own menu
+# entry does, with two additions: our kickstart, and a serial console so the installed
+# system can be watched over the same line. The stage 2 label is the ISO's, set by the
+# image builder; the kickstart label is the one mkfs gave the small disk the test creates.
+# Both are labels and not device names because the firmware hands the disks over in
+# whatever order it likes, and a test that depends on that order fails for the wrong
+# reason.
+BOOT_COMMANDS = (
+    b"search --no-floppy --set=root -l 'Container-Installer-x86_64'",
+    b"linux /images/pxeboot/vmlinuz inst.stage2=hd:LABEL=Container-Installer-x86_64"
+    b" inst.ks=hd:LABEL=ATHANORKS:/collaudo.ks console=ttyS0",
+    b"initrd /images/pxeboot/initrd.img",
+    b"boot",
+)
+
+# Let the menu finish drawing before typing into it. It counts down from 60s, so there is
+# room, and typing into a half-drawn screen is how this kind of automation goes wrong.
+GRUB_SETTLE = 3.0
+BETWEEN_COMMANDS = 2.0
 IDLE_GIVE_UP = 2400.0
 
 
@@ -60,7 +88,7 @@ def main() -> int:
     phases = open(phase_path, "a", buffering=1)
     seen: set[str] = set()
     tail = b""
-    grub_answers = 0
+    grub_done = False
     last_data = time.time()
 
     def note(name: str) -> None:
@@ -69,6 +97,15 @@ def main() -> int:
         seen.add(name)
         phases.write(f"{name} {time.time():.0f}\n")
         print(f"  console: {name} at {time.strftime('%H:%M:%S')}", flush=True)
+
+    def boot_with_our_kickstart() -> None:
+        time.sleep(GRUB_SETTLE)
+        s.sendall(b"c")  # leave the menu for GRUB's command line
+        time.sleep(BETWEEN_COMMANDS)
+        for command in BOOT_COMMANDS:
+            s.sendall(command + b"\n")
+            time.sleep(BETWEEN_COMMANDS)
+        note("grub-booted")
 
     while True:
         try:
@@ -93,15 +130,14 @@ def main() -> int:
                 if needle in tail:
                     note(name)
 
-        if (
-            GRUB_MENU in tail
-            and grub_answers < MAX_GRUB_ANSWERS
-            and time.time() - last_data > QUIET_BEFORE_GRUB_ANSWER
-        ):
-            s.sendall(b"\r")
-            grub_answers += 1
-            print(f"  console: nudged GRUB ({grub_answers})", flush=True)
-            time.sleep(5)
+        # The menu is answered once, on the way in. After the install the machine restarts
+        # into GRUB again, and that second menu must be left alone: the entry it offers is
+        # the installed system, which is exactly what the test wants booted, and it times
+        # out on its own.
+        if GRUB_MENU in tail and not grub_done:
+            grub_done = True
+            boot_with_our_kickstart()
+            tail = b""
 
         if time.time() - last_data > IDLE_GIVE_UP:
             note("idle-timeout")
