@@ -18,6 +18,14 @@
 
 %include /run/install/repo/osbuild-base.ks
 
+# Boot to the greeter, the same line the shipped ISO's kickstart carries. It has to be
+# repeated rather than inherited: the ISO holds two files, and the include below reaches
+# osbuild-base.ks, while the installer customisation lands in /osbuild.ks alongside it.
+# Anaconda otherwise finds no display manager among the packages it installs -- an
+# ostreecontainer install installs none -- and falls back to multi-user.target, which is
+# what left greetd enabled and dead in runs 34269959759 and 34275504878.
+xconfig --startxonboot
+
 # The whole disk, no questions. The test VM has one virtio disk and nothing to preserve.
 clearpart --all --initlabel
 autopart --type=btrfs

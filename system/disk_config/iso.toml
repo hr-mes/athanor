@@ -1,3 +1,26 @@
+[customizations.installer.kickstart]
+contents = """
+# Athanor boots to its greeter. Anaconda decides the default systemd target by looking for
+# a display manager among the packages it installs, and an ostreecontainer install installs
+# none -- the content arrives as an image -- so it falls back to what its own code calls
+# TEXT_ONLY_TARGET and writes /etc/systemd/system/default.target -> multi-user.target,
+# which takes precedence over the graphical.target the image carries in /usr.
+#
+# The installed system then finished booting one target short: greetd sat enabled, with its
+# WantedBy=graphical.target in place, and inactive (dead), because graphical.target was
+# never reached. Asked over its own serial console, acceptance run 34275504878 showed both
+# links side by side, the /etc one stamped with the install time:
+#
+#   /etc/systemd/system/default.target -> /usr/lib/systemd/system/multi-user.target
+#   /usr/lib/systemd/system/default.target -> graphical.target
+#
+# xconfig --startxonboot is the kickstart directive that states the intent explicitly, and
+# Anaconda honours it ahead of its package-based guess. It carries no %post: the line that
+# used to live here ran a second `bootc switch` and made the installed system disagree with
+# itself (101e5781), so this file stays limited to what the installer must be told.
+xconfig --startxonboot
+"""
+
 [customizations.installer.modules]
 enable = [
   "org.fedoraproject.Anaconda.Modules.Storage",
