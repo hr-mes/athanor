@@ -116,6 +116,15 @@ if ! command -v skopeo >/dev/null 2>&1; then
   exit 1
 fi
 
+# skopeo legge la configurazione dei registri sotto $HOME prima ancora di aprire la rete.
+# Il job lo esegue con --userns=keep-id, quindi non è root, mentre HOME resta /root: il
+# risultato è "open /root/.config/containers/registries.d: permission denied" in 34
+# millisecondi, senza che nessuna richiesta parta. Una home scrivibile evita l'errore.
+if [[ ! -w "${HOME:-/root}" ]]; then
+  HOME=$(mktemp -d)
+  export HOME
+fi
+
 # Prima senza credenziali, poi con. Le immagini della forge sono pubbliche e si leggono
 # anonimamente; passare --creds a un registro che poi rifiuta quelle credenziali fa
 # fallire skopeo con 403 anche su un'immagine leggibile da chiunque. Quel fallimento era

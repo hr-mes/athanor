@@ -15,6 +15,31 @@ set -u
 h_present=c99e47feefeebd9cad8b8c7cb237230477811b2aa659be4b61a9d565ee3c00a1
 h_absent=0000000000000000000000000000000000000000000000000000000000000000
 
+fail=0
+check() { # check LABEL EXPECTED ACTUAL
+  if [[ "$2" == "$3" ]]; then echo "  ok  $1 -> $3"; else echo "  FAIL $1: expected $2, got $3"; fail=1; fi
+}
+
+# First, the environment fault itself, because it has to be measured before it is worked
+# around. The job runs the check with --userns=keep-id: not root, while HOME is still
+# /root. skopeo reads its registry configuration from HOME before it opens any socket, so
+# an unwritable HOME fails in milliseconds and no request is ever made. That failure read
+# as "image absent" and rebuilt the whole graph.
+if [[ $(id -u) -ne 0 && ! -w ${HOME:-/root} ]]; then
+  if skopeo inspect --no-tags "docker://ghcr.io/hr-mes/athanor-forge-mold:${h_present}" > /dev/null 2>&1; then
+    echo "  FAIL unwritable HOME: skopeo unexpectedly succeeded, the workaround is now moot"
+    fail=1
+  else
+    echo "  ok  unwritable HOME breaks a bare skopeo (what the script works around)"
+  fi
+else
+  echo "  skip HOME fault: needs a non-root user with an unwritable HOME"
+fi
+
+# From here on, the same guard check_idempotency.sh applies, so the probe answers are
+# about the registry rather than about the home directory.
+[[ -w ${HOME:-/root} ]] || { HOME=$(mktemp -d); export HOME; }
+
 probe() { # probe TAG TOKEN
   local url="docker://ghcr.io/hr-mes/athanor-forge-mold:$1" token=$2
   local status="" err rc
@@ -30,11 +55,6 @@ probe() { # probe TAG TOKEN
     status=error
   done
   echo "$status"
-}
-
-fail=0
-check() { # check LABEL EXPECTED ACTUAL
-  if [[ "$2" == "$3" ]]; then echo "  ok  $1 -> $3"; else echo "  FAIL $1: expected $2, got $3"; fail=1; fi
 }
 
 # The exact CI failure: a real image, a token the registry rejects.
