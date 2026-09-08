@@ -111,16 +111,57 @@ if ! command -v skopeo >/dev/null 2>&1; then
   fi
 fi
 
-CACHE_HIT="false"
-if command -v skopeo >/dev/null 2>&1; then
+if ! command -v skopeo >/dev/null 2>&1; then
+  echo "check_idempotency.sh: skopeo non trovato, impossibile interrogare il registro" >&2
+  exit 1
+fi
+
+# Prima senza credenziali, poi con. Le immagini della forge sono pubbliche e si leggono
+# anonimamente; passare --creds a un registro che poi rifiuta quelle credenziali fa
+# fallire skopeo con 403 anche su un'immagine leggibile da chiunque. Quel fallimento era
+# indistinguibile da "immagine assente" e ricostruiva l'intero DAG a ogni run: tutti e 47
+# i nodi, 4,6 ore di runner, per un push che non toccava nessuno di quei pacchetti.
+#
+# L'esito viene distinto in tre casi, perché "non c'è" e "non sono riuscito a chiedere"
+# richiedono risposte diverse: la prima è una build da fare, la seconda è un guasto.
+inspect_status=""
+for attempt in anonymous authenticated; do
   INSPECT_ARGS=("--no-tags")
-  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  if [[ "$attempt" == "authenticated" ]]; then
+    [[ -n "${GITHUB_TOKEN:-}" ]] || continue
     INSPECT_ARGS+=("--creds" "${OWNER}:${GITHUB_TOKEN}")
   fi
-  if skopeo inspect "${INSPECT_ARGS[@]}" "${IMAGE_URL_LOWER}" >/dev/null 2>&1; then
-    CACHE_HIT="true"
+
+  set +e
+  inspect_err=$(skopeo inspect "${INSPECT_ARGS[@]}" "${IMAGE_URL_LOWER}" 2>&1 >/dev/null)
+  rc=$?
+  set -e
+
+  if [[ $rc -eq 0 ]]; then
+    inspect_status="found"
+    break
   fi
-fi
+  # Il registro risponde "manifest unknown" quando il tag non esiste: è una risposta, non
+  # un guasto, e non serve riprovare autenticati.
+  if grep -qi 'manifest unknown\|name unknown\|not found' <<< "$inspect_err"; then
+    inspect_status="absent"
+    break
+  fi
+  inspect_status="error"
+  last_error=$inspect_err
+done
+
+case "$inspect_status" in
+  found) CACHE_HIT="true" ;;
+  absent) CACHE_HIT="false" ;;
+  *)
+    # Né presente né assente: il registro non ha risposto. Costruire sarebbe uno spreco
+    # silenzioso, dichiarare la cache valida sarebbe peggio: si ferma e lo dice.
+    echo "check_idempotency.sh: il registro non ha risposto per ${IMAGE_URL_LOWER}" >&2
+    echo "${last_error:-nessun dettaglio}" >&2
+    exit 1
+    ;;
+esac
 
 echo "CACHE_HIT=${CACHE_HIT}"
 echo "CONTENT_HASH=${CONTENT_HASH}"
