@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:17.fc43}
+Release:        %{?autorelease}%{!?autorelease:18.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -46,6 +46,8 @@ mkdir -p /etc/yum.repos.d
 %attr(0755,root,root) /usr/bin/athanor-session
 %attr(0755,root,root) /usr/bin/athanor-uki-enroll
 %attr(0755,root,root) /usr/libexec/athanor-snapshot-trigger.sh
+%dir /usr/lib/systemd/system/greetd.service.d
+/usr/lib/systemd/system/greetd.service.d/10-athanor-wantedby.conf
 /usr/lib/systemd/system/athanor-timewarp.service
 /usr/lib/systemd/system/athanor-timewarp.timer
 /usr/lib/systemd/system-preset/99-Athanor.preset
@@ -57,6 +59,11 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) /etc/security/limits.d/99-athanor-realtime.conf
 
 %changelog
+* Mon Sep 08 2026 Athanor Forge <forge@athanor.os> - 1.0.0-18
+- Pull greetd into graphical.target with a drop-in. Fedora's unit declares only
+  Alias=display-manager.service and no WantedBy=, so the preset created the alias
+  and left default.target.wants empty: the installed system booted to a text getty
+  on tty1 and the greeter never started.
 * Mon Sep 08 2026 Athanor Forge <forge@athanor.os> - 1.0.0-17
 - Run the greeter as greetd, the user that exists: the greeter configuration and
   the tmpfiles rules both named "greeter", which no package creates, so greetd
