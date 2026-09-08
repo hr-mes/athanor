@@ -3,12 +3,16 @@
 
 Run it directly: python3 forge/test/iso/test_verdict.py
 
-Two parts of the ISO test can be wrong quietly. A VM that does not boot is loud; a verdict
-that calls a broken run green is not, and neither is a console that types the wrong thing
-at GRUB, which just leaves the installer waiting for a person until the timeout. So the
-four cases that decide a pass or a fail are pinned here, together with the boot commands
-console.py sends, the markers it recognises, and the PNG conversion, checked on the pixels
-rather than on the file existing.
+Everything here guards against a quiet wrong answer. A virtual machine that will not boot
+is loud and needs no test; what does not announce itself is a verdict that calls a broken
+run green, a console that types the wrong thing at GRUB and leaves the installer waiting
+for a person, a check that mistakes the installed system's own GRUB for a reinstall and
+stops the run just as it was about to succeed, or a console that has its answer and keeps
+waiting anyway, which is what turned a twelve-minute run into ninety.
+
+So: the cases that decide a pass or a fail, the boot commands console.py sends, the
+markers it recognises across chunk boundaries, when it stops, and the PNG conversion,
+checked on the pixels rather than on the file existing.
 """
 
 import pathlib
@@ -253,6 +257,57 @@ def test_installed_systems_own_grub_is_not_a_loop(tmp: pathlib.Path) -> None:
     assert "greeter-unit" in phases, sorted(phases)
 
 
+def test_console_stops_as_soon_as_it_has_an_answer(tmp: pathlib.Path) -> None:
+    """A greeter ends the run at once: the wait is what used to cost eighty minutes."""
+    if not hasattr(socket, "AF_UNIX"):
+        print("  skip test_console_stops_as_soon_as_it_has_an_answer: no unix sockets")
+        return
+
+    run = tmp / "prompt"
+    shutil.rmtree(run, ignore_errors=True)
+    run.mkdir(parents=True)
+    sock = str(run / "serial.sock")
+
+    server = socket.socket(socket.AF_UNIX)
+    server.bind(sock)
+    server.listen(1)
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            str(HERE / "console.py"),
+            sock,
+            str(run / "serial.log"),
+            str(run / "phases.txt"),
+        ],
+        stdout=subprocess.DEVNULL,
+    )
+    try:
+        conn, _ = server.accept()
+        conn.settimeout(2)
+        conn.sendall(b"GRUB version 2.12\r\n")
+        time.sleep(14)  # it types the boot commands
+        conn.sendall(b"Install finished\r\nAthanor kickstart finished\r\n")
+        time.sleep(0.5)
+
+        started = time.time()
+        conn.sendall(b"Started Greeter daemon.\r\n")
+        proc.wait(timeout=40)
+        waited = time.time() - started
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        server.close()
+
+    # The script shuts the machine down when this process returns, so a console that
+    # lingers here is a run that lingers: exactly the eighty idle minutes this replaced.
+    assert waited < 10, f"the console waited {waited:.1f}s after the answer was in"
+    phases = dict(
+        line.split() for line in (run / "phases.txt").read_text().splitlines()
+    )
+    assert "greeter-unit" in phases, sorted(phases)
+    assert "idle-timeout" not in phases, "it should not have waited out the idle window"
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as name:
         tmp = pathlib.Path(name)
@@ -265,6 +320,7 @@ def main() -> int:
             test_screenshot_keeps_the_pixels,
             test_console_boots_our_kickstart,
             test_installed_systems_own_grub_is_not_a_loop,
+            test_console_stops_as_soon_as_it_has_an_answer,
         ):
             test(tmp)
             print(f"  ok  {test.__name__}")

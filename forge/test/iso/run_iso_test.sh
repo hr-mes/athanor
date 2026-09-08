@@ -29,11 +29,15 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # Space for the installed system plus room for btrfs to breathe. The image is ~6 GiB.
 DISK_GIB=${DISK_GIB:-30}
-# Wall clock for the whole run. With KVM the install is minutes; without it, hours.
-TIMEOUT=${TIMEOUT:-5400}
-# How long to keep watching after the installed system starts, before giving up on the
-# greeter. Long enough for a first boot that has to relabel and start every service.
-GREETER_WAIT=${GREETER_WAIT:-900}
+# The outer bound, and only that: the console ends the run as soon as it has an answer,
+# so this is reached only by a guest that keeps talking without ever deciding anything.
+# Measured on a KVM runner, the install itself takes about eight minutes and the whole
+# job under twelve, so twenty-five is room to spare rather than a budget to spend. Raise
+# it for a host without KVM, where everything is emulated and hours are normal.
+TIMEOUT=${TIMEOUT:-1500}
+# Reported next to the time the first boot actually took, so a run that is getting slower
+# says so before it starts failing.
+GREETER_WAIT=${GREETER_WAIT:-600}
 
 mkdir -p "$output"
 disk="${output}/disk.raw"
@@ -101,12 +105,15 @@ python3 "${here}/console.py" "$serial" "${output}/serial.log" "${output}/phases.
 console_pid=$!
 
 # Screenshots on a timer: the installer and the greeter are graphical and say nothing on
-# the serial line, so this is the only record of what they actually drew.
+# the serial line, so this is the only record of what they actually drew, and the one the
+# person reviewing the greeter actually looks at. Every thirty seconds, because the whole
+# run is about twelve minutes: at two-minute spacing a greeter that appears and then
+# crashes can fall between two frames entirely.
 (
     for _ in $(seq 120); do [[ -S $monitor ]] && break; sleep 1; done
     i=0
     while [[ -S $monitor ]]; do
-        sleep "${SHOT_EVERY:-120}"
+        sleep "${SHOT_EVERY:-30}"
         i=$((i + 1))
         printf -v name '%s/screen-%03d.ppm' "$output" "$i"
         python3 "${here}/monitor.py" "$monitor" "screendump ${name}" > /dev/null 2>&1 || break
@@ -132,11 +139,25 @@ timeout "$TIMEOUT" qemu-system-x86_64 \
     -device virtio-scsi-pci -device scsi-cd,drive=cd,bootindex=1 \
     -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
     -display none -serial "unix:${serial},server,nowait" \
-    -monitor "unix:${monitor},server,nowait"
+    -monitor "unix:${monitor},server,nowait" &
+qemu_pid=$!
+
+# The console decides how long the run lasts, not the clock. It stops as soon as it has
+# an answer: a greeter, a guest that broke, or a machine that has gone quiet with nothing
+# left to wait for. Whichever it is, the virtual machine is shut down at that moment
+# instead of being left running against the timeout. TIMEOUT is only the outer bound for
+# a guest that never stops talking, and reaching it is itself reported as a failure.
+wait "$console_pid" 2> /dev/null
+if kill -0 "$qemu_pid" 2> /dev/null; then
+    kill "$qemu_pid" 2> /dev/null
+    # Give it a moment to close its files before the verdict reads them.
+    for _ in $(seq 10); do kill -0 "$qemu_pid" 2> /dev/null || break; sleep 1; done
+    kill -9 "$qemu_pid" 2> /dev/null
+fi
+wait "$qemu_pid" 2> /dev/null
 qemu_status=$?
 set -e
 
-kill "$shots_pid" "$console_pid" 2> /dev/null || true
-wait "$console_pid" 2> /dev/null || true
+kill "$shots_pid" 2> /dev/null || true
 
 python3 "${here}/verdict.py" "$output" "$GREETER_WAIT" "$qemu_status"

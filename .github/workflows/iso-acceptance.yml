@@ -5,12 +5,14 @@ name: ISO Acceptance
 # build cannot: not whether an ISO was produced, but whether it installs a system that
 # starts.
 #
-# It is deliberately not part of every orchestrator run. The build already takes half an
-# hour and this adds a full install on top of it, so it runs weekly and on request. What
-# it produces is meant to be looked at: the console log, the verdict, and a screenshot
-# every couple of minutes of both the installer and the first boot, published as an
-# artifact. The assertion says the session started; the pictures say whether it started
-# looking the way it should, and that judgement is a person's.
+# It is deliberately not part of every orchestrator run: the build already takes half an
+# hour and this adds a full install on top of it, so it runs weekly and on request. The
+# run itself is short. On a runner with KVM the install takes about eight minutes and the
+# job about twelve, because the console ends the run as soon as it has an answer rather
+# than waiting out a clock. What it produces is meant to be looked at: the console log,
+# the verdict, and a screenshot every thirty seconds of both the installer and the first
+# boot, published as an artifact. The assertion says the session started; the pictures say
+# whether it started looking the way it should, and that judgement is a person's.
 #
 # The published ISO is used exactly as it ships, with its attended installer intact. The
 # answers a person would give are handed to it on a second disk (forge/test/iso), so
@@ -45,7 +47,7 @@ jobs:
   install:
     needs: [lint]
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: read
@@ -101,7 +103,7 @@ jobs:
 
       - name: 🖥️ Install unattended and restart into the system
         env:
-          TIMEOUT: "5400"
+          TIMEOUT: "1500"
           VCPUS: "4"
           MEMORY_MIB: "6144"
         run: bash forge/test/iso/run_iso_test.sh "${ISO_PATH}" ./iso-test

@@ -70,7 +70,17 @@ BOOT_COMMANDS = (
 # room, and typing into a half-drawn screen is how this kind of automation goes wrong.
 GRUB_SETTLE = 3.0
 BETWEEN_COMMANDS = 2.0
-IDLE_GIVE_UP = 2400.0
+# Milestones that settle the run: once one of these is seen there is nothing left to wait
+# for, so the watcher stops and the machine is shut down. A greeter is the answer the test
+# wants; the rest are answers too, just unwelcome ones.
+DECIDED = frozenset(
+    {"greeter-unit", "graphical-target", "login-prompt", "panic", "emergency"}
+)
+
+# How long the guest may say nothing before the run is called over. A first boot that has
+# to relabel the filesystem is the slowest legitimate silence there is, and it does not
+# take anywhere near this long; anything quieter than this has stopped for good.
+IDLE_GIVE_UP = 600.0
 
 
 def main() -> int:
@@ -155,6 +165,15 @@ def main() -> int:
             note("reinstall-loop")
             break
 
+        # The run is over the moment there is an answer. Waiting past a greeter, a panic
+        # or an emergency shell only spends the budget on a question already settled, and
+        # this watcher ending is what shuts the machine down.
+        if seen & DECIDED:
+            break
+
+        # Nothing has been said for a long time and nothing is expected: a guest that
+        # stopped talking before reaching a session is not going to start again. The
+        # window is generous enough to cover a first boot that relabels the filesystem.
         if time.time() - last_data > IDLE_GIVE_UP:
             note("idle-timeout")
             break
