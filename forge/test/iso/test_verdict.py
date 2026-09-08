@@ -68,6 +68,19 @@ def test_panic_fails_despite_markers(tmp: pathlib.Path) -> None:
     assert "guest failures seen: panic" in report, report
 
 
+def test_reinstall_loop_fails(tmp: pathlib.Path) -> None:
+    # The machine booted the ISO again instead of the disk it had just written. Every
+    # install marker is present, several times over, and the run still proves nothing
+    # about first boot, so it must fail and say which way.
+    code, report = verdict(
+        tmp,
+        [("installed", 100), ("kickstart-done", 110), ("reinstall-loop", 700)],
+        qemu_status=124,
+    )
+    assert code == 1, "a guest that reinstalls in a loop must fail"
+    assert "guest failures seen: reinstall-loop" in report, report
+
+
 def test_nothing_recorded(tmp: pathlib.Path) -> None:
     # No phases file at all: a verdict, not a traceback.
     out = tmp / "empty"
@@ -185,6 +198,7 @@ def main() -> int:
             test_pass,
             test_installed_but_no_greeter,
             test_panic_fails_despite_markers,
+            test_reinstall_loop_fails,
             test_nothing_recorded,
             test_screenshot_keeps_the_pixels,
             test_console_boots_our_kickstart,

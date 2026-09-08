@@ -25,7 +25,10 @@ import pathlib
 import sys
 
 GREETER_SIGNALS = ("greeter-unit", "graphical-target", "login-prompt")
-FAILURE_SIGNALS = ("panic", "emergency")
+# "reinstall-loop" is not a crash but it is a failure, and a distinctive one: the machine
+# booted the installer again instead of the system it had just written, so the run says
+# nothing about first boot no matter how long it is left going.
+FAILURE_SIGNALS = ("panic", "emergency", "reinstall-loop")
 
 
 def main() -> int:

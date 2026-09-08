@@ -139,6 +139,14 @@ def main() -> int:
             boot_with_our_kickstart()
             tail = b""
 
+        # Reaching the installer a second time means the machine booted the ISO again
+        # instead of the disk it just wrote, and it will keep doing that until the run is
+        # killed. Say so and stop, rather than spending the rest of the budget installing
+        # the same system over and over into a log nobody will read to the end.
+        if "installed" in seen and GRUB_MENU in tail and grub_done:
+            note("reinstall-loop")
+            break
+
         if time.time() - last_data > IDLE_GIVE_UP:
             note("idle-timeout")
             break

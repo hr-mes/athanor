@@ -114,13 +114,20 @@ console_pid=$!
 ) &
 shots_pid=$!
 
+# The disk boots before the CD. On the first pass it is empty and therefore unbootable, so
+# the firmware falls through to the ISO and the install happens; afterwards the disk holds
+# a system and wins, which is how the machine reaches its own first boot inside the same
+# QEMU life. With the CD first the guest reinstalls forever, which is what it did: the
+# kickstart's `reboot --eject` does not persuade the firmware to skip a CD that is still
+# attached and still first in the boot order.
 set +e
 timeout "$TIMEOUT" qemu-system-x86_64 \
     -machine q35 -accel "$accel" -cpu max -smp "${VCPUS:-4}" -m "${MEMORY_MIB:-6144}" \
     -drive "if=pflash,format=raw,readonly=on,file=${ovmf_code}" \
     -drive "if=pflash,format=raw,file=${vars}" \
-    -drive "file=${disk},if=virtio,format=raw,index=0" \
-    -drive "file=${ksimg},if=virtio,format=raw,index=1" \
+    -device virtio-blk-pci,drive=hd,bootindex=0 \
+    -drive "file=${disk},if=none,id=hd,format=raw" \
+    -drive "file=${ksimg},if=virtio,format=raw" \
     -drive "file=${iso},if=none,id=cd,media=cdrom,readonly=on" \
     -device virtio-scsi-pci -device scsi-cd,drive=cd,bootindex=1 \
     -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
