@@ -85,6 +85,25 @@ DECIDED = frozenset({"greeter-unit", "graphical-target", "panic", "emergency"})
 # take anywhere near this long; anything quieter than this has stopped for good.
 IDLE_GIVE_UP = 600.0
 
+# When the installed system offers a login and no greeter has appeared, ask it what it is
+# doing rather than inferring it from what the console stopped saying. Two readings fit a
+# log that ends at getty.target -- a boot stalled before graphical.target, or a boot that
+# simply stopped writing to the serial once the getty owned it -- and they call for
+# opposite fixes. Deduction picked wrong twice (runs 34262503262 and 34269959759); the
+# machine can answer directly. The account is the one collaudo.ks creates, it exists only
+# inside this VM, and the whole exchange is recorded in the console log.
+DIAGNOSTIC_USER = b"collaudo"
+DIAGNOSTIC_PASSWORD = b"collaudo"
+DIAGNOSTICS = (
+    b"systemctl is-system-running",
+    b"systemctl get-default",
+    b"systemctl list-jobs --no-pager",
+    b"systemctl status greetd.service --no-pager -l | head -20",
+    b"systemctl list-units --failed --no-pager",
+)
+# Let each answer arrive before asking the next; these are cheap queries on an idle guest.
+DIAGNOSTIC_PAUSE = 3.0
+
 
 def main() -> int:
     sock_path, log_path, phase_path = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -123,6 +142,17 @@ def main() -> int:
             s.sendall(command + b"\n")
             time.sleep(BETWEEN_COMMANDS)
         note("grub-booted")
+
+    def ask_the_guest_what_it_is_doing() -> None:
+        """Log in over the serial and record what systemd says about itself."""
+        s.sendall(DIAGNOSTIC_USER + b"\n")
+        time.sleep(DIAGNOSTIC_PAUSE)
+        s.sendall(DIAGNOSTIC_PASSWORD + b"\n")
+        time.sleep(DIAGNOSTIC_PAUSE)
+        for command in DIAGNOSTICS:
+            s.sendall(command + b"\n")
+            time.sleep(DIAGNOSTIC_PAUSE)
+        note("diagnostics-sent")
 
     while True:
         try:
@@ -168,6 +198,18 @@ def main() -> int:
             note("reinstall-loop")
             break
 
+        # A login prompt on the installed system with no greeter in sight is the case
+        # worth interrogating. Ask once, then keep reading: the answers arrive as ordinary
+        # console output and land in the log like everything else.
+        if (
+            "installed" in seen
+            and "login-prompt" in seen
+            and "diagnostics-sent" not in seen
+            and not (seen & DECIDED)
+        ):
+            ask_the_guest_what_it_is_doing()
+            tail = b""
+
         # The run is over the moment there is an answer. Waiting past a greeter, a panic
         # or an emergency shell only spends the budget on a question already settled, and
         # this watcher ending is what shuts the machine down.
@@ -177,7 +219,10 @@ def main() -> int:
         # Nothing has been said for a long time and nothing is expected: a guest that
         # stopped talking before reaching a session is not going to start again. The
         # window is generous enough to cover a first boot that relabels the filesystem.
-        if time.time() - last_data > IDLE_GIVE_UP:
+        # Once the guest has answered the diagnostics there is nothing further to wait
+        # for, so the generous window that covers a slow first boot no longer applies.
+        window = 60.0 if "diagnostics-sent" in seen else IDLE_GIVE_UP
+        if time.time() - last_data > window:
             note("idle-timeout")
             break
 
