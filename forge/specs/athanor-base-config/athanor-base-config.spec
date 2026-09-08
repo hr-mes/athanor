@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-base-config
 Version:        43.0.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Athanor OS Base Configuration (NVIDIA, Systemd, Branding, GPG)
 
 License:        MIT
