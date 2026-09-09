@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:23.fc43}
+Release:        %{?autorelease}%{!?autorelease:24.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -40,9 +40,10 @@ mv %{buildroot}/etc/yum.repos.d/athanor-forge.repo %{buildroot}/usr/share/athano
 # Configurations are now managed declaratively via tmpfiles.d (10-athanor-greetd.conf)
 #
 # The greeter needs the devices it draws and listens on. Fedora creates the greetd user
-# with no supplementary groups, so its logind session comes up without a seat, libseat
-# cannot open one, and cage exits before starting a compositor -- greetd then reports
-# only "greeter exited without creating a session".
+# with no supplementary groups. That was not what kept the compositor from starting --
+# logind grants the active session the card through an ACL, and runs 34293193136 and
+# 34365841089 showed cage past libseat with the membership making no difference -- but
+# a session that owns a screen belongs in video and tty either way.
 #
 # On this image video and tty live in /usr/lib/group, the read-only half of the split
 # that ostree systems use, and every tool that edits group membership works on
@@ -73,14 +74,17 @@ mkdir -p /etc/yum.repos.d
 /usr/lib/systemd/system-preset/99-Athanor.preset
 /usr/lib/tmpfiles.d/10-athanor-greetd.conf
 /usr/share/athanor-system-config/greetd.toml
-/usr/share/athanor-system-config/greetd-greeter.pam
-/usr/share/athanor-system-config/greetd-seat.env
 /usr/share/athanor-system-config/usbguard-daemon.conf
 /usr/share/athanor-system-config/athanor-forge.repo
 %attr(0755,root,root) /etc/greenboot/check/required.d/10-greetd-running.sh
 %config(noreplace) /etc/security/limits.d/99-athanor-realtime.conf
 
 %changelog
+* Wed Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-24
+- Drop the greeter PAM stack override and greetd-seat.env added in -21. greetd 0.10.3
+  already hands pam_systemd XDG_SEAT=seat0 and XDG_VTNR before it opens the session
+  (session/worker.rs), so the two pam_env lines set what was already set. Fedora's own
+  greetd-greeter file, pam_systemd included, is the one in force again.
 * Wed Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-23
 - Start the greeter through /usr/bin/athanor-greeter-session, which probes for a working
   GLES2 renderer with a headless cage before starting the compositor and forces pixman
