@@ -15,6 +15,7 @@ markers it recognises across chunk boundaries, when it stops, and the PNG conver
 checked on the pixels rather than on the file existing.
 """
 
+import os
 import pathlib
 import shutil
 import socket
@@ -44,11 +45,32 @@ def verdict(tmp: pathlib.Path, phases, qemu_status=0):
 
 def test_pass(tmp: pathlib.Path) -> None:
     code, report = verdict(
-        tmp, [("installed", 100), ("kickstart-done", 110), ("greeter-unit", 400)]
+        tmp, [("installed", 100), ("kickstart-done", 110), ("greeter-alive", 400)]
     )
     assert code == 0, f"a complete run must pass, got {code}"
     assert "**PASS**" in report, report
     assert "first boot to greeter: 300s" in report, report
+
+
+def test_greetd_starting_is_not_a_greeter(tmp: pathlib.Path) -> None:
+    """The unit starting and the target being reached are not a greeter on screen.
+
+    Run 34384585109 had both on the console while the greeter it started was aborting
+    three seconds in, three times, until the start limit. Only the guest's own report
+    of a session still alive settles it.
+    """
+    code, report = verdict(
+        tmp,
+        [
+            ("installed", 100),
+            ("kickstart-done", 110),
+            ("login-prompt", 300),
+            ("greeter-unit", 310),
+            ("graphical-target", 311),
+        ],
+    )
+    assert code == 1, "greetd starting is not the greeter being up"
+    assert "greeter reached: NO" in report, report
 
 
 def test_installed_but_no_greeter(tmp: pathlib.Path) -> None:
@@ -196,7 +218,11 @@ def test_console_boots_our_kickstart(tmp: pathlib.Path) -> None:
         time.sleep(0.4)
         conn.sendall(b"Athanor kickstart finished\r\n")
         time.sleep(0.4)
-        conn.sendall(b"Started Greeter daemon.\r\n")
+        # As systemd prints it, colour escapes around the unit name included.
+        conn.sendall(
+            b"[\x1b[0;32m  OK  \x1b[0m] Started \x1b[0;1;39mgreetd.service\x1b[0m"
+            b" - Greeter daemon.\r\n"
+        )
         time.sleep(0.8)
         conn.close()
         proc.wait(timeout=30)
@@ -256,7 +282,10 @@ def test_installed_systems_own_grub_is_not_a_loop(tmp: pathlib.Path) -> None:
         time.sleep(0.5)
         conn.sendall(b"GRUB version 2.12\r\n")
         time.sleep(0.5)
-        conn.sendall(b"Started Greeter daemon.\r\n")
+        conn.sendall(
+            b"[\x1b[0;32m  OK  \x1b[0m] Started \x1b[0;1;39mgreetd.service\x1b[0m"
+            b" - Greeter daemon.\r\n"
+        )
         time.sleep(1.0)
         conn.close()
         proc.wait(timeout=30)
@@ -297,6 +326,8 @@ def test_console_stops_as_soon_as_it_has_an_answer(tmp: pathlib.Path) -> None:
             str(run / "phases.txt"),
         ],
         stdout=subprocess.DEVNULL,
+        # The login path waits on the guest in real time; the fake guest answers at once.
+        env={**os.environ, "ATHANOR_CONSOLE_PACE": "0.01"},
     )
     try:
         conn, _ = server.accept()
@@ -306,8 +337,20 @@ def test_console_stops_as_soon_as_it_has_an_answer(tmp: pathlib.Path) -> None:
         conn.sendall(b"Install finished\r\nAthanor kickstart finished\r\n")
         time.sleep(0.5)
 
+        # The installed system offers its serial login; the console logs in and asks the
+        # guest whether the greeter is up. Play the guest: wait for the question, answer.
+        conn.sendall(b"athanor login: ")
+        typed = b""
+        deadline = time.time() + 20
+        while time.time() < deadline and b"GREETER_%s" not in typed:
+            try:
+                typed += conn.recv(65536)
+            except socket.timeout:
+                pass
+        assert b"GREETER_%s" in typed, typed[-300:]
+
         started = time.time()
-        conn.sendall(b"Started Greeter daemon.\r\n")
+        conn.sendall(b"GREETER_ALIVE c5\r\n")
         proc.wait(timeout=40)
         waited = time.time() - started
     finally:
@@ -321,7 +364,7 @@ def test_console_stops_as_soon_as_it_has_an_answer(tmp: pathlib.Path) -> None:
     phases = dict(
         line.split() for line in (run / "phases.txt").read_text().splitlines()
     )
-    assert "greeter-unit" in phases, sorted(phases)
+    assert "greeter-alive" in phases, sorted(phases)
     assert "idle-timeout" not in phases, "it should not have waited out the idle window"
 
 
@@ -330,6 +373,7 @@ def main() -> int:
         tmp = pathlib.Path(name)
         for test in (
             test_pass,
+            test_greetd_starting_is_not_a_greeter,
             test_installed_but_no_greeter,
             test_text_login_is_not_a_greeter,
             test_panic_fails_despite_markers,

@@ -12,7 +12,7 @@ says which half broke:
 
   installed        the ISO's own kickstart finished, so ostreecontainer wrote the image
   kickstart-done   our additions ran too, so the disk has an account on it
-  greeter          the installed system started and reached a session prompt
+  greeter          the installed system reports a greeter session alive and steady
 
 The greeter is recognised from the console rather than from a screenshot, because a
 screenshot cannot tell a drawn greeter from a wallpaper. The screenshots are still kept
@@ -24,11 +24,14 @@ answer.
 import pathlib
 import sys
 
-# A serial getty is not a greeter. It comes up on the way to graphical.target and says
-# nothing about whether the session started, so accepting it passed a run whose console
-# held no trace of greetd at all (34259567237). Only the graphical target and the greeter
-# unit count.
-GREETER_SIGNALS = ("greeter-unit", "graphical-target")
+# A serial getty is not a greeter, and neither is greetd starting. The getty comes up on
+# the way to graphical.target and says nothing about the session (run 34259567237), and
+# "Started greetd.service" was on the console of run 34384585109 while the greeter it had
+# started was aborting three seconds in, three times, until the start limit. Both stay
+# recorded because they place a failure; neither settles a pass. What does is the guest's
+# own report, GREETER_ALIVE in console.py: a greeter-class session still there, with the
+# shell inside it, after it has had time to die.
+GREETER_SIGNALS = ("greeter-alive",)
 # "reinstall-loop" is not a crash but it is a failure, and a distinctive one: the machine
 # booted the installer again instead of the system it had just written, so the run says
 # nothing about first boot no matter how long it is left going.

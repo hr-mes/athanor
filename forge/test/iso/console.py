@@ -30,20 +30,30 @@ booting it and reading what the kernel reported as its command line.
 """
 
 import os
+import re
 import socket
 import sys
 import time
 
-# Marker -> phase name. Order matters only for reporting; each is written once.
+# Marker -> phase name. Order matters only for reporting; each is written once. Colour
+# escapes are stripped before matching: systemd wraps unit names in them on the console,
+# so "[  OK  ] Started greetd.service - Greeter daemon." arrives as
+# "Started \x1b[0;1;39mgreetd.service\x1b[0m - Greeter daemon.", and a needle written
+# across the name never matched anything. The last two systemd lines were dead that way
+# until run 34384585109 showed the unit starting with no phase recorded for it.
 MARKERS = (
     (b"Install finished", "installed"),
     (b"Athanor kickstart finished", "kickstart-done"),
     (b"Kernel panic", "panic"),
     (b"Entering emergency mode", "emergency"),
     (b"login:", "login-prompt"),
-    (b"Reached target Graphical Interface", "graphical-target"),
-    (b"Started Greeter daemon", "greeter-unit"),
+    (b"Reached target graphical.target", "graphical-target"),
+    (b"Started greetd.service", "greeter-unit"),
+    # The guest's own answer to GREETER_PROBE below: a greeter session that is still
+    # there, with the shell inside it, after it has had time to die.
+    (b"GREETER_ALIVE", "greeter-alive"),
 )
+ANSI = re.compile(rb"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 GRUB_MENU = b"GRUB version"
 # What the UEFI firmware prints when it hands control to the ISO. The installed system is
@@ -78,7 +88,13 @@ BETWEEN_COMMANDS = 2.0
 # has had a chance to start and reports a pass on a boot that never showed one. That is
 # exactly what run 34259567237 did. It stays in MARKERS, because knowing the system got
 # as far as a getty is useful when no greeter follows, but it no longer settles anything.
-DECIDED = frozenset({"greeter-unit", "graphical-target", "panic", "emergency"})
+#
+# Nor do the greeter unit and the graphical target. Run 34384585109 had both on the
+# console while its greeter was dying: greetd started, the greeter it launched aborted
+# three seconds later, three times, until the start limit. They say the system tried,
+# not that it succeeded. Only the guest's own report of a steady greeter session, asked
+# for once the login prompt is there, settles the run.
+DECIDED = frozenset({"greeter-alive", "panic", "emergency"})
 
 # How long the guest may say nothing before the run is called over. A first boot that has
 # to relabel the filesystem is the slowest legitimate silence there is, and it does not
@@ -156,6 +172,26 @@ DIAGNOSTICS = (
 DIAGNOSTIC_PAUSE = 3.0
 DIAGNOSTIC_LAST_PAUSE = 14.0
 
+# Ask the guest whether its greeter is actually up, before anything else is touched. A
+# greeter that fails is started again by greetd a second later, so a greeter session
+# present at one instant means little; one that is still the same session, of class
+# greeter, with the shell inside it, fifteen seconds on has outlived every failure seen
+# so far (the shell's own abort took three seconds). The marker is assembled by printf so
+# that the console's echo of what was typed cannot pass for the answer.
+GREETER_PROBE = (
+    b"for i in $(seq 30); do"
+    b" s=$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3==\"greetd\"{print $1; exit}');"
+    b' [ -n "$s" ] && break; sleep 1; done; sleep 15;'
+    b' if [ -n "$s" ] && [ "$(loginctl show-session "$s" -p Class --value 2>/dev/null)" = greeter ]'
+    b' && loginctl session-status "$s" 2>/dev/null | grep -q athanor-shell;'
+    b" then printf 'GREETER_%s %s\\n' ALIVE \"$s\"; else printf 'GREETER_%s %s\\n' DEAD \"${s:-none}\"; fi"
+)
+# Thirty seconds of looking plus fifteen of watching, and a margin for the shell.
+GREETER_PROBE_WAIT = 50.0
+# The tests drive a fake guest that answers at once and scale every wait in the login
+# path down through this; the run itself leaves it at one.
+PACE = float(os.environ.get("ATHANOR_CONSOLE_PACE", "1"))
+
 
 def main() -> int:
     sock_path, log_path, phase_path = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -196,11 +232,14 @@ def main() -> int:
         note("grub-booted")
 
     def ask_the_guest_what_it_is_doing() -> None:
-        """Log in over the serial and record what systemd says about itself."""
+        """Log in over the serial, ask whether the greeter is up, then record what
+        systemd says about itself."""
         s.sendall(DIAGNOSTIC_USER + b"\n")
-        time.sleep(DIAGNOSTIC_PAUSE)
+        time.sleep(DIAGNOSTIC_PAUSE * PACE)
         s.sendall(DIAGNOSTIC_PASSWORD + b"\n")
-        time.sleep(DIAGNOSTIC_PAUSE)
+        time.sleep(DIAGNOSTIC_PAUSE * PACE)
+        s.sendall(b"   " + GREETER_PROBE + b"\n")
+        time.sleep(GREETER_PROBE_WAIT * PACE)
         for index, command in enumerate(DIAGNOSTICS):
             # A leading space absorbs the first characters, which the serial line drops
             # after heavy output: run 34295559310 received `echo collaudo | sudo ...` as
@@ -209,7 +248,7 @@ def main() -> int:
             # for one that carries a password.
             s.sendall(b"   " + command + b"\n")
             last = index == len(DIAGNOSTICS) - 1
-            time.sleep(DIAGNOSTIC_LAST_PAUSE if last else DIAGNOSTIC_PAUSE)
+            time.sleep((DIAGNOSTIC_LAST_PAUSE if last else DIAGNOSTIC_PAUSE) * PACE)
         note("diagnostics-sent")
 
     while True:
@@ -231,8 +270,9 @@ def main() -> int:
             # that can produce megabytes of console output.
             tail = (tail + chunk)[-8000:]
             last_data = time.time()
+            clean = ANSI.sub(b"", tail)
             for needle, name in MARKERS:
-                if needle in tail:
+                if needle in clean:
                     note(name)
 
         # The menu is answered once, on the way in. After the install the machine restarts
