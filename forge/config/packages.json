@@ -127,6 +127,7 @@
   ],
   "upstream_desktop": [
     "cage",
+    "cosmic-comp",
     "adw-gtk3-theme",
     "fontawesome-fonts-all",
     "foot",

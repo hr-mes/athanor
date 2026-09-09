@@ -2,13 +2,13 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:24.fc43}
+Release:        %{?autorelease}%{!?autorelease:25.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
 BuildArch:      noarch
 
-Requires: cage greetd greenboot systemd-ukify niri nodejs
+Requires: cage cosmic-comp greetd greenboot systemd-ukify niri nodejs
 # Core UI andDaemons
 Requires: athanor-shell-rs athanor-settings-rs athanor-daemon-rs
 Requires: athanor-store-rs xdg-desktop-portal-athanor
@@ -80,6 +80,15 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) /etc/security/limits.d/99-athanor-realtime.conf
 
 %changelog
+* Wed Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-25
+- Draw the greeter on cosmic-comp instead of cage. cosmic-comp takes a client program
+  as its argument the way cage does, hands it its own WAYLAND_DISPLAY and exits when the
+  client exits, which is all greetd needs; unlike cage it implements wlr-layer-shell, so
+  the greeter is a layer surface again and no longer a decorated toplevel. The GLES2
+  probe goes with cage: cosmic-comp has no switch like WLR_RENDERER=pixman to flip, so a device
+  it cannot render on is a failure to read in the journal, not one to route around.
+  First step of the move of the whole session to cosmic-comp; cage stays in the image
+  until the session follows.
 * Wed Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-24
 - Drop the greeter PAM stack override and greetd-seat.env added in -21. greetd 0.10.3
   already hands pam_systemd XDG_SEAT=seat0 and XDG_VTNR before it opens the session
