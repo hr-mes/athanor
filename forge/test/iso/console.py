@@ -124,6 +124,17 @@ DIAGNOSTICS = (
     # attach to. greetd's journal shows pam_unix opening one and never pam_systemd, and
     # the console carries no "New session" line, so this is the thing to confirm.
     b"loginctl list-sessions --no-pager",
+    # Whether our PAM stack is the one in force. It reaches /etc through an L+ tmpfiles
+    # rule applied at boot, so the image still carries Fedora's file and only the running
+    # system shows which won. If the link is there and XDG_SEAT still does not take, the
+    # fault is in how the variables are passed rather than in whether they were installed.
+    b"ls -l /etc/pam.d/greetd-greeter; grep -c Athanor /etc/pam.d/greetd-greeter",
+    # And whether greetd's own session ends up with a seat. list-sessions above shows the
+    # steady state, by which time the greeter has already exited; this catches it while it
+    # is alive, which is the only moment its seat can be observed.
+    b"printf 'collaudo\\n' | sudo -S systemctl restart greetd.service; sleep 1;"
+    b" for s in $(loginctl list-sessions --no-legend | awk '$3==\"greetd\"{print $1}');"
+    b" do loginctl show-session $s -p Id -p Seat -p Type -p Class -p VTNr; done",
     # Restart greetd and watch what logind and PAM say while it tries. This is the service
     # itself rather than a hand-run copy: the manual reproduction in run 34297060397 was
     # run under sudo, which creates no logind session of its own and so could not tell a
