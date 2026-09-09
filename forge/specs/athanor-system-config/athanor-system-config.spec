@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:20.fc43}
+Release:        %{?autorelease}%{!?autorelease:21.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -72,12 +72,19 @@ mkdir -p /etc/yum.repos.d
 /usr/lib/systemd/system-preset/99-Athanor.preset
 /usr/lib/tmpfiles.d/10-athanor-greetd.conf
 /usr/share/athanor-system-config/greetd.toml
+/usr/share/athanor-system-config/greetd-greeter.pam
+/usr/share/athanor-system-config/greetd-seat.env
 /usr/share/athanor-system-config/usbguard-daemon.conf
 /usr/share/athanor-system-config/athanor-forge.repo
 %attr(0755,root,root) /etc/greenboot/check/required.d/10-greetd-running.sh
 %config(noreplace) /etc/security/limits.d/99-athanor-realtime.conf
 
 %changelog
+* Tue Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-21
+- Give the greeter PAM stack XDG_SEAT and XDG_VTNR. greetd sets neither, so pam_systemd
+  registered the session with no seat and libseat could not open one for the compositor.
+  The video and tty groups added in -20 were not the cause and are kept: a session that
+  owns a screen needs them either way.
 * Tue Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-20
 - Add greetd to the video and tty groups from %post. The sysusers.d
   attempt in -19 had no effect: video and tty live in /usr/lib/group on this image and

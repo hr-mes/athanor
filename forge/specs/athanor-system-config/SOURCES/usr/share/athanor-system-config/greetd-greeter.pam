@@ -1,0 +1,50 @@
+#%PAM-1.0
+#
+# Athanor's PAM stack for the greeter session. It is Fedora's greetd-greeter file
+# with two lines added, marked below.
+#
+# Without them the greeter session is registered with no seat:
+#
+#   systemd-logind: New session 'c4' of user 'greetd' with class 'greeter' and type 'tty'
+#   $ loginctl list-sessions
+#   SESSION  UID USER     SEAT LEADER CLASS   TTY
+#         2 1000 collaudo -    1065   user    ttyS0
+#
+# libseat's logind backend then asks that session for its seat, finds none, and
+# every compositor started from it dies the same way:
+#
+#   [libseat] No backend was able to open a seat
+#   [backend/session/session.c:83] Unable to create seat: Function not implemented
+#   [cage.c:318] Unable to create the wlroots backend
+#
+# systemd's own guidance for display managers is explicit about whose job this is:
+# "Use pam_misc_setenv() to set the environment variables XDG_SEAT and XDG_VTNR.
+# The former should contain seat0, the latter the VT number your session runs on."
+# greetd does not set either, so pam_systemd has nothing to register the session
+# against, and pam_systemd reads both from the PAM environment when they are there.
+#
+# VT 1 matches `vt = 1` in greetd.toml. seat0 is the only seat that knows kernel
+# VTs, which is why a VT number belongs on no other seat.
+
+# Load environment from /etc/environment and ~/.pam_environment
+auth            required pam_env.so
+
+# Athanor: tell pam_systemd which seat and VT this session owns.
+auth            required pam_env.so conffile=/usr/share/athanor-system-config/greetd-seat.env
+
+# Always let the greeter start without authentication
+auth            required pam_permit.so
+
+# No action required for account management
+account         required pam_permit.so
+
+# Can't change password
+password        required pam_deny.so
+
+# Setup session
+session         required pam_unix.so
+
+# Athanor: the same variables have to be in the session phase, which is where
+# pam_systemd reads them.
+session         required pam_env.so conffile=/usr/share/athanor-system-config/greetd-seat.env
+session         optional pam_systemd.so
