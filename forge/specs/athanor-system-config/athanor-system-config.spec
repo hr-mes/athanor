@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:22.fc43}
+Release:        %{?autorelease}%{!?autorelease:23.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -63,6 +63,7 @@ mkdir -p /etc/yum.repos.d
 %files
 %dir /usr/share/athanor-system-config
 %attr(0755,root,root) /usr/bin/athanor-session
+%attr(0755,root,root) /usr/bin/athanor-greeter-session
 %attr(0755,root,root) /usr/bin/athanor-uki-enroll
 %attr(0755,root,root) /usr/libexec/athanor-snapshot-trigger.sh
 %dir /usr/lib/systemd/system/greetd.service.d
@@ -80,6 +81,12 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) /etc/security/limits.d/99-athanor-realtime.conf
 
 %changelog
+* Wed Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-23
+- Start the greeter through /usr/bin/athanor-greeter-session, which probes for a working
+  GLES2 renderer with a headless cage before starting the compositor and forces pixman
+  when there is none. wlroots falls back to pixman by itself only on a device with no
+  render node, so a GPU with a render node and no working driver -- the acceptance VM's
+  virtio-gpu without virgl, run 34365841089 -- left the greeter with no renderer at all.
 * Tue Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-22
 - Run the greeter session under systemd-cat, so the compositor's own errors reach the
   journal instead of being lost. Until now a failed greeter left only greetd's

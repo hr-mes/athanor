@@ -1,0 +1,60 @@
+#!/usr/bin/sh
+# athanor-greeter-session - starts the greeter compositor for greetd.
+#
+# greetd runs this as the greetd user with the environment PAM built and nothing else:
+# greetd's own environment, and with it anything a greetd.service drop-in would set,
+# never reaches the session (greetd 0.10.3, session/worker.rs: execve is given
+# pam_getenvlist and nothing more). Whatever the compositor needs is set here.
+
+set -eu
+
+# pam_systemd sets XDG_RUNTIME_DIR when logind registers the session; this is only for
+# the case where it did not, /run/user itself always being there.
+: "${XDG_RUNTIME_DIR:=/run/user/$(id -u)}"
+export XDG_RUNTIME_DIR
+if [ ! -d "$XDG_RUNTIME_DIR" ]; then
+    mkdir -m 0700 "$XDG_RUNTIME_DIR"
+fi
+export WLR_NO_HARDWARE_CURSORS=1
+
+# Draw with the GPU when there is one that works, and with the CPU otherwise.
+#
+# wlroots 0.18 chooses its renderer on its own only this far: it tries GLES2, and
+# falls back to pixman only when the DRM device has no render node at all
+# (render/wlr_renderer.c, renderer_autocreate). A device that has a render node but no
+# working 3D driver -- virtio-gpu without virgl in a VM, nvidia-drm with no userspace
+# driver, vkms -- fails GLES2 and is then left with nothing: "Could not initialize
+# renderer", and the greeter exits before drawing anything. Run 34365841089 recorded
+# exactly that on the acceptance VM:
+#
+#     MESA: error: ZINK: failed to choose pdev
+#     libEGL warning: egl: failed to create dri2 screen
+#
+# No variable set unconditionally is right for every machine. Mesa's
+# LIBGL_ALWAYS_SOFTWARE makes EGL refuse a hardware device outright
+# (platform_device.c: "deny progress since a hardware device was requested"), and
+# wlroots' WLR_RENDERER_ALLOW_SOFTWARE matters only on the GBM path, which is never
+# reached once Mesa lists the device -- and it lists every DRM device with a render
+# node. So the machine is asked instead: a headless cage, forced to GLES2 and running
+# /bin/true, goes through the same wlroots and Mesa code the real compositor is about
+# to, needing no seat, VT or DRM master, and its exit status says whether GLES2 can be
+# had here. When it cannot, pixman is forced: a CPU renderer that asks for nothing but
+# dumb buffers, which every DRM driver provides. The probe costs a fraction of a second
+# on every start, on machines with a GPU too; a greeter that does not come up costs
+# more.
+#
+# The probe opens the first render node, the compositor the one logind hands it: the
+# same device on a single-GPU machine. With two GPUs and a driver for only one of them
+# the two can disagree, and WLR_RENDER_DRM_DEVICE is the knob for that day.
+if ! WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=gles2 \
+        timeout 10 systemd-cat -t athanor-greeter-probe cage -- /bin/true; then
+    systemd-cat -t athanor-greeter -p notice \
+        echo "no working GLES2 renderer on this machine, drawing the greeter with pixman"
+    export WLR_RENDERER=pixman
+fi
+
+# systemd-cat puts the compositor's own output in the journal under "athanor-greeter".
+# Without it the session's stderr goes nowhere greetd keeps, and when the greeter fails
+# all that survives is greetd's "greeter exited without creating a session", which says
+# that something went wrong and nothing about what.
+exec systemd-cat -t athanor-greeter cage -s -m extend -- /usr/bin/athanor-shell-rs --greeter
