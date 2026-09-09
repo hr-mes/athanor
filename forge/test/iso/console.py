@@ -147,7 +147,7 @@ DIAGNOSTICS = (
     # polls twenty times a second across a restart and prints whatever it finds.
     b"printf 'collaudo\\n' | sudo -S systemctl restart greetd.service;"
     b" for i in $(seq 60); do"
-    b" s=$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3==\"greetd\"{print $1; exit}');"
+    b' s=$(loginctl list-sessions --no-legend 2>/dev/null | awk \'$3=="greetd" && $6=="greeter"{print $1; exit}\');'
     b' if [ -n "$s" ]; then loginctl show-session $s -p Id -p Seat -p Type -p Class -p VTNr;'
     b' break; fi; sleep 0.05; done; echo "polled: ${s:-none}"',
     # Restart greetd and watch what logind and PAM say while it tries. This is the service
@@ -178,9 +178,14 @@ DIAGNOSTIC_LAST_PAUSE = 14.0
 # greeter, with the shell inside it, fifteen seconds on has outlived every failure seen
 # so far (the shell's own abort took three seconds). The marker is assembled by printf so
 # that the console's echo of what was typed cannot pass for the answer.
+#
+# The session is picked by class, not by user alone: greetd's user manager holds a
+# session of its own, class manager-early and listed first, and run 34398712740 answered
+# GREETER_DEAD for it while the greeter session beside it was on screen. CLASS is the
+# sixth column of `loginctl list-sessions`.
 GREETER_PROBE = (
     b"for i in $(seq 30); do"
-    b" s=$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3==\"greetd\"{print $1; exit}');"
+    b' s=$(loginctl list-sessions --no-legend 2>/dev/null | awk \'$3=="greetd" && $6=="greeter"{print $1; exit}\');'
     b' [ -n "$s" ] && break; sleep 1; done; sleep 15;'
     b' if [ -n "$s" ] && [ "$(loginctl show-session "$s" -p Class --value 2>/dev/null)" = greeter ]'
     b' && loginctl session-status "$s" 2>/dev/null | grep -q athanor-shell;'
