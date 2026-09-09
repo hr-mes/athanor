@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:18.fc43}
+Release:        %{?autorelease}%{!?autorelease:19.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -51,6 +51,7 @@ mkdir -p /etc/yum.repos.d
 /usr/lib/systemd/system/athanor-timewarp.service
 /usr/lib/systemd/system/athanor-timewarp.timer
 /usr/lib/systemd/system-preset/99-Athanor.preset
+/usr/lib/sysusers.d/10-athanor-greetd-groups.conf
 /usr/lib/tmpfiles.d/10-athanor-greetd.conf
 /usr/share/athanor-system-config/greetd.toml
 /usr/share/athanor-system-config/usbguard-daemon.conf
@@ -59,6 +60,10 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) /etc/security/limits.d/99-athanor-realtime.conf
 
 %changelog
+* Tue Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-19
+- Put the greetd user in the video and tty groups. Fedora creates it with no
+  supplementary groups, so its logind session had no seat, libseat could not open one
+  and cage never started a compositor.
 * Mon Sep 08 2026 Athanor Forge <forge@athanor.os> - 1.0.0-18
 - Pull greetd into graphical.target with a drop-in. Fedora's unit declares only
   Alias=display-manager.service and no WantedBy=, so the preset created the alias
