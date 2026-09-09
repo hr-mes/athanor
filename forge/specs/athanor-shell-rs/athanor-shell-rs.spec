@@ -2,7 +2,7 @@
 # Il crate vive nel workspace: la spec compila il checkout in place, non un tarball.
 Name:           athanor-shell-rs
 Version:        1.0.0
-Release:        22%{?dist}
+Release:        23%{?dist}
 Summary:        Athanor OS Native Rust GTK4 Shell
 
 License:        MIT
@@ -29,6 +29,11 @@ install -m 0755 target/release/athanor-shell-rs %{buildroot}/usr/bin/athanor-she
 /usr/bin/athanor-shell-rs
 
 %changelog
+* Wed Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-23
+- Create a Tokio runtime in main() and enter it for the life of the process. The IPC
+  actors call tokio::spawn from GLib's main loop with no runtime in existence, so the
+  shell aborted on "there is no reactor running" at every start, in the greeter as in
+  the session (acceptance run 34384585109).
 * Thu Sep 03 2026 Athanor Forge <forge@athanor.os> - 1.0.0-22
 - Compila il crate dal workspace in place (rpmbuild --build-in-place) invece di
   un tarball mai tracciato in git

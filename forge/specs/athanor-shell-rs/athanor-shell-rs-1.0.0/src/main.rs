@@ -78,6 +78,23 @@ fn main() -> glib::ExitCode {
     init_telemetry();
     tracing::info!("Starting Athanor Shell...");
 
+    // The shell drives its futures from GLib's main loop, but the IPC actors and the
+    // D-Bus proxies are written against Tokio: AudioActor::spawn calls tokio::spawn and
+    // the proxies wrap their calls in tokio::time::timeout. Both need a Tokio runtime to
+    // exist and to be the current one on this thread, or they abort the process with
+    // "there is no reactor running" -- which is how every greeter start ended in
+    // acceptance run 34384585109, three seconds in, before a window was drawn. One
+    // runtime for the life of the process, entered here so that whatever the main loop
+    // polls can reach it; what is spawned onto it runs on its own worker threads.
+    let runtime = match tokio::runtime::Runtime::new() {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            tracing::error!(error = %err, "cannot create the Tokio runtime");
+            return glib::ExitCode::FAILURE;
+        }
+    };
+    let _tokio = runtime.enter();
+
     // Forza il renderer GTK4 NGL (New GL) ad altissime prestazioni / Vulkan e backend puramente Wayland
     std::env::set_var("GSK_RENDERER", "ngl");
     std::env::set_var("GDK_BACKEND", "wayland");
