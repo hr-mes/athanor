@@ -129,12 +129,16 @@ DIAGNOSTICS = (
     # system shows which won. If the link is there and XDG_SEAT still does not take, the
     # fault is in how the variables are passed rather than in whether they were installed.
     b"ls -l /etc/pam.d/greetd-greeter; grep -c Athanor /etc/pam.d/greetd-greeter",
-    # And whether greetd's own session ends up with a seat. list-sessions above shows the
-    # steady state, by which time the greeter has already exited; this catches it while it
-    # is alive, which is the only moment its seat can be observed.
-    b"printf 'collaudo\\n' | sudo -S systemctl restart greetd.service; sleep 1;"
-    b" for s in $(loginctl list-sessions --no-legend | awk '$3==\"greetd\"{print $1}');"
-    b" do loginctl show-session $s -p Id -p Seat -p Type -p Class -p VTNr; done",
+    # And whether greetd's own session ends up with a seat. The steady-state listing above
+    # only ever shows collaudo's sessions: greetd's lives about two seconds, so by the time
+    # anything is asked it is gone and its seat has never actually been observed. A single
+    # sleep is too narrow a window to catch it -- run 34356955543 caught nothing -- so this
+    # polls twenty times a second across a restart and prints whatever it finds.
+    b"printf 'collaudo\\n' | sudo -S systemctl restart greetd.service;"
+    b" for i in $(seq 60); do"
+    b" s=$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3==\"greetd\"{print $1; exit}');"
+    b' if [ -n "$s" ]; then loginctl show-session $s -p Id -p Seat -p Type -p Class -p VTNr;'
+    b' break; fi; sleep 0.05; done; echo "polled: ${s:-none}"',
     # Restart greetd and watch what logind and PAM say while it tries. This is the service
     # itself rather than a hand-run copy: the manual reproduction in run 34297060397 was
     # run under sudo, which creates no logind session of its own and so could not tell a
@@ -142,6 +146,11 @@ DIAGNOSTICS = (
     b"printf 'collaudo\\n' | sudo -S systemctl reset-failed greetd.service;"
     b" printf 'collaudo\\n' | sudo -S systemctl start greetd.service; sleep 6;"
     b" journalctl -b --no-pager -u greetd -u systemd-logind --since '-20s' | tail -30",
+    # Whether pam_env is reading our file at all. It is silent on success, so a syntax it
+    # dislikes or a path it cannot open shows up only in the debug log, and pam_systemd
+    # would then register the session with no seat exactly as if the variables had never
+    # been set -- which is indistinguishable, from outside, from the state before the fix.
+    b"journalctl -b --no-pager -t greetd --since '-60s' | grep -iE 'pam|env|seat' | tail -15",
 )
 # Let each answer arrive before asking the next. Most are cheap queries on an idle guest;
 # the last one runs a compositor under a 10s timeout, so its wait has to outlast that or
@@ -272,7 +281,7 @@ def main() -> int:
         # window is generous enough to cover a first boot that relabels the filesystem.
         # Once the guest has answered the diagnostics there is nothing further to wait
         # for, so the generous window that covers a slow first boot no longer applies.
-        window = 60.0 if "diagnostics-sent" in seen else IDLE_GIVE_UP
+        window = 120.0 if "diagnostics-sent" in seen else IDLE_GIVE_UP
         if time.time() - last_data > window:
             note("idle-timeout")
             break
