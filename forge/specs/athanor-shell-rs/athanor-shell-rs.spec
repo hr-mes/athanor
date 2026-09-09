@@ -2,7 +2,7 @@
 # Il crate vive nel workspace: la spec compila il checkout in place, non un tarball.
 Name:           athanor-shell-rs
 Version:        1.0.0
-Release:        23%{?dist}
+Release:        24%{?dist}
 Summary:        Athanor OS Native Rust GTK4 Shell
 
 License:        MIT
@@ -29,6 +29,11 @@ install -m 0755 target/release/athanor-shell-rs %{buildroot}/usr/bin/athanor-she
 /usr/bin/athanor-shell-rs
 
 %changelog
+* Wed Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-24
+- Stop aborting when no eBPF ring-buffer descriptor is provided. Nothing in the system
+  sets ATHANOR_EBPF_RINGBUF_FD, so start_ebpf_dbus_listener panicked at every start of
+  every shell mode once D-Bus was connected (acceptance run 34391930923). The push path
+  stays off and the shell keeps to its D-Bus proxies; nothing is simulated.
 * Wed Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-23
 - Create a Tokio runtime in main() and enter it for the life of the process. The IPC
   actors call tokio::spawn from GLib's main loop with no runtime in existence, so the
