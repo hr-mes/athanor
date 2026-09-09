@@ -118,9 +118,16 @@ DIAGNOSTICS = (
     # as the greetd user, since a compositor started as root would answer a different
     # question than the one that fails.
     b"ls -l /dev/dri/ 2>&1 | head",
-    # timeout, because a compositor that does start would hold the console open and the
-    # remaining diagnostics would never be asked.
-    b"sudo -u greetd timeout 10 sh -c 'export XDG_RUNTIME_DIR=/run/user/966;"
+    # Whether logind has a seat with a graphics device attached at all. wlroots asks
+    # logind for the DRM node, so a session-less, seat-less system is one where a
+    # compositor cannot start no matter which groups the user is in.
+    b"loginctl list-seats; loginctl seat-status seat0 2>&1 | head -20",
+    # sudo -S reads the password from stdin: collaudo is in wheel, so sudo works, but it
+    # asks, and in run 34293193136 the prompt swallowed the whole diagnostic. timeout,
+    # because a compositor that does start would hold the console open and the run would
+    # end with the rest unread.
+    b"echo collaudo | sudo -S -u greetd timeout 10 sh -c"
+    b" 'export XDG_RUNTIME_DIR=/run/user/966;"
     b" mkdir -p -m 0700 $XDG_RUNTIME_DIR; export WLR_NO_HARDWARE_CURSORS=1;"
     b" cage -s -m extend -- /usr/bin/athanor-shell-rs --greeter' 2>&1 | tail -25",
 )
