@@ -126,7 +126,7 @@ DIAGNOSTICS = (
     # asks, and in run 34293193136 the prompt swallowed the whole diagnostic. timeout,
     # because a compositor that does start would hold the console open and the run would
     # end with the rest unread.
-    b"echo collaudo | sudo -S -u greetd timeout 10 sh -c"
+    b"printf 'collaudo\\n' | sudo -S -u greetd timeout 10 sh -c"
     b" 'export XDG_RUNTIME_DIR=/run/user/966;"
     b" mkdir -p -m 0700 $XDG_RUNTIME_DIR; export WLR_NO_HARDWARE_CURSORS=1;"
     b" cage -s -m extend -- /usr/bin/athanor-shell-rs --greeter' 2>&1 | tail -25",
@@ -183,7 +183,12 @@ def main() -> int:
         s.sendall(DIAGNOSTIC_PASSWORD + b"\n")
         time.sleep(DIAGNOSTIC_PAUSE)
         for index, command in enumerate(DIAGNOSTICS):
-            s.sendall(command + b"\n")
+            # A leading space absorbs the first characters, which the serial line drops
+            # after heavy output: run 34295559310 received `echo collaudo | sudo ...` as
+            # `ho collaudo | sudo ...` and the diagnostic was lost to "command not found".
+            # A space is also what keeps the line out of bash history, which is fitting
+            # for one that carries a password.
+            s.sendall(b"   " + command + b"\n")
             last = index == len(DIAGNOSTICS) - 1
             time.sleep(DIAGNOSTIC_LAST_PAUSE if last else DIAGNOSTIC_PAUSE)
         note("diagnostics-sent")
