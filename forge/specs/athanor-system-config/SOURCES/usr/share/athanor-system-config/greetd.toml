@@ -2,6 +2,11 @@
 vt = 1
 
 [default_session]
-command = "sh -c 'export XDG_RUNTIME_DIR=/run/user/$(id -u); mkdir -p -m 0700 \"$XDG_RUNTIME_DIR\"; export WLR_NO_HARDWARE_CURSORS=1; exec cage -s -m extend -- /usr/bin/athanor-shell-rs --greeter'"
+# systemd-cat puts the compositor's own output in the journal under "athanor-greeter".
+# Without it the session command's stderr goes nowhere greetd keeps, so when the greeter
+# fails all that survives is greetd's "greeter exited without creating a session", which
+# says that something went wrong and nothing about what. Finding out cost several
+# acceptance runs; a greeter that explains itself is worth the one extra process.
+command = "sh -c 'export XDG_RUNTIME_DIR=/run/user/$(id -u); mkdir -p -m 0700 \"$XDG_RUNTIME_DIR\"; export WLR_NO_HARDWARE_CURSORS=1; exec systemd-cat -t athanor-greeter cage -s -m extend -- /usr/bin/athanor-shell-rs --greeter'"
 user = "greetd"
 

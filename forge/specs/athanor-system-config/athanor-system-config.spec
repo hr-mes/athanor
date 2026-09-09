@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:21.fc43}
+Release:        %{?autorelease}%{!?autorelease:22.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -80,6 +80,10 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) /etc/security/limits.d/99-athanor-realtime.conf
 
 %changelog
+* Tue Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-22
+- Run the greeter session under systemd-cat, so the compositor's own errors reach the
+  journal instead of being lost. Until now a failed greeter left only greetd's
+  "greeter exited without creating a session", which names no cause.
 * Tue Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-21
 - Give the greeter PAM stack XDG_SEAT and XDG_VTNR. greetd sets neither, so pam_systemd
   registered the session with no seat and libseat could not open one for the compositor.

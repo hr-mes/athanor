@@ -151,6 +151,10 @@ DIAGNOSTICS = (
     # would then register the session with no seat exactly as if the variables had never
     # been set -- which is indistinguishable, from outside, from the state before the fix.
     b"journalctl -b --no-pager -t greetd --since '-60s' | grep -iE 'pam|env|seat' | tail -15",
+    # The compositor's own words, now that the session command runs under systemd-cat.
+    # Everything before this had to infer what cage objected to from greetd's one-line
+    # report; this is cage speaking for itself.
+    b"journalctl -b --no-pager -t athanor-greeter --since '-90s' | tail -25",
 )
 # Let each answer arrive before asking the next. Most are cheap queries on an idle guest;
 # the last one runs a compositor under a 10s timeout, so its wait has to outlast that or
