@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:19.fc43}
+Release:        %{?autorelease}%{!?autorelease:20.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -38,6 +38,25 @@ mv %{buildroot}/etc/yum.repos.d/athanor-forge.repo %{buildroot}/usr/share/athano
 
 %post
 # Configurations are now managed declaratively via tmpfiles.d (10-athanor-greetd.conf)
+#
+# The greeter needs the devices it draws and listens on. Fedora creates the greetd user
+# with no supplementary groups, so its logind session comes up without a seat, libseat
+# cannot open one, and cage exits before starting a compositor -- greetd then reports
+# only "greeter exited without creating a session".
+#
+# On this image video and tty live in /usr/lib/group, the read-only half of the split
+# that ostree systems use, and every tool that edits group membership works on
+# /etc/group alone. systemd-sysusers given an `m greetd video` line answers "Group video
+# already exists" and makes no membership; gpasswd is blunter about it -- "group 'video'
+# does not exist in /etc/group" -- and usermod fails silently. So the group is copied
+# into /etc/group first, where nss then merges it with the /usr/lib entry, and the
+# membership is added there.
+for group in video tty; do
+    if ! grep -q "^${group}:" /etc/group && getent group "$group" > /dev/null 2>&1; then
+        getent group "$group" >> /etc/group
+    fi
+    gpasswd -a greetd "$group" > /dev/null 2>&1 || :
+done
 mkdir -p /etc/usbguard
 mkdir -p /etc/yum.repos.d
 
@@ -51,7 +70,6 @@ mkdir -p /etc/yum.repos.d
 /usr/lib/systemd/system/athanor-timewarp.service
 /usr/lib/systemd/system/athanor-timewarp.timer
 /usr/lib/systemd/system-preset/99-Athanor.preset
-/usr/lib/sysusers.d/10-athanor-greetd-groups.conf
 /usr/lib/tmpfiles.d/10-athanor-greetd.conf
 /usr/share/athanor-system-config/greetd.toml
 /usr/share/athanor-system-config/usbguard-daemon.conf
@@ -60,6 +78,11 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) /etc/security/limits.d/99-athanor-realtime.conf
 
 %changelog
+* Tue Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-20
+- Add greetd to the video and tty groups from %post. The sysusers.d
+  attempt in -19 had no effect: video and tty live in /usr/lib/group on this image and
+  systemd-sysusers only writes /etc/group, so an m line finds the group already
+  existing and makes no membership.
 * Tue Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-19
 - Put the greetd user in the video and tty groups. Fedora creates it with no
   supplementary groups, so its logind session had no seat, libseat could not open one
