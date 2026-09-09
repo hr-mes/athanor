@@ -49,8 +49,14 @@ printf '[storage]\ndriver = "overlay"\nrunroot = "/run/containers/storage"\ngrap
   | sudo tee /etc/containers/storage.conf > /dev/null
 sudo rm -rf /var/lib/containers/storage
 
-sudo podman pull "$builder"
-sudo podman pull "$image"
+# Both pulls cross the network to a registry that answers 502 now and then: quay.io did
+# for the builder in run 34375049610, after the system image had been built, signed and
+# pushed, and the whole job was lost to it. They are retried the way the workflows'
+# own pulls are; retry.sh is run through sudo rather than the other way round so that
+# the function above still decides whether sudo is needed.
+retry="${repo}/forge/scripts/retry.sh"
+sudo bash "$retry" podman pull "$builder"
+sudo bash "$retry" podman pull "$image"
 
 # --rootfs: the builder formats the installed root with ext4, xfs or btrfs and knows no
 # other type, so btrfs stands in for the bcachefs root the design targets.
