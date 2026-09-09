@@ -111,25 +111,26 @@ DIAGNOSTICS = (
     # 0/SUCCESS after 2.3s with nothing on the console: a daemon that decided there was
     # no work to do rather than one that crashed. Its own log lines say why.
     b"journalctl -u greetd.service -b --no-pager | tail -40",
-    # cage's own complaint. greetd reports only that the greeter "exited without creating
-    # a session", because the session command sends its stderr nowhere greetd keeps, so
-    # the compositor's reason for giving up never reaches the journal. Running the same
-    # command by hand and letting it speak is the shortest way to that reason. It is run
-    # as the greetd user, since a compositor started as root would answer a different
-    # question than the one that fails.
+    # The DRM nodes, for context: run 34293193136 showed card1 carrying a POSIX ACL, which
+    # is how logind grants the active session access, so device permissions are not the
+    # obstacle even though the greetd user is in no video group.
     b"ls -l /dev/dri/ 2>&1 | head",
     # Whether logind has a seat with a graphics device attached at all. wlroots asks
     # logind for the DRM node, so a session-less, seat-less system is one where a
     # compositor cannot start no matter which groups the user is in.
     b"loginctl list-seats; loginctl seat-status seat0 2>&1 | head -20",
-    # sudo -S reads the password from stdin: collaudo is in wheel, so sudo works, but it
-    # asks, and in run 34293193136 the prompt swallowed the whole diagnostic. timeout,
-    # because a compositor that does start would hold the console open and the run would
-    # end with the rest unread.
-    b"printf 'collaudo\\n' | sudo -S -u greetd timeout 10 sh -c"
-    b" 'export XDG_RUNTIME_DIR=/run/user/966;"
-    b" mkdir -p -m 0700 $XDG_RUNTIME_DIR; export WLR_NO_HARDWARE_CURSORS=1;"
-    b" cage -s -m extend -- /usr/bin/athanor-shell-rs --greeter' 2>&1 | tail -25",
+    # Whether logind ever registered a session for greetd. cage failed with "[libseat] No
+    # backend was able to open a seat", and libseat's logind backend needs a session to
+    # attach to. greetd's journal shows pam_unix opening one and never pam_systemd, and
+    # the console carries no "New session" line, so this is the thing to confirm.
+    b"loginctl list-sessions --no-pager",
+    # Restart greetd and watch what logind and PAM say while it tries. This is the service
+    # itself rather than a hand-run copy: the manual reproduction in run 34297060397 was
+    # run under sudo, which creates no logind session of its own and so could not tell a
+    # broken greeter from a broken reproduction.
+    b"printf 'collaudo\\n' | sudo -S systemctl reset-failed greetd.service;"
+    b" printf 'collaudo\\n' | sudo -S systemctl start greetd.service; sleep 6;"
+    b" journalctl -b --no-pager -u greetd -u systemd-logind --since '-20s' | tail -30",
 )
 # Let each answer arrive before asking the next. Most are cheap queries on an idle guest;
 # the last one runs a compositor under a 10s timeout, so its wait has to outlast that or
