@@ -111,9 +111,24 @@ DIAGNOSTICS = (
     # 0/SUCCESS after 2.3s with nothing on the console: a daemon that decided there was
     # no work to do rather than one that crashed. Its own log lines say why.
     b"journalctl -u greetd.service -b --no-pager | tail -40",
+    # cage's own complaint. greetd reports only that the greeter "exited without creating
+    # a session", because the session command sends its stderr nowhere greetd keeps, so
+    # the compositor's reason for giving up never reaches the journal. Running the same
+    # command by hand and letting it speak is the shortest way to that reason. It is run
+    # as the greetd user, since a compositor started as root would answer a different
+    # question than the one that fails.
+    b"ls -l /dev/dri/ 2>&1 | head",
+    # timeout, because a compositor that does start would hold the console open and the
+    # remaining diagnostics would never be asked.
+    b"sudo -u greetd timeout 10 sh -c 'export XDG_RUNTIME_DIR=/run/user/966;"
+    b" mkdir -p -m 0700 $XDG_RUNTIME_DIR; export WLR_NO_HARDWARE_CURSORS=1;"
+    b" cage -s -m extend -- /usr/bin/athanor-shell-rs --greeter' 2>&1 | tail -25",
 )
-# Let each answer arrive before asking the next; these are cheap queries on an idle guest.
+# Let each answer arrive before asking the next. Most are cheap queries on an idle guest;
+# the last one runs a compositor under a 10s timeout, so its wait has to outlast that or
+# the shell would still be busy when the watcher stops reading.
 DIAGNOSTIC_PAUSE = 3.0
+DIAGNOSTIC_LAST_PAUSE = 14.0
 
 
 def main() -> int:
@@ -160,9 +175,10 @@ def main() -> int:
         time.sleep(DIAGNOSTIC_PAUSE)
         s.sendall(DIAGNOSTIC_PASSWORD + b"\n")
         time.sleep(DIAGNOSTIC_PAUSE)
-        for command in DIAGNOSTICS:
+        for index, command in enumerate(DIAGNOSTICS):
             s.sendall(command + b"\n")
-            time.sleep(DIAGNOSTIC_PAUSE)
+            last = index == len(DIAGNOSTICS) - 1
+            time.sleep(DIAGNOSTIC_LAST_PAUSE if last else DIAGNOSTIC_PAUSE)
         note("diagnostics-sent")
 
     while True:
