@@ -124,11 +124,6 @@ DIAGNOSTICS = (
     # attach to. greetd's journal shows pam_unix opening one and never pam_systemd, and
     # the console carries no "New session" line, so this is the thing to confirm.
     b"loginctl list-sessions --no-pager",
-    # Whether our PAM stack is the one in force. It reaches /etc through an L+ tmpfiles
-    # rule applied at boot, so the image still carries Fedora's file and only the running
-    # system shows which won. If the link is there and XDG_SEAT still does not take, the
-    # fault is in how the variables are passed rather than in whether they were installed.
-    b"ls -l /etc/pam.d/greetd-greeter; grep -c Athanor /etc/pam.d/greetd-greeter",
     # And whether greetd's own session ends up with a seat. The steady-state listing above
     # only ever shows collaudo's sessions: greetd's lives about two seconds, so by the time
     # anything is asked it is gone and its seat has never actually been observed. A single
@@ -146,19 +141,18 @@ DIAGNOSTICS = (
     b"printf 'collaudo\\n' | sudo -S systemctl reset-failed greetd.service;"
     b" printf 'collaudo\\n' | sudo -S systemctl start greetd.service; sleep 6;"
     b" journalctl -b --no-pager -u greetd -u systemd-logind --since '-20s' | tail -30",
-    # Whether pam_env is reading our file at all. It is silent on success, so a syntax it
-    # dislikes or a path it cannot open shows up only in the debug log, and pam_systemd
-    # would then register the session with no seat exactly as if the variables had never
-    # been set -- which is indistinguishable, from outside, from the state before the fix.
-    b"journalctl -b --no-pager -t greetd --since '-60s' | grep -iE 'pam|env|seat' | tail -15",
-    # The compositor's own words, now that the session command runs under systemd-cat.
-    # Everything before this had to infer what cage objected to from greetd's one-line
-    # report; this is cage speaking for itself.
-    b"journalctl -b --no-pager -t athanor-greeter --since '-90s' | tail -25",
+    # The compositor's own words, and the renderer probe's before them: the session
+    # script runs both under systemd-cat. greetd is started again a second after the
+    # greeter fails, so any snapshot cuts one attempt in flight -- run 34365841089 ended
+    # on the EGL warning of an attempt begun that same second. A tail this wide holds at
+    # least one complete attempt, and xkbcomp's keysym chatter is left out so the lines
+    # that matter fit in it.
+    b"journalctl -b --no-pager -t athanor-greeter-probe -t athanor-greeter --since '-120s'"
+    b" | grep -v 'Could not resolve keysym' | tail -50",
 )
 # Let each answer arrive before asking the next. Most are cheap queries on an idle guest;
-# the last one runs a compositor under a 10s timeout, so its wait has to outlast that or
-# the shell would still be busy when the watcher stops reading.
+# the ones that restart greetd wait inside their own command line, and the last pause
+# outlasts the greeter's retry so its journal is read settled rather than mid-attempt.
 DIAGNOSTIC_PAUSE = 3.0
 DIAGNOSTIC_LAST_PAUSE = 14.0
 
