@@ -207,6 +207,23 @@ silenzio (`let _ = proxy.unlock_keyring`) — un fallimento non è segnalato, va
 Metodo di validazione deciso: sviluppo su Windows, build nel builder podman, ogni feature
 passa il collaudo CI (screenshot rivisti dall'utente).
 
+## Pipeline — portabilità dal CI (dopo il gate della Tappa 5)
+
+Misura del 2026-09-10: 5186 righe di script portabili contro 3325 di YAML, di cui 1429
+di shell inline nei `run:`; 33 script su 41 non usano nulla di GitHub. La regia
+(`needs`, matrici, `workflow_call`) resta nel dialetto di Actions per scelta: non vale
+un orchestratore proprio. Il debito è lo shell inline, concentrato in due file, e va
+estratto quando quei file si toccano comunque, non prima.
+
+- [ ] `call-dag-compile.yml` (385 righe inline): ciclo rpmbuild per tier e publish su
+  ghcr in uno script chiamato dal YAML, provabile in locale nel builder.
+- [ ] `call-system-image.yml` (231 righe inline): costruzione dell'immagine e firma
+  in script; `sign_attest.sh` e `sbom_rootfs.sh` esistono già, il resto li segue.
+- [ ] Origine del registro come variabile unica con default `ghcr.io/hr-mes`, usata da
+  workflow, `athanor-install.ks`, `athanor-store` e `athanor-forge.repo`.
+- [ ] Per la 1.0, non per la v0: radice di fiducia della firma fuori dall'OIDC di GitHub
+  (chiave propria con HSM, o Fulcio/Rekor privati). È sovranità, non portabilità.
+
 Le 76 spec segnalate da `verify.py specs` non bloccano il boot: vanno nella v1,
 insieme alla compilazione della Fase 1 e al boot test della Fase 2
 (prompt in PIANO_RIPARTENZA.md).
