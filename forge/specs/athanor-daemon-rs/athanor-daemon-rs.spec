@@ -3,14 +3,14 @@
 %global crate_dir forge/specs/%{name}/%{name}-%{version}
 Name:           athanor-daemon-rs
 Version:        0.2.1
-Release:        3%{?dist}
+Release:        4%{?dist}
 Summary:        Athanor OS Native D-Bus Bedrock, ACID Settings & Multimedia Portal Daemon
 
 License:        MIT
 
 BuildRequires:  rust cargo gcc gcc-c++ pkgconf-pkg-config systemd-rpm-macros
 Requires: pipewire wireplumber
-Requires:       dconf athanor-matugen niri speech-dispatcher psmisc wlsunset
+Requires:       dconf athanor-matugen speech-dispatcher psmisc wlsunset
 
 %description
 Pure Rust native D-Bus IPC service for Athanor OS audio, system bedrock management, ACID settings database, and XDG Desktop Portal backend (Settings, ScreenCast, RemoteDesktop).
@@ -53,6 +53,11 @@ install -m 0644 %{crate_dir}/athanor-daemon.service %{buildroot}/usr/lib/systemd
 %{_datadir}/polkit-1/actions/os.athanor.daemon.policy
 
 %changelog
+* Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - drop niri dependency
+- Drop the niri runtime dependency. The QoS window-focus observer and the screencast
+  output query still speak the niri IPC socket, and both already degrade when it is absent
+  (the observer logs and returns, the query falls back to a default output), so nothing
+  crashes without niri; the cosmic backend replaces the socket in a later step.
 * Thu Sep 03 2026 Athanor Forge <forge@athanor.os> - 0.2.1-3
 - Compila il crate dal workspace in place (rpmbuild --build-in-place) invece di
   un tarball mai tracciato in git; file di dati riferiti tramite %%{crate_dir}

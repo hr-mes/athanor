@@ -2,14 +2,14 @@
 %global crate_dir forge/specs/%{name}/%{name}-%{version}
 Name:           athanor-recovery
 Version:        1.0.0
-Release:        3%{?dist}
+Release:        4%{?dist}
 Summary:        Athanor OS Pre-Boot GUI Recovery Kiosk & Rollback Manager
 
 License:        MIT
 
 
 BuildRequires:  rust cargo gcc gcc-c++ gtk4-devel glib2-devel pkgconf-pkg-config
-Requires:       gtk4 glib2 cage rpm-ostree systemd
+Requires:       gtk4 glib2 cosmic-comp rpm-ostree systemd
 
 %description
 Pre-Boot GUI Wayland Kiosk recovery environment for Athanor OS (`athanor-recovery-ui`).
@@ -39,6 +39,10 @@ install -D -m 0644 %{crate_dir}/systemd/greetd-recovery-fallback.conf %{buildroo
 /usr/lib/systemd/system/greetd.service.d/recovery-fallback.conf
 
 %changelog
+* Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - recovery on cosmic-comp
+- Run the pre-boot recovery kiosk on cosmic-comp instead of cage, the same single-client
+  way the greeter and the session do. cage is no longer needed anywhere, so it leaves the
+  image entirely; one compositor across greeter, session and recovery.
 * Sun Sep 06 2026 Athanor Forge <forge@athanor.os> - 1.0.0-3
 - Build only this crate from the workspace; install the systemd units and the
   greetd drop-in from the crate directory instead of empty placeholder files

@@ -18,7 +18,7 @@ MemoryHigh=768M
 MemoryMax=1024M
 OOMScoreAdjust=-100
 Type=simple
-ExecStart=/usr/bin/sh -c 'export XDG_RUNTIME_DIR=/run/user/$(id -u); mkdir -p -m 0700 "$XDG_RUNTIME_DIR"; export WLR_NO_HARDWARE_CURSORS=1; exec /usr/bin/cage -s -m extend -- /usr/bin/athanor-recovery-ui'
+ExecStart=/usr/bin/sh -c 'export XDG_RUNTIME_DIR=/run/user/$(id -u); mkdir -p -m 0700 "$XDG_RUNTIME_DIR"; export WLR_NO_HARDWARE_CURSORS=1; exec /usr/bin/cosmic-comp --no-xwayland /usr/bin/athanor-recovery-ui'
 Restart=on-failure
 RestartSec=5
 User=athanor-recovery

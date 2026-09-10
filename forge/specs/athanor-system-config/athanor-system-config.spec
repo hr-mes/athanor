@@ -2,13 +2,13 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:26.fc43}
+Release:        %{?autorelease}%{!?autorelease:27.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
 BuildArch:      noarch
 
-Requires: cage cosmic-comp greetd greenboot systemd-ukify niri nodejs
+Requires: cosmic-comp greetd greenboot systemd-ukify nodejs
 # Core UI andDaemons
 Requires: athanor-shell-rs athanor-settings-rs athanor-daemon-rs
 Requires: athanor-store-rs xdg-desktop-portal-athanor
@@ -82,6 +82,10 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) /etc/security/limits.d/99-athanor-realtime.conf
 
 %changelog
+* Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.0-27
+- Drop the cage and niri runtime dependencies. Greeter and session are on cosmic-comp;
+  neither cage nor niri is on the desktop boot path any more. cage stays out of this
+  package but remains a dependency of athanor-recovery, whose pre-boot GUI is a cage kiosk.
 * Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.0-26
 - The session runs on cosmic-comp. athanor-session clears the user manager of what the
   previous session left, sets the desktop name and execs cosmic-comp with

@@ -2,14 +2,14 @@
 # Il crate vive nel workspace: la spec compila il checkout in place, non un tarball.
 Name:           athanor-shell-rs
 Version:        1.0.0
-Release:        25%{?dist}
+Release:        26%{?dist}
 Summary:        Athanor OS Native Rust GTK4 Shell
 
 License:        MIT
 
 BuildRequires:  rust cargo gcc gcc-c++ gtk4-devel glib2-devel pkgconf-pkg-config gtk4-layer-shell-devel clang-devel speech-dispatcher-devel upower-devel
-Requires: gtk4 gtk4-layer-shell glib2 cage upower xdg-utils plocate foot wl-clipboard
-Requires:       cliphist niri
+Requires: gtk4 gtk4-layer-shell glib2 upower xdg-utils plocate foot wl-clipboard
+Requires:       cliphist
 
 %description
 Pure Rust native shell for Athanor OS, replacing AGS/GJS.
@@ -29,6 +29,10 @@ install -m 0755 target/release/athanor-shell-rs %{buildroot}/usr/bin/athanor-she
 /usr/bin/athanor-shell-rs
 
 %changelog
+* Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.0-26
+- Drop the cage and niri runtime dependencies. The shell runs on cosmic-comp now, which
+  provides layer-shell directly; the niri IPC client still degrades on its own when the
+  socket is absent (topbar workspaces stay empty) until the cosmic backend replaces it.
 * Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.0-25
 - Remove dead snap_overlay code: snap_overlay_old.rs (1102 lines, the pre-refactor file)
   and three empty stubs (snap_overlay_core/geometry/render.rs) from an abandoned split.

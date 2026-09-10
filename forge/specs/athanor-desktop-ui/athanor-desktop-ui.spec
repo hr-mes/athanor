@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-desktop-ui
 Version:        1.0.0
-Release:        8%{?dist}
+Release:        9%{?dist}
 Summary:        Athanor OS Desktop UI configurations
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -9,8 +9,6 @@ BuildArch:      noarch
 
 Provides:       athanor-ags-config = 1.0.1-3
 Obsoletes:      athanor-ags-config < 1.0.1-3
-Provides:       athanor-niri-session = 1.0.0-3
-Obsoletes:      athanor-niri-session < 1.0.0-3
 
 Requires: lxpolkit
 Requires: cliphist
@@ -25,7 +23,7 @@ Requires: playerctl
 Requires:       athanor-shell-rs athanor-settings-rs wireplumber nautilus firefox
 
 %description
-Provides the unified Desktop UI (Niri) configuration for Athanor OS.
+Provides the unified Desktop UI configuration for Athanor OS.
 Includes dependencies for Wayland (lxpolkit, swayidle, ddcutil)
 and configures UDEV for i2c access.
 
@@ -36,21 +34,20 @@ and configures UDEV for i2c access.
 # Nothing to build
 
 %install
-mkdir -p %{buildroot}/etc/skel/.config/niri
 mkdir -p %{buildroot}/usr/lib/udev/rules.d
 mkdir -p %{buildroot}/usr/lib/systemd/user
-
-# Copy only relevant Niri files
-cp -p %{_sourcedir}/etc/skel/.config/niri/config.kdl %{buildroot}/etc/skel/.config/niri/
 
 # Copy UDEV rules
 cp -p %{_sourcedir}/etc/udev/rules.d/99-ddcutil-i2c.rules %{buildroot}/usr/lib/udev/rules.d/
 
 %files
-/etc/skel/.config/niri/config.kdl
 /usr/lib/udev/rules.d/99-ddcutil-i2c.rules
 
 %changelog
+* Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.0-9
+- Stop shipping the niri config: the desktop runs on cosmic-comp. The /etc/skel niri
+  config.kdl and the legacy athanor-niri-session Provides/Obsoletes are gone; the ddcutil
+  udev rule stays.
 * Wed Jul 15 2026 Athanor Forge <forge@athanor.os> - 1.0.0-5
 - Map Mod+D keyboard bind to athanor-shell-rs --dock single-instance toggle
 

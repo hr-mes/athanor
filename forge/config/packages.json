@@ -1,7 +1,6 @@
 {
   "custom_packages": [
     "stage0-bootstrap",
-    "niri",
     "starship",
     "bat",
     "selinux",
@@ -67,7 +66,6 @@
     "cliphist",
     "ide-bootstrap",
     "system-tweaks",
-    "niri",
     "scudo",
     "ripgrep-native"
   ],
@@ -126,7 +124,6 @@
     "wayland"
   ],
   "upstream_desktop": [
-    "cage",
     "cosmic-comp",
     "adw-gtk3-theme",
     "fontawesome-fonts-all",
