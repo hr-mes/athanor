@@ -2,7 +2,7 @@
 # Il crate vive nel workspace: la spec compila il checkout in place, non un tarball.
 Name:           athanor-shell-rs
 Version:        1.0.0
-Release:        27%{?dist}
+Release:        28%{?dist}
 Summary:        Athanor OS Native Rust GTK4 Shell
 
 License:        MIT
@@ -29,6 +29,11 @@ install -m 0755 target/release/athanor-shell-rs %{buildroot}/usr/bin/athanor-she
 /usr/bin/athanor-shell-rs
 
 %changelog
+* Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.0-28
+- Keep the notification history under $XDG_STATE_HOME/athanor, the StateDirectory=
+  of the shell's unit, instead of ~/.local/share/athanor, which ProtectHome=read-only
+  leaves unwritable (acceptance run 34512758440).
+
 * Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.0-26
 - Drop the cage and niri runtime dependencies. The shell runs on cosmic-comp now, which
   provides layer-shell directly; the niri IPC client still degrades on its own when the

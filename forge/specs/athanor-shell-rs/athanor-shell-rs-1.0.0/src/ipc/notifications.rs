@@ -19,18 +19,31 @@ fn default_timestamp() -> String {
     chrono::Local::now().format("%H:%M").to_string()
 }
 
+/// The notification history is state in the XDG sense: worth keeping across restarts,
+/// not worth backing up. It lives under `$XDG_STATE_HOME/athanor`, the directory the
+/// shell's unit declares with `StateDirectory=` so that it is the one writable place
+/// left by `ProtectHome=read-only`; the old `~/.local/share/athanor` was not.
 pub fn get_notifications_file_path() -> std::path::PathBuf {
-    let mut path = dirs_next_or_home();
-    path.push(".local/share/athanor");
+    let mut path = state_home();
+    path.push("athanor");
     if let Err(e) = std::fs::create_dir_all(&path) {
-                tracing::error!("Failed to create notifications directory {:?}: {:?}", path, e);
-            }
+        tracing::error!(
+            "Failed to create notifications directory {:?}: {:?}",
+            path,
+            e
+        );
+    }
     path.push("notifications.json");
     path
 }
 
-fn dirs_next_or_home() -> std::path::PathBuf {
-    std::env::var("HOME").map(std::path::PathBuf::from).unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
+fn state_home() -> std::path::PathBuf {
+    if let Some(dir) = std::env::var_os("XDG_STATE_HOME").filter(|d| !d.is_empty()) {
+        return std::path::PathBuf::from(dir);
+    }
+    std::env::var_os("HOME")
+        .map(|home| std::path::PathBuf::from(home).join(".local/state"))
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
 }
 
 pub fn save_notification_history() {
@@ -46,7 +59,11 @@ pub fn save_notification_history() {
                 .open(&notif_path)
                 .and_then(|mut f| std::io::Write::write_all(&mut f, json.as_bytes()))
             {
-                tracing::error!("Failed to write notifications file at {:?}: {:?}", notif_path, e);
+                tracing::error!(
+                    "Failed to write notifications file at {:?}: {:?}",
+                    notif_path,
+                    e
+                );
             }
         }
     });
@@ -191,7 +208,13 @@ pub fn validate_zvariant_value_depth(
         }
         zbus::zvariant::Value::Array(arr) => {
             for element in arr.inner() {
-                if !validate_zvariant_value_depth(element, current_depth + 1, max_depth, count, max_nodes) {
+                if !validate_zvariant_value_depth(
+                    element,
+                    current_depth + 1,
+                    max_depth,
+                    count,
+                    max_nodes,
+                ) {
                     return false;
                 }
             }
@@ -200,7 +223,13 @@ pub fn validate_zvariant_value_depth(
         zbus::zvariant::Value::Dict(dict) => {
             for (k, v) in dict.iter() {
                 if !validate_zvariant_value_depth(k, current_depth + 1, max_depth, count, max_nodes)
-                    || !validate_zvariant_value_depth(v, current_depth + 1, max_depth, count, max_nodes)
+                    || !validate_zvariant_value_depth(
+                        v,
+                        current_depth + 1,
+                        max_depth,
+                        count,
+                        max_nodes,
+                    )
                 {
                     return false;
                 }
@@ -209,7 +238,13 @@ pub fn validate_zvariant_value_depth(
         }
         zbus::zvariant::Value::Structure(structure) => {
             for field in structure.fields() {
-                if !validate_zvariant_value_depth(field, current_depth + 1, max_depth, count, max_nodes) {
+                if !validate_zvariant_value_depth(
+                    field,
+                    current_depth + 1,
+                    max_depth,
+                    count,
+                    max_nodes,
+                ) {
                     return false;
                 }
             }
@@ -262,13 +297,15 @@ impl NotificationServer {
                 continue;
             }
             let mut node_count = 0;
-            if !validate_zvariant_value_depth(v, 0, MAX_HINT_DEPTH, &mut node_count, MAX_HINT_NODES) {
+            if !validate_zvariant_value_depth(v, 0, MAX_HINT_DEPTH, &mut node_count, MAX_HINT_NODES)
+            {
                 tracing::warn!(key = %k, "Rejected recursive/oversized DBus hint payload (Billion Laughs IPC protection)");
             }
         }
 
         let id = if replaces_id == 0 {
-            self.counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            self.counter
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         } else {
             replaces_id
         };
@@ -297,7 +334,14 @@ impl NotificationServer {
         }
 
         let app_lower = bounded_app_name.to_lowercase();
-        if app_lower.contains("telegram") || app_lower.contains("slack") || app_lower.contains("whatsapp") || app_lower.contains("discord") || app_lower.contains("matrix") || app_lower.contains("element") || app_lower.contains("mail") {
+        if app_lower.contains("telegram")
+            || app_lower.contains("slack")
+            || app_lower.contains("whatsapp")
+            || app_lower.contains("discord")
+            || app_lower.contains("matrix")
+            || app_lower.contains("element")
+            || app_lower.contains("mail")
+        {
             has_inline = true;
         }
 

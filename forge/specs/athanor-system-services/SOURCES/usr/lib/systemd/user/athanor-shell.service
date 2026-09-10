@@ -20,9 +20,16 @@ RestartSec=2s
 # Extreme Sandboxing
 ProtectSystem=strict
 ProtectHome=read-only
+# The shell's own files under the read-only home: widgets.json in
+# $XDG_CONFIG_HOME/athanor, the notification history in $XDG_STATE_HOME/athanor.
+ConfigurationDirectory=athanor
+StateDirectory=athanor
 PrivateTmp=true
 NoNewPrivileges=true
-SystemCallFilter=@system-service
+# mincore is no longer part of @system-service, and the GL stack calls it while the
+# first frame is drawn: acceptance run 34515239432 recorded every shell start dying
+# on it (SECCOMP syscall=27) under this filter.
+SystemCallFilter=@system-service mincore
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectKernelLogs=true

@@ -20,9 +20,14 @@ RestartSec=2s
 # Extreme Sandboxing
 ProtectSystem=strict
 ProtectHome=read-only
+# The same binary as the shell, so the same writable directories under the home.
+ConfigurationDirectory=athanor
+StateDirectory=athanor
 PrivateTmp=true
 NoNewPrivileges=true
-SystemCallFilter=@system-service
+# See athanor-shell.service: the GL stack calls mincore, which @system-service no
+# longer allows (acceptance run 34515239432, SECCOMP syscall=27).
+SystemCallFilter=@system-service mincore
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectKernelLogs=true

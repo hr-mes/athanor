@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-system-services
 Version:        1.0.1
-Release:        7%{?dist}
+Release:        8%{?dist}
 Summary:        Athanor OS athanor-system-services
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -33,6 +33,13 @@ cp -a %{_sourcedir}/usr/lib/systemd/user/* %{buildroot}/usr/lib/systemd/user/
 /usr/lib/systemd/user/athanor-dock.service
 
 %changelog
+* Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.1-8
+- The shell and the dock allow mincore on top of @system-service: the GL stack calls
+  it while the first frame is drawn, and the filter killed every start of both units
+  (acceptance run 34515239432, SECCOMP syscall=27). Both units declare
+  ConfigurationDirectory= and StateDirectory= athanor, the writable places for
+  widgets.json and the notification history under ProtectHome=read-only.
+
 * Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.1-7
 - The session target is athanor-session.target, for cosmic-comp: it pulls the shell, the
   dock and the skeleton sync itself instead of relying on a user preset, and
