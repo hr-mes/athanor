@@ -145,7 +145,7 @@ il suo gate (sezione 12). Uso locale e bump a mano in
   **Greeter su cosmic-comp: VERDE il 2026-09-10** — spike locale (cosmic-comp 1.6.0-3 annidato in
   cage headless: il client riceve `wayland-1`, layer surface accettata, il compositore esce
   con il client), poi commit `d9eb3228` (system-config -25: `cosmic-comp --no-xwayland
-  athanor-shell-rs --greeter`, sonda wlroots rimossa, cosmic-comp in packages.json) e collaudo
+athanor-shell-rs --greeter`, sonda wlroots rimossa, cosmic-comp in packages.json) e collaudo
   `34413831911` su `athanor-iso:34409767682`: PASS, `greeter-alive`, 148 s dal primo boot,
   greeter a schermo intero senza barra CSD. Fatti utili per la sessione: cosmic-comp espone
   layer-shell, toplevel-info, toplevel-management e workspace a ogni client senza
@@ -171,7 +171,7 @@ il suo gate (sezione 12). Uso locale e bump a mano in
   **niri e cage via dall'immagine: `add82378` + `25cc4e08` (2026-09-10)** — spec `athanor-niri`
   cancellata, `niri` tolto da packages.json e dai Requires di shell, daemon e system-config;
   `cage` tolto da packages.json e dal recovery, che ora usa `cosmic-comp --no-xwayland
-  athanor-recovery-ui`: un solo compositore per greeter, sessione e recovery. Build:
+athanor-recovery-ui`: un solo compositore per greeter, sessione e recovery. Build:
   orchestrator 34492718633.
 
   **Collaudo del login (2026-09-10)** — il greeter mostrava "greetd daemon" perché
@@ -183,6 +183,22 @@ il suo gate (sezione 12). Uso locale e bump a mano in
   e dock attivi dopo 15 s), scatta `screen-session.png`, e il verdetto PASSA solo con la
   sessione. Poi: il backend IPC su cosmic-workspace/toplevel-info.
 
+  **Login: VERDE il 2026-09-10** — collaudo 34532199424 su `athanor-iso:34528079682`, PASS
+  con `session-alive`, greeter a 103 s dal primo boot, sessione 116 s dopo il greeter;
+  screenshot: barra della shell, widget del desktop, dock con terminale e Firefox. La catena
+  di difetti, tutti nelle unit utente di `athanor-system-services` e tutti trovati facendo
+  girare il collaudo: (1) `SystemCallFilter=@system-service` uccideva shell e dock con
+  SIGSYS — la diagnostica non diceva quale syscall, ora chiede `ausearch -m SECCOMP` e
+  `coredumpctl`: era `mincore` (27), che systemd ha tolto dal gruppo e che lo stack GL
+  chiama al primo frame; ammesso esplicitamente (c68af35f); (2) `ProtectHome=read-only`
+  lasciava la shell senza posto per `widgets.json` e la cronologia delle notifiche:
+  `ConfigurationDirectory=`/`StateDirectory=athanor`, cronologia in `$XDG_STATE_HOME`
+  (stesso commit); (3) `MemoryDenyWriteExecute=true` faceva segfault entrambe le unit al
+  primo shader compilato da llvmpipe (ip = indirizzo del fault su una pagina appena
+  scritta): tolto con motivazione, stesso precedente di athanor-scudo su greetd. Resta del
+  gate della Tappa 5: **Settings**. Note dallo screenshot, non bloccanti: due icone del dock
+  sono segnaposto; il dock avverte `gdk_wayland_toplevel_compute_size: size.width > 0`.
+
 ## Shell — lacune funzionali verso un utente Windows/macOS
 
 Analisi statica della shell 2026-09-10 (`athanor-shell-rs`, 83 file, ~15.6k righe vive):
@@ -193,13 +209,13 @@ lunga e la rifinitura. Le tre lacune più sentite da chi arriva da Windows/macOS
 piccole e indipendenti dal compositore — da fare dopo che la sessione cosmic-comp è verde:
 
 - [ ] **On-screen keyboard.** Manca del tutto (0 file). Blocca l'uso touch e il login su
-  hardware senza tastiera fisica. GNOME/KDE/COSMIC ce l'hanno. È la lacuna più grave
-  perché può rendere una macchina inutilizzabile, non solo scomoda.
+      hardware senza tastiera fisica. GNOME/KDE/COSMIC ce l'hanno. È la lacuna più grave
+      perché può rendere una macchina inutilizzabile, non solo scomoda.
 - [ ] **Night light / temperatura colore.** Manca (0 file). Regolazione attesa ovunque;
-  su Wayland si fa con `wlr-gamma-control` — cosmic-comp lo espone, quindi è un pannello
-  nel control center + un client gamma, niente di compositore-specifico.
+      su Wayland si fa con `wlr-gamma-control` — cosmic-comp lo espone, quindi è un pannello
+      nel control center + un client gamma, niente di compositore-specifico.
 - [ ] **Profili di alimentazione** (prestazioni / bilanciato / risparmio). Manca (0 file).
-  Si appoggia a `power-profiles-daemon` via D-Bus, come batteria e upower già fanno.
+      Si appoggia a `power-profiles-daemon` via D-Bus, come batteria e upower già fanno.
 
 Note minori dalla stessa analisi, non bloccanti: `sys/auth.rs` sblocca il keyring in
 silenzio (`let _ = proxy.unlock_keyring`) — un fallimento non è segnalato, vale almeno un
@@ -216,13 +232,13 @@ un orchestratore proprio. Il debito è lo shell inline, concentrato in due file,
 estratto quando quei file si toccano comunque, non prima.
 
 - [ ] `call-dag-compile.yml` (385 righe inline): ciclo rpmbuild per tier e publish su
-  ghcr in uno script chiamato dal YAML, provabile in locale nel builder.
+      ghcr in uno script chiamato dal YAML, provabile in locale nel builder.
 - [ ] `call-system-image.yml` (231 righe inline): costruzione dell'immagine e firma
-  in script; `sign_attest.sh` e `sbom_rootfs.sh` esistono già, il resto li segue.
+      in script; `sign_attest.sh` e `sbom_rootfs.sh` esistono già, il resto li segue.
 - [ ] Origine del registro come variabile unica con default `ghcr.io/hr-mes`, usata da
-  workflow, `athanor-install.ks`, `athanor-store` e `athanor-forge.repo`.
+      workflow, `athanor-install.ks`, `athanor-store` e `athanor-forge.repo`.
 - [ ] Per la 1.0, non per la v0: radice di fiducia della firma fuori dall'OIDC di GitHub
-  (chiave propria con HSM, o Fulcio/Rekor privati). È sovranità, non portabilità.
+      (chiave propria con HSM, o Fulcio/Rekor privati). È sovranità, non portabilità.
 
 Le 76 spec segnalate da `verify.py specs` non bloccano il boot: vanno nella v1,
 insieme alla compilazione della Fase 1 e al boot test della Fase 2
