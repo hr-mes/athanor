@@ -226,9 +226,11 @@ SESSION_PROBE = (
     b"for i in $(seq 60); do"
     b' s=$(loginctl list-sessions --no-legend 2>/dev/null | awk \'$3=="collaudo" && $4=="seat0"{print $1; exit}\');'
     b' [ -n "$s" ] && systemctl --user -q is-active athanor-session.target && break; sleep 1; done; sleep 15;'
-    b" down=; for u in " + SESSION_UNITS + b'; do systemctl --user -q is-active "$u" || down="$down $u"; done;'
+    b" down=; for u in "
+    + SESSION_UNITS
+    + b'; do systemctl --user -q is-active "$u" || down="$down $u"; done;'
     b' if [ -n "$s" ] && [ "$(loginctl show-session "$s" -p Type --value 2>/dev/null)" = wayland ] && [ -z "$down" ];'
-    b" then printf 'SESSION_%s %s\\n' ALIVE \"$s\"; else printf 'SESSION_%s %s down:%s\\n' DEAD \"${s:-none}\" \"$down\"; fi"
+    b' then printf \'SESSION_%s %s\\n\' ALIVE "$s"; else printf \'SESSION_%s %s down:%s\\n\' DEAD "${s:-none}" "$down"; fi'
 )
 # Sixty seconds of looking plus fifteen of watching, and a margin.
 SESSION_PROBE_WAIT = 85.0
@@ -250,6 +252,16 @@ SESSION_DIAGNOSTICS = (
     b"journalctl --user -b --no-pager --since '-300s' | tail -60",
     # What greetd made of the login itself.
     b"printf 'collaudo\\n' | sudo -S journalctl -b --no-pager -u greetd --since '-300s' | tail -30",
+    # Which system call a sandboxed unit died on. Run 34512758440 reached the session
+    # target with the shell and the dock crash-looping on signal SYS, which is a
+    # SystemCallFilter= kill, and nothing above names the call: the kernel reports it
+    # only in the SECCOMP audit record, as a number. ausearch -i decodes it; the journal
+    # copy is the fallback when auditd is not around to answer.
+    b"printf 'collaudo\\n' | sudo -S ausearch -m SECCOMP -i --start boot 2>&1 | tail -8",
+    b"printf 'collaudo\\n' | sudo -S journalctl -b --no-pager _TRANSPORT=audit"
+    b" | grep -a SECCOMP | tail -4",
+    # The crashing thread's stack, when systemd-coredump caught the dump.
+    b"coredumpctl info --no-pager 2>&1 | grep -aE 'Signal|Command Line|#[0-9]+ ' | head -30",
 )
 # The tests drive a fake guest that answers at once and scale every wait in the login
 # path down through this; the run itself leaves it at one.
