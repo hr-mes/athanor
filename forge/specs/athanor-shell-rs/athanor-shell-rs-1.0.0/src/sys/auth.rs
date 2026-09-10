@@ -182,7 +182,7 @@ where
                         cmd: vec![session_cmd],
                         env: vec![
                             "XDG_SESSION_TYPE=wayland".to_string(),
-                            "XDG_CURRENT_DESKTOP=niri".to_string(),
+                            "XDG_CURRENT_DESKTOP=Athanor".to_string(),
                         ],
                     };
                     let start_resp = send_request(&mut stream, &req)?;
