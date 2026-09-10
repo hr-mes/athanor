@@ -156,6 +156,18 @@ il suo gate (sezione 12). Uso locale e bump a mano in
   cosmic-comp + unit utente, `sys/auth.rs:160` manda ancora `XDG_CURRENT_DESKTOP=niri`), poi
   cage via dall'immagine.
 
+  **Sessione su cosmic-comp: commit `6a84f676` (2026-09-10)** — `athanor-session` →
+  `cosmic-comp /usr/bin/athanor-desktop`; `athanor-desktop` pubblica il display al manager
+  utente e attende `athanor-session.target`, fermarlo è il logout. Corsa risolta con un gate
+  `athanor-desktop.service` (oneshot, `wayland-info` fino a che il compositore risponde) che
+  il target richiede e shell/dock ordinano dopo con `Requisite=`. Rimossi: `niri-session.target`,
+  il preset utente (che abilitava anche un `athanor-wallpaper.service` inesistente) e l'alias
+  `athanor-ags.service`; l'hook usbguard ora è in %files. Validato in locale fin dove il nesting
+  consente (contratto greetd, import env, gate, target su/giù); le unit sul socket di cosmic-comp
+  le prova il collaudo su KMS. In corso: orchestrator 34479642752. Poi: togliere niri e cage
+  dall'immagine (packages.json custom_packages/custom_tier1, Requires di shell e system-config)
+  e il backend IPC su cosmic-workspace/toplevel-info.
+
 Le 76 spec segnalate da `verify.py specs` non bloccano il boot: vanno nella v1,
 insieme alla compilazione della Fase 1 e al boot test della Fase 2
 (prompt in PIANO_RIPARTENZA.md).
