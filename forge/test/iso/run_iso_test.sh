@@ -101,7 +101,8 @@ monitor="${output}/monitor.sock"
 rm -f "$serial" "$monitor"
 
 # The console watcher reports the markers and tells this script when each phase is done.
-python3 "${here}/console.py" "$serial" "${output}/serial.log" "${output}/phases.txt" &
+# It is given the monitor too: the password is typed at the greeter through it.
+python3 "${here}/console.py" "$serial" "${output}/serial.log" "${output}/phases.txt" "$monitor" &
 console_pid=$!
 
 # Screenshots on a timer: the installer and the greeter are graphical and say nothing on
@@ -151,7 +152,7 @@ timeout "$TIMEOUT" qemu-system-x86_64 \
 qemu_pid=$!
 
 # The console decides how long the run lasts, not the clock. It stops as soon as it has
-# an answer: a greeter, a guest that broke, or a machine that has gone quiet with nothing
+# an answer: a session, a guest that broke, or a machine that has gone quiet with nothing
 # left to wait for. Whichever it is, the virtual machine is shut down at that moment
 # instead of being left running against the timeout. TIMEOUT is only the outer bound for
 # a guest that never stops talking, and reaching it is itself reported as a failure.

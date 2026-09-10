@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drives the guest through GRUB, records its serial console, and notes each milestone.
 
-Usage: console.py SOCKET LOGFILE PHASEFILE
+Usage: console.py SOCKET LOGFILE PHASEFILE MONITOR
 
 QEMU serves the console on SOCKET as a unix server; this connects as the client. Every
 byte read is appended to LOGFILE, so the whole run can be read afterwards even for things
@@ -20,6 +20,12 @@ the ISO, which would mean testing something other than what ships, the boot comm
 typed into GRUB's own command line, with our kickstart named on the kernel line. What
 runs is the ISO's kernel, initrd and stage 2; only the answers come from us.
 
+MONITOR is QEMU's monitor socket, and it is the machine's keyboard: the greeter is drawn
+on the seat, not on the serial line, so the password is typed into it through `sendkey`
+once the guest has said over the serial that the greeter is up. The guest is then asked,
+over the serial again, whether the desktop session came up and stayed. A screenshot is
+taken through the same socket at that point, whichever way it answered.
+
 Why the command line and not the menu editor. Editing the highlighted entry means moving
 the cursor onto the `linux` line, and GRUB's editor is a full-screen editor whose line
 wrapping depends on the width of the terminal it is drawing to: on a 160-column serial
@@ -30,8 +36,10 @@ booting it and reading what the kernel reported as its command line.
 """
 
 import os
+import pathlib
 import re
 import socket
+import subprocess
 import sys
 import time
 
@@ -52,6 +60,11 @@ MARKERS = (
     # The guest's own answer to GREETER_PROBE below: a greeter session that is still
     # there, with the shell inside it, after it has had time to die.
     (b"GREETER_ALIVE", "greeter-alive"),
+    (b"GREETER_DEAD", "greeter-dead"),
+    # And to SESSION_PROBE: the account's own desktop session, with the shell and the
+    # dock in it, still up after logging in at the greeter.
+    (b"SESSION_ALIVE", "session-alive"),
+    (b"SESSION_DEAD", "session-dead"),
 )
 ANSI = re.compile(rb"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
@@ -81,8 +94,8 @@ BOOT_COMMANDS = (
 GRUB_SETTLE = 3.0
 BETWEEN_COMMANDS = 2.0
 # Milestones that settle the run: once one of these is seen there is nothing left to wait
-# for, so the watcher stops and the machine is shut down. A greeter is the answer the test
-# wants; the rest are answers too, just unwelcome ones.
+# for, so the watcher stops and the machine is shut down. A desktop session is the answer
+# the test wants; the rest are answers too, just unwelcome ones.
 # A text login prompt is deliberately NOT here. The serial getty appears on the way to
 # graphical.target, not instead of it, so stopping at it ends the run before the greeter
 # has had a chance to start and reports a pass on a boot that never showed one. That is
@@ -92,9 +105,11 @@ BETWEEN_COMMANDS = 2.0
 # Nor do the greeter unit and the graphical target. Run 34384585109 had both on the
 # console while its greeter was dying: greetd started, the greeter it launched aborted
 # three seconds later, three times, until the start limit. They say the system tried,
-# not that it succeeded. Only the guest's own report of a steady greeter session, asked
-# for once the login prompt is there, settles the run.
-DECIDED = frozenset({"greeter-alive", "panic", "emergency"})
+# not that it succeeded. Nor, any longer, does the greeter itself: a steady greeter is
+# where the login is typed, and the run is settled by the guest's own report of a steady
+# desktop session after it. A greeter or a session found dead is not final either: the
+# diagnostics are asked for first, and the idle window then ends the run.
+DECIDED = frozenset({"session-alive", "panic", "emergency"})
 
 # How long the guest may say nothing before the run is called over. A first boot that has
 # to relabel the filesystem is the slowest legitimate silence there is, and it does not
@@ -107,9 +122,10 @@ IDLE_GIVE_UP = 600.0
 # simply stopped writing to the serial once the getty owned it -- and they call for
 # opposite fixes. Deduction picked wrong twice (runs 34262503262 and 34269959759); the
 # machine can answer directly. The account is the one collaudo.ks creates, it exists only
-# inside this VM, and the whole exchange is recorded in the console log.
-DIAGNOSTIC_USER = b"collaudo"
-DIAGNOSTIC_PASSWORD = b"collaudo"
+# inside this VM, and the whole exchange is recorded in the console log. The same account
+# is the one that logs in at the greeter.
+GUEST_USER = b"collaudo"
+GUEST_PASSWORD = b"collaudo"
 DIAGNOSTICS = (
     b"systemctl is-system-running",
     b"systemctl get-default",
@@ -193,13 +209,55 @@ GREETER_PROBE = (
 )
 # Thirty seconds of looking plus fifteen of watching, and a margin for the shell.
 GREETER_PROBE_WAIT = 50.0
+
+# The password as QEMU's `sendkey` wants it, one key per command. QEMU names a letter key
+# by the letter, and letters are all the password has.
+GREETER_PASSWORD_KEYS = tuple(GUEST_PASSWORD.decode())
+
+# Ask the guest whether the login at the greeter produced a desktop, the same way the
+# greeter was asked about: the account's session on the seat -- the serial login is the
+# same account with no seat -- of type wayland, with the session target and the units it
+# gathers all still active fifteen seconds after the target came up. The units are asked
+# about one by one: `systemctl is-active` given several names answers yes when any one
+# of them is, and a desktop with the shell crashed out of it is exactly the failure this
+# is for. The names that are down go into the answer, so a dead session says what died.
+SESSION_UNITS = b"athanor-session.target athanor-shell.service athanor-dock.service"
+SESSION_PROBE = (
+    b"for i in $(seq 60); do"
+    b' s=$(loginctl list-sessions --no-legend 2>/dev/null | awk \'$3=="collaudo" && $4=="seat0"{print $1; exit}\');'
+    b' [ -n "$s" ] && systemctl --user -q is-active athanor-session.target && break; sleep 1; done; sleep 15;'
+    b" down=; for u in " + SESSION_UNITS + b'; do systemctl --user -q is-active "$u" || down="$down $u"; done;'
+    b' if [ -n "$s" ] && [ "$(loginctl show-session "$s" -p Type --value 2>/dev/null)" = wayland ] && [ -z "$down" ];'
+    b" then printf 'SESSION_%s %s\\n' ALIVE \"$s\"; else printf 'SESSION_%s %s down:%s\\n' DEAD \"${s:-none}\" \"$down\"; fi"
+)
+# Sixty seconds of looking plus fifteen of watching, and a margin.
+SESSION_PROBE_WAIT = 85.0
+
+# What to ask when the session did not come up, from the account's own serial login: its
+# user manager is the one the desktop runs in, so `systemctl --user` here sees the very
+# units the greeter's login started.
+SESSION_DIAGNOSTICS = (
+    b"loginctl list-sessions --no-pager",
+    b"systemctl --user list-units --failed --no-pager",
+    b"systemctl --user status athanor-session.target athanor-desktop.service"
+    b" athanor-shell.service athanor-dock.service --no-pager -l | head -60",
+    # The compositor's own words, and the greeter's before them, under the tags the
+    # session scripts log them with.
+    b"journalctl -b --no-pager -t athanor-session -t athanor-greeter --since '-300s'"
+    b" | grep -v 'Could not resolve keysym' | tail -50",
+    # What the user manager did with the session: the readiness gate timing out, a unit
+    # dying at start, the target never reached.
+    b"journalctl --user -b --no-pager --since '-300s' | tail -60",
+    # What greetd made of the login itself.
+    b"printf 'collaudo\\n' | sudo -S journalctl -b --no-pager -u greetd --since '-300s' | tail -30",
+)
 # The tests drive a fake guest that answers at once and scale every wait in the login
 # path down through this; the run itself leaves it at one.
 PACE = float(os.environ.get("ATHANOR_CONSOLE_PACE", "1"))
 
 
 def main() -> int:
-    sock_path, log_path, phase_path = sys.argv[1], sys.argv[2], sys.argv[3]
+    sock_path, log_path, phase_path, monitor_path = sys.argv[1:5]
 
     for _ in range(180):
         if os.path.exists(sock_path):
@@ -236,24 +294,44 @@ def main() -> int:
             time.sleep(BETWEEN_COMMANDS)
         note("grub-booted")
 
-    def ask_the_guest_what_it_is_doing() -> None:
-        """Log in over the serial, ask whether the greeter is up, then record what
-        systemd says about itself."""
-        s.sendall(DIAGNOSTIC_USER + b"\n")
+    def ask(command: bytes, wait: float) -> None:
+        """Type a command at the guest's serial shell and let its answer arrive."""
+        # A leading space absorbs the first characters, which the serial line drops
+        # after heavy output: run 34295559310 received `echo collaudo | sudo ...` as
+        # `ho collaudo | sudo ...` and the diagnostic was lost to "command not found".
+        # A space is also what keeps the line out of bash history, which is fitting
+        # for one that carries a password.
+        s.sendall(b"   " + command + b"\n")
+        time.sleep(wait * PACE)
+
+    def monitor(*commands: str) -> None:
+        """Send commands to QEMU's monitor: the keyboard and the screen are there."""
+        script = str(pathlib.Path(__file__).with_name("monitor.py"))
+        subprocess.run([sys.executable, script, monitor_path, *commands], check=True)
+
+    def ask_about_the_greeter() -> None:
+        """Log in over the serial and ask whether the greeter is up."""
+        s.sendall(GUEST_USER + b"\n")
         time.sleep(DIAGNOSTIC_PAUSE * PACE)
-        s.sendall(DIAGNOSTIC_PASSWORD + b"\n")
+        s.sendall(GUEST_PASSWORD + b"\n")
         time.sleep(DIAGNOSTIC_PAUSE * PACE)
-        s.sendall(b"   " + GREETER_PROBE + b"\n")
-        time.sleep(GREETER_PROBE_WAIT * PACE)
-        for index, command in enumerate(DIAGNOSTICS):
-            # A leading space absorbs the first characters, which the serial line drops
-            # after heavy output: run 34295559310 received `echo collaudo | sudo ...` as
-            # `ho collaudo | sudo ...` and the diagnostic was lost to "command not found".
-            # A space is also what keeps the line out of bash history, which is fitting
-            # for one that carries a password.
-            s.sendall(b"   " + command + b"\n")
-            last = index == len(DIAGNOSTICS) - 1
-            time.sleep((DIAGNOSTIC_LAST_PAUSE if last else DIAGNOSTIC_PAUSE) * PACE)
+        ask(GREETER_PROBE, GREETER_PROBE_WAIT)
+        note("greeter-asked")
+
+    def log_in_at_the_greeter() -> None:
+        """Type the password at the greeter, on the machine's keyboard, then ask the
+        guest whether the desktop came up, and keep a picture of the screen as it is
+        when it answers."""
+        monitor(*(f"sendkey {key}" for key in GREETER_PASSWORD_KEYS), "sendkey ret")
+        ask(SESSION_PROBE, SESSION_PROBE_WAIT)
+        monitor(f"screendump {pathlib.Path(log_path).with_name('screen-session.ppm')}")
+        note("login-sent")
+
+    def collect(diagnostics: tuple[bytes, ...]) -> None:
+        """Record what systemd says about itself."""
+        for index, command in enumerate(diagnostics):
+            last = index == len(diagnostics) - 1
+            ask(command, DIAGNOSTIC_LAST_PAUSE if last else DIAGNOSTIC_PAUSE)
         note("diagnostics-sent")
 
     while True:
@@ -301,19 +379,33 @@ def main() -> int:
             note("reinstall-loop")
             break
 
-        # A login prompt on the installed system with no greeter in sight is the case
-        # worth interrogating. Ask once, then keep reading: the answers arrive as ordinary
-        # console output and land in the log like everything else.
+        # A login prompt on the installed system is where the questions start. Ask once,
+        # then keep reading: the answers arrive as ordinary console output and land in
+        # the log like everything else.
         if (
             "installed" in seen
             and "login-prompt" in seen
-            and "diagnostics-sent" not in seen
+            and "greeter-asked" not in seen
             and not (seen & DECIDED)
         ):
-            ask_the_guest_what_it_is_doing()
+            ask_about_the_greeter()
             tail = b""
 
-        # The run is over the moment there is an answer. Waiting past a greeter, a panic
+        # A steady greeter is where the login happens. Once.
+        if "greeter-alive" in seen and "login-sent" not in seen:
+            log_in_at_the_greeter()
+            tail = b""
+
+        # Whichever of the two died is the one worth interrogating.
+        if "diagnostics-sent" not in seen:
+            if "greeter-dead" in seen:
+                collect(DIAGNOSTICS)
+                tail = b""
+            elif "session-dead" in seen:
+                collect(SESSION_DIAGNOSTICS)
+                tail = b""
+
+        # The run is over the moment there is an answer. Waiting past a session, a panic
         # or an emergency shell only spends the budget on a question already settled, and
         # this watcher ending is what shuts the machine down.
         if seen & DECIDED:

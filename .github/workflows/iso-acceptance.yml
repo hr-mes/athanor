@@ -1,9 +1,9 @@
 name: ISO Acceptance
 
 # Installs a published Athanor ISO in a virtual machine, restarts into what was
-# installed, and reports whether the greeter came up. It answers the one question the
-# build cannot: not whether an ISO was produced, but whether it installs a system that
-# starts.
+# installed, logs in at the greeter that came up, and reports whether a desktop session
+# followed. It answers the one question the build cannot: not whether an ISO was
+# produced, but whether it installs a system that starts and can be logged into.
 #
 # It is deliberately not part of every orchestrator run: the build already takes half an
 # hour and this adds a full install on top of it, so it runs weekly and on request. The

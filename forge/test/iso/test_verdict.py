@@ -23,6 +23,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import zlib
 
@@ -45,11 +46,30 @@ def verdict(tmp: pathlib.Path, phases, qemu_status=0):
 
 def test_pass(tmp: pathlib.Path) -> None:
     code, report = verdict(
-        tmp, [("installed", 100), ("kickstart-done", 110), ("greeter-alive", 400)]
+        tmp,
+        [
+            ("installed", 100),
+            ("kickstart-done", 110),
+            ("greeter-alive", 400),
+            ("session-alive", 460),
+        ],
     )
     assert code == 0, f"a complete run must pass, got {code}"
     assert "**PASS**" in report, report
     assert "first boot to greeter: 300s" in report, report
+    assert "greeter to session: 60s" in report, report
+
+
+def test_greeter_without_session_fails(tmp: pathlib.Path) -> None:
+    """A greeter that takes the password and produces no desktop is the failure the
+    login step exists to catch; it is not a pass because the greeter was there."""
+    code, report = verdict(
+        tmp, [("installed", 100), ("kickstart-done", 110), ("greeter-alive", 400)]
+    )
+    assert code != 0, "a run that never reached a session passed"
+    assert "**FAIL**" in report, report
+    assert "greeter reached: greeter-alive" in report, report
+    assert "session started: NO" in report, report
 
 
 def test_greetd_starting_is_not_a_greeter(tmp: pathlib.Path) -> None:
@@ -187,6 +207,7 @@ def test_console_boots_our_kickstart(tmp: pathlib.Path) -> None:
             sock,
             str(run / "serial.log"),
             str(run / "phases.txt"),
+            str(run / "monitor.sock"),
         ],
         stdout=subprocess.DEVNULL,
     )
@@ -261,6 +282,7 @@ def test_installed_systems_own_grub_is_not_a_loop(tmp: pathlib.Path) -> None:
             sock,
             str(run / "serial.log"),
             str(run / "phases.txt"),
+            str(run / "monitor.sock"),
         ],
         stdout=subprocess.DEVNULL,
     )
@@ -303,10 +325,46 @@ def test_installed_systems_own_grub_is_not_a_loop(tmp: pathlib.Path) -> None:
     assert "greeter-unit" in phases, sorted(phases)
 
 
-def test_console_stops_as_soon_as_it_has_an_answer(tmp: pathlib.Path) -> None:
-    """A greeter ends the run at once: the wait is what used to cost eighty minutes."""
+def typed_until(conn: socket.socket, needle: bytes, timeout: float) -> bytes:
+    """Everything the console types at the guest until `needle` is in it."""
+    typed = b""
+    deadline = time.time() + timeout
+    while time.time() < deadline and needle not in typed:
+        try:
+            typed += conn.recv(65536)
+        except socket.timeout:
+            pass
+    assert needle in typed, typed[-300:]
+    return typed
+
+
+def play_the_monitor(server: socket.socket, received: list[bytes]) -> None:
+    """Answer like QEMU's monitor: a banner on connect, a prompt after every command.
+    monitor.py waits on both, and a silent socket would cost its full timeouts."""
+    try:
+        while True:
+            conn, _ = server.accept()
+            with conn:
+                conn.settimeout(5)
+                conn.sendall(b"QEMU 9.0.0 monitor - type 'help' for more information\r\n(qemu) ")
+                while True:
+                    try:
+                        data = conn.recv(65536)
+                    except socket.timeout:
+                        break
+                    if not data:
+                        break
+                    received.append(data)
+                    conn.sendall(b"\r\n(qemu) ")
+    except OSError:
+        return  # the server socket was closed: the test is over
+
+
+def test_console_logs_in_and_stops_at_a_session(tmp: pathlib.Path) -> None:
+    """A steady greeter gets the password typed on the machine's keyboard, and a steady
+    session ends the run at once: the wait is what used to cost eighty minutes."""
     if not hasattr(socket, "AF_UNIX"):
-        print("  skip test_console_stops_as_soon_as_it_has_an_answer: no unix sockets")
+        print("  skip test_console_logs_in_and_stops_at_a_session: no unix sockets")
         return
 
     run = tmp / "prompt"
@@ -317,6 +375,11 @@ def test_console_stops_as_soon_as_it_has_an_answer(tmp: pathlib.Path) -> None:
     server = socket.socket(socket.AF_UNIX)
     server.bind(sock)
     server.listen(1)
+    monitor = socket.socket(socket.AF_UNIX)
+    monitor.bind(str(run / "monitor.sock"))
+    monitor.listen(2)
+    pressed: list[bytes] = []
+    threading.Thread(target=play_the_monitor, args=(monitor, pressed), daemon=True).start()
     proc = subprocess.Popen(
         [
             sys.executable,
@@ -324,6 +387,7 @@ def test_console_stops_as_soon_as_it_has_an_answer(tmp: pathlib.Path) -> None:
             sock,
             str(run / "serial.log"),
             str(run / "phases.txt"),
+            str(run / "monitor.sock"),
         ],
         stdout=subprocess.DEVNULL,
         # The login path waits on the guest in real time; the fake guest answers at once.
@@ -340,31 +404,35 @@ def test_console_stops_as_soon_as_it_has_an_answer(tmp: pathlib.Path) -> None:
         # The installed system offers its serial login; the console logs in and asks the
         # guest whether the greeter is up. Play the guest: wait for the question, answer.
         conn.sendall(b"athanor login: ")
-        typed = b""
-        deadline = time.time() + 20
-        while time.time() < deadline and b"GREETER_%s" not in typed:
-            try:
-                typed += conn.recv(65536)
-            except socket.timeout:
-                pass
-        assert b"GREETER_%s" in typed, typed[-300:]
-
-        started = time.time()
+        typed_until(conn, b"GREETER_%s", 20)
         conn.sendall(b"GREETER_ALIVE c5\r\n")
+
+        # It types the password on the keyboard, one key at a time, then asks whether
+        # the session came up.
+        typed_until(conn, b"SESSION_%s", 60)
+        started = time.time()
+        conn.sendall(b"SESSION_ALIVE c7\r\n")
         proc.wait(timeout=40)
         waited = time.time() - started
     finally:
         if proc.poll() is None:
             proc.kill()
         server.close()
+        monitor.close()
 
+    keys = b"".join(pressed).decode().split()
+    assert keys[: 2 * 9] == [
+        w for key in list("collaudo") + ["ret"] for w in ("sendkey", key)
+    ], keys
+    assert "screendump" in keys, keys
     # The script shuts the machine down when this process returns, so a console that
     # lingers here is a run that lingers: exactly the eighty idle minutes this replaced.
     assert waited < 10, f"the console waited {waited:.1f}s after the answer was in"
     phases = dict(
         line.split() for line in (run / "phases.txt").read_text().splitlines()
     )
-    assert "greeter-alive" in phases, sorted(phases)
+    for expected in ("greeter-alive", "login-sent", "session-alive"):
+        assert expected in phases, f"{expected} not recorded: {sorted(phases)}"
     assert "idle-timeout" not in phases, "it should not have waited out the idle window"
 
 
@@ -373,6 +441,7 @@ def main() -> int:
         tmp = pathlib.Path(name)
         for test in (
             test_pass,
+            test_greeter_without_session_fails,
             test_greetd_starting_is_not_a_greeter,
             test_installed_but_no_greeter,
             test_text_login_is_not_a_greeter,
@@ -382,7 +451,7 @@ def main() -> int:
             test_screenshot_keeps_the_pixels,
             test_console_boots_our_kickstart,
             test_installed_systems_own_grub_is_not_a_loop,
-            test_console_stops_as_soon_as_it_has_an_answer,
+            test_console_logs_in_and_stops_at_a_session,
         ):
             test(tmp)
             print(f"  ok  {test.__name__}")
