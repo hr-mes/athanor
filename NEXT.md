@@ -164,9 +164,24 @@ il suo gate (sezione 12). Uso locale e bump a mano in
   il preset utente (che abilitava anche un `athanor-wallpaper.service` inesistente) e l'alias
   `athanor-ags.service`; l'hook usbguard ora è in %files. Validato in locale fin dove il nesting
   consente (contratto greetd, import env, gate, target su/giù); le unit sul socket di cosmic-comp
-  le prova il collaudo su KMS. In corso: orchestrator 34479642752. Poi: togliere niri e cage
-  dall'immagine (packages.json custom_packages/custom_tier1, Requires di shell e system-config)
-  e il backend IPC su cosmic-workspace/toplevel-info.
+  le prova il collaudo su KMS. Boot verificato non rotto: greeter ancora verde sull'immagine
+  con la sessione (34488203834; il FAIL 34484197437 era una VM instabile, stallo in
+  local-fs/sysinit prima di greetd — rilanciare prima di incolpare una modifica).
+
+  **niri e cage via dall'immagine: `add82378` + `25cc4e08` (2026-09-10)** — spec `athanor-niri`
+  cancellata, `niri` tolto da packages.json e dai Requires di shell, daemon e system-config;
+  `cage` tolto da packages.json e dal recovery, che ora usa `cosmic-comp --no-xwayland
+  athanor-recovery-ui`: un solo compositore per greeter, sessione e recovery. Build:
+  orchestrator 34492718633.
+
+  **Collaudo del login (2026-09-10)** — il greeter mostrava "greetd daemon" perché
+  `discover_target_user` riconosceva solo l'utente `greeter`: ora qualunque account di
+  sistema (uid < 1000) fa cercare la persona in /etc/passwd; il campo password ha il focus
+  iniziale; la sessione richiesta a greetd dice `XDG_CURRENT_DESKTOP=Athanor`. Il collaudo
+  ISO, dopo `GREETER_ALIVE`, digita la password via monitor QEMU (`sendkey`), chiede alla
+  macchina via seriale `SESSION_ALIVE` (sessione wayland di collaudo su seat0 + target, shell
+  e dock attivi dopo 15 s), scatta `screen-session.png`, e il verdetto PASSA solo con la
+  sessione. Poi: il backend IPC su cosmic-workspace/toplevel-info.
 
 ## Shell — lacune funzionali verso un utente Windows/macOS
 
