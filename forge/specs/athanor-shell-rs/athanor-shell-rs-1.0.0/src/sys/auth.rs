@@ -34,16 +34,41 @@ pub struct UserInfo {
     pub avatar_path: Option<String>,
 }
 
+/// The uid below which an account is a system account, not a person: greetd runs the
+/// greeter as its own daemon user, and whatever that user is called it is never the one
+/// who is about to log in.
+const FIRST_HUMAN_UID: u32 = 1000;
+
+/// Whether `name` is a system account in /etc/passwd (uid below FIRST_HUMAN_UID). An
+/// unknown name counts as a system account: there is no person to greet by that name.
+fn is_system_account(name: &str) -> bool {
+    let Ok(content) = std::fs::read_to_string("/etc/passwd") else {
+        return true;
+    };
+    content
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split(':');
+            let user = parts.next()?;
+            let uid = parts.nth(1)?.parse::<u32>().ok()?;
+            (user == name).then_some(uid)
+        })
+        .next()
+        .is_none_or(|uid| uid < FIRST_HUMAN_UID)
+}
+
 pub fn discover_target_user() -> UserInfo {
     let env_user = std::env::var("USER").unwrap_or_default();
-    let target_user = if env_user == "greeter" || env_user.is_empty() {
+    // Running as the greeter (greetd's daemon user, whatever its name) or with no user at
+    // all: find the person to greet instead of showing the daemon on the card.
+    let target_user = if env_user.is_empty() || is_system_account(&env_user) {
         std::env::var("ATHANOR_LOGIN_USER").unwrap_or_else(|_| {
             if let Ok(content) = std::fs::read_to_string("/etc/passwd") {
                 for line in content.lines() {
                     let parts: Vec<&str> = line.split(':').collect();
                     if parts.len() >= 7 {
                         if let Ok(uid) = parts[2].parse::<u32>() {
-                            if (1000..65534).contains(&uid) && (parts[6].ends_with("bash") || parts[6].ends_with("zsh") || parts[6].ends_with("fish")) {
+                            if (FIRST_HUMAN_UID..65534).contains(&uid) && (parts[6].ends_with("bash") || parts[6].ends_with("zsh") || parts[6].ends_with("fish")) {
                                 return parts[0].to_string();
                             }
                         }
