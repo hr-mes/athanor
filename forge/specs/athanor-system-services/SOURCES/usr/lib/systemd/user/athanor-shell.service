@@ -1,8 +1,8 @@
 [Unit]
 Description=Athanor OS Desktop Panel (Pure Rust Native Shell)
 Documentation=https://github.com/hr-mes/athanor-forge
-BindsTo=graphical-session.target
-After=graphical-session.target athanor-skel-sync.service
+After=graphical-session.target athanor-desktop.service athanor-skel-sync.service
+Requisite=athanor-desktop.service
 PartOf=graphical-session.target
 
 [Service]
@@ -33,4 +33,3 @@ LockPersonality=true
 
 [Install]
 WantedBy=graphical-session.target
-Alias=athanor-ags.service

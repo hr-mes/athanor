@@ -1,0 +1,18 @@
+#!/usr/bin/sh
+# athanor-desktop - cosmic-comp's client for the session.
+#
+# cosmic-comp hands its client WAYLAND_DISPLAY (and DISPLAY, for Xwayland) and exits when
+# the client exits, so this process is the session's anchor. It is the only process that
+# has the compositor's WAYLAND_DISPLAY in its environment, so it is the one that must
+# publish it to the user manager -- a unit started by the manager inherits the manager's
+# environment, not this script's. It then starts the desktop through
+# athanor-session.target and waits on it.
+#
+# The target requires athanor-desktop.service, the readiness gate, which blocks until the
+# compositor answers a Wayland round-trip, so no graphical unit starts before cosmic-comp
+# can serve a surface. The session lasts exactly as long as the target is active, and
+# `systemctl --user stop athanor-session.target` is the logout: the wait returns, this
+# process exits, cosmic-comp exits, greetd shows the greeter again.
+set -eu
+systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE
+exec systemctl --user start --wait athanor-session.target

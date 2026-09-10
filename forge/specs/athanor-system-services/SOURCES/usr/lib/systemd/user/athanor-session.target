@@ -1,0 +1,23 @@
+[Unit]
+Description=Athanor OS desktop session
+Documentation=https://github.com/hr-mes/athanor-forge
+
+# The session manager's target: it stands and falls with graphical-session.target and
+# comes up after the pre target; XDG autostart entries run once it is up.
+BindsTo=graphical-session.target
+Wants=graphical-session-pre.target
+After=graphical-session-pre.target
+Wants=xdg-desktop-autostart.target
+Before=xdg-desktop-autostart.target
+
+# The desktop itself, pulled in from here rather than enabled by a preset: a user with
+# no state of their own gets the same desktop as everyone else. A target is ordered
+# after the units it wants, so this one is active once the shell and the dock are up;
+# it is not ordered before graphical-session.target, which the units come after, as
+# that would be a cycle. athanor-desktop starts this target once the compositor has a
+# display and waits on it; stopping it ends the session.
+# The readiness gate: the target does not count as up until the compositor answers,
+# and the desktop units below are ordered after it.
+Requires=athanor-desktop.service
+After=athanor-desktop.service
+Wants=athanor-skel-sync.service athanor-shell.service athanor-dock.service

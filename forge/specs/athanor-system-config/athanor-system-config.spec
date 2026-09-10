@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:25.fc43}
+Release:        %{?autorelease}%{!?autorelease:26.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -64,7 +64,9 @@ mkdir -p /etc/yum.repos.d
 %files
 %dir /usr/share/athanor-system-config
 %attr(0755,root,root) /usr/bin/athanor-session
+%attr(0755,root,root) /usr/bin/athanor-desktop
 %attr(0755,root,root) /usr/bin/athanor-greeter-session
+%attr(0755,root,root) /usr/bin/athanor-usbguard-hook
 %attr(0755,root,root) /usr/bin/athanor-uki-enroll
 %attr(0755,root,root) /usr/libexec/athanor-snapshot-trigger.sh
 %dir /usr/lib/systemd/system/greetd.service.d
@@ -80,6 +82,15 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) /etc/security/limits.d/99-athanor-realtime.conf
 
 %changelog
+* Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.0-26
+- The session runs on cosmic-comp. athanor-session clears the user manager of what the
+  previous session left, sets the desktop name and execs cosmic-comp with
+  /usr/bin/athanor-desktop as its client; athanor-desktop publishes the display to the
+  user manager and holds the session open by waiting on athanor-session.target, so
+  stopping the target is the logout. niri-session is no longer started. The USB policy
+  hook the session calls, /usr/bin/athanor-usbguard-hook, is finally in %files: it was
+  never packaged, and the old session's "|| true" hid the missing file. The greetd.toml
+  comment about choosing a renderer, left over from the cage probe, is corrected.
 * Wed Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-25
 - Draw the greeter on cosmic-comp instead of cage. cosmic-comp takes a client program
   as its argument the way cage does, hands it its own WAYLAND_DISPLAY and exits when the

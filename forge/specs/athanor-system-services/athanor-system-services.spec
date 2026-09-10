@@ -1,13 +1,14 @@
 %global debug_package %{nil}
 Name:           athanor-system-services
 Version:        1.0.1
-Release:        6%{?dist}
+Release:        7%{?dist}
 Summary:        Athanor OS athanor-system-services
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
 BuildArch:      noarch
 Requires:       systemd
 Requires:       athanor-shell-rs
+Requires:       wayland-utils
 
 %description
 Provides core systemd user targets, desktop panel lifecycle services, and skeleton synchronization for Athanor OS.
@@ -21,21 +22,29 @@ Provides core systemd user targets, desktop panel lifecycle services, and skelet
 %install
 mkdir -p %{buildroot}/usr/share/athanor-system-services
 mkdir -p %{buildroot}/usr/lib/systemd/user
-mkdir -p %{buildroot}/usr/lib/systemd/user-preset
-cp -a %{_sourcedir}/usr/lib/systemd/user/* %{buildroot}/usr/lib/systemd/user/ || true
-cp -a %{_sourcedir}/usr/lib/systemd/user-preset/* %{buildroot}/usr/lib/systemd/user-preset/ || true
-ln -s athanor-shell.service %{buildroot}/usr/lib/systemd/user/athanor-ags.service
+cp -a %{_sourcedir}/usr/lib/systemd/user/* %{buildroot}/usr/lib/systemd/user/
 
 %files
 %dir /usr/share/athanor-system-services
-/usr/lib/systemd/user/niri-session.target
+/usr/lib/systemd/user/athanor-session.target
+/usr/lib/systemd/user/athanor-desktop.service
 /usr/lib/systemd/user/athanor-skel-sync.service
 /usr/lib/systemd/user/athanor-shell.service
 /usr/lib/systemd/user/athanor-dock.service
-/usr/lib/systemd/user/athanor-ags.service
-/usr/lib/systemd/user-preset/99-athanor-desktop.preset
 
 %changelog
+* Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.1-7
+- The session target is athanor-session.target, for cosmic-comp: it pulls the shell, the
+  dock and the skeleton sync itself instead of relying on a user preset, and
+  athanor-desktop, the compositor's client, starts and waits on it. niri-session.target,
+  the preset (which also enabled an athanor-wallpaper.service that never existed) and the
+  athanor-ags.service alias are gone; the %install no longer hides a missing source
+  directory behind || true.
+- Add athanor-desktop.service, a oneshot gate the target requires and the shell and dock
+  order after: it publishes the display to the user manager and blocks on a Wayland
+  round-trip (wayland-info), so no graphical unit starts before cosmic-comp can serve a
+  surface. Without it the units raced the compositor and crash-looped (Failed to open
+  display, then SIGSYS on GTK4's error path under the session sandbox).
 * Wed Jul 15 2026 Athanor Forge <forge@athanor.os> - 1.0.1-6
 - Add athanor-dock.service as dedicated user systemd service for interactive Glassmorphic Dock
 

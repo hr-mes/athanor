@@ -1,6 +1,0 @@
-[Unit]
-Description=Athanor OS Niri Desktop Session
-Documentation=https://github.com/hr-mes/athanor-forge
-BindsTo=graphical-session.target
-Wants=graphical-session.target xdg-desktop-autostart.target
-After=graphical-session.target xdg-desktop-autostart.target

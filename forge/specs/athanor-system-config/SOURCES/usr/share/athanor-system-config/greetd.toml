@@ -2,8 +2,8 @@
 vt = 1
 
 [default_session]
-# A script rather than a command line: the session has to set up its runtime directory,
-# choose a renderer this machine can actually drive, and put the compositor's output in
-# the journal, which is more than a TOML string should carry. The script explains each.
+# A script rather than a command line: the session has to set up its runtime directory
+# and put the compositor's output in the journal, which is more than a TOML string should
+# carry. The script explains each.
 command = "/usr/bin/athanor-greeter-session"
 user = "greetd"

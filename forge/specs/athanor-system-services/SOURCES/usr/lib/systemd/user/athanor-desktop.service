@@ -1,0 +1,23 @@
+[Unit]
+Description=Athanor session readiness gate
+Documentation=https://github.com/hr-mes/athanor-forge
+
+# The one thing every graphical unit needs and none of them can assume: a compositor that
+# answers. cosmic-comp creates its Wayland socket a moment before it can serve a surface,
+# and a client that connects in that window dies on the first request -- GTK4 reports
+# "Failed to open display" and, on the error path, trips the session sandbox's system-call
+# filter (SIGSYS). Pulled by the target the shell and the dock would race exactly there and
+# crash-loop to their start limit.
+#
+# So the target reaches "up" only through this gate, which blocks on a real Wayland
+# round-trip. Every unit ordered after it starts against a compositor already serving.
+# WAYLAND_DISPLAY is published to the user manager by athanor-desktop, cosmic-comp's client,
+# the only process that has it; by the time this gate runs it is already in the manager
+# environment, so wayland-info here reaches the compositor.
+Before=athanor-session.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/sh -c 'for _ in $(seq 100); do wayland-info >/dev/null 2>&1 && exit 0; sleep 0.1; done; echo "compositor did not become ready" >&2; exit 1'
+TimeoutStartSec=15

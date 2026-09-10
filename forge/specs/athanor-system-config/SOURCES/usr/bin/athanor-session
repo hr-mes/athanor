@@ -1,14 +1,25 @@
 #!/usr/bin/sh
-# athanor-session - Session wrapper for Athanor OS (`greetd` -> `niri`)
-# Arresta eventuali sessioni o servizi Niri precedenti dell'utente per evitare che niri-session esca con exit 1
+# athanor-session - the session greetd starts once the user is authenticated.
+#
+# greetd runs it as the user, with the environment PAM built plus what the greeter asked
+# for in StartSession. The compositor is cosmic-comp. The desktop -- shell, dock -- is a
+# set of systemd user units gathered by athanor-session.target, which athanor-desktop,
+# the compositor's client, starts once the display exists and holds open for the life
+# of the session.
+set -eu
 
-systemctl --user stop niri.service niri-shutdown.target 2>/dev/null || true
-systemctl --user reset-failed 2>/dev/null || true
+# Whatever the previous session left in the user manager -- units still active behind
+# a compositor that died, units failed -- would have this one start half-way. Clear it.
+systemctl --user stop athanor-session.target
+systemctl --user reset-failed
 
-# Esporta le variabili vitali della sessione logind (necessarie per libseat su NVIDIA)
-systemctl --user import-environment XDG_SESSION_ID XDG_SESSION_TYPE XDG_VTNR WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+export XDG_CURRENT_DESKTOP=Athanor
+export XDG_SESSION_TYPE=wayland
 
-# Imposta la policy USBGuard per la sessione sbloccata dell'utente
-/usr/bin/athanor-usbguard-hook unlock 2>/dev/null || true
+# The USB policy is relaxed for an unlocked session; the hook does nothing where
+# usbguard is not running.
+/usr/bin/athanor-usbguard-hook unlock
 
-exec /usr/bin/niri-session "$@"
+# cosmic-comp runs athanor-desktop as its client and exits when it exits. systemd-cat
+# puts the compositor's own output in the journal under "athanor-session".
+exec systemd-cat -t athanor-session cosmic-comp /usr/bin/athanor-desktop

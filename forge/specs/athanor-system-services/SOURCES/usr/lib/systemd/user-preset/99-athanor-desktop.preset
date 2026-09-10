@@ -1,5 +1,0 @@
-enable niri-session.target
-enable athanor-skel-sync.service
-enable athanor-shell.service
-enable athanor-dock.service
-enable athanor-wallpaper.service

@@ -1,8 +1,8 @@
 [Unit]
 Description=Athanor OS Glassmorphic Dock (Pure Rust Native UI)
 Documentation=https://github.com/hr-mes/athanor-forge
-BindsTo=graphical-session.target
-After=graphical-session.target athanor-shell.service
+After=graphical-session.target athanor-desktop.service athanor-shell.service
+Requisite=athanor-desktop.service
 PartOf=graphical-session.target
 
 [Service]
