@@ -168,6 +168,30 @@ il suo gate (sezione 12). Uso locale e bump a mano in
   dall'immagine (packages.json custom_packages/custom_tier1, Requires di shell e system-config)
   e il backend IPC su cosmic-workspace/toplevel-info.
 
+## Shell — lacune funzionali verso un utente Windows/macOS
+
+Analisi statica della shell 2026-09-10 (`athanor-shell-rs`, 83 file, ~15.6k righe vive):
+sana — zero unwrap/expect/panic/unsafe nel codice vivo, clippy pulito, niente TODO,
+codice morto `snap_overlay*` rimosso (2aaae73f). Per ampiezza batte le shell open-source
+artigianali, è alla pari con COSMIC come portata, sotto GNOME/KDE/macOS solo sulla coda
+lunga e la rifinitura. Le tre lacune più sentite da chi arriva da Windows/macOS, tutte
+piccole e indipendenti dal compositore — da fare dopo che la sessione cosmic-comp è verde:
+
+- [ ] **On-screen keyboard.** Manca del tutto (0 file). Blocca l'uso touch e il login su
+  hardware senza tastiera fisica. GNOME/KDE/COSMIC ce l'hanno. È la lacuna più grave
+  perché può rendere una macchina inutilizzabile, non solo scomoda.
+- [ ] **Night light / temperatura colore.** Manca (0 file). Regolazione attesa ovunque;
+  su Wayland si fa con `wlr-gamma-control` — cosmic-comp lo espone, quindi è un pannello
+  nel control center + un client gamma, niente di compositore-specifico.
+- [ ] **Profili di alimentazione** (prestazioni / bilanciato / risparmio). Manca (0 file).
+  Si appoggia a `power-profiles-daemon` via D-Bus, come batteria e upower già fanno.
+
+Note minori dalla stessa analisi, non bloccanti: `sys/auth.rs` sblocca il keyring in
+silenzio (`let _ = proxy.unlock_keyring`) — un fallimento non è segnalato, vale almeno un
+`warn`; accessibilità (`voiceover.rs` + pagine a11y nei settings) è agli inizi.
+Metodo di validazione deciso: sviluppo su Windows, build nel builder podman, ogni feature
+passa il collaudo CI (screenshot rivisti dall'utente).
+
 Le 76 spec segnalate da `verify.py specs` non bloccano il boot: vanno nella v1,
 insieme alla compilazione della Fase 1 e al boot test della Fase 2
 (prompt in PIANO_RIPARTENZA.md).
