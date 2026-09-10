@@ -6,7 +6,12 @@ Requisite=athanor-desktop.service
 PartOf=graphical-session.target
 
 [Service]
-MemoryDenyWriteExecute=true
+# W^X cannot hold for a GL client: Mesa JIT-compiles shaders on the CPU wherever
+# there is no GPU driver (llvmpipe, the case of every VM), and the freshly written
+# page must then become executable. With this on, acceptance run 34524538068 saw
+# every start of the shell and the dock segfault at the first JIT'd function. The
+# same reasoning removed it from greetd's drop-in in athanor-scudo.
+MemoryDenyWriteExecute=no
 CPUWeight=200
 MemoryHigh=768M
 MemoryMax=1024M

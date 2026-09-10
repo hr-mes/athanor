@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-system-services
 Version:        1.0.1
-Release:        8%{?dist}
+Release:        9%{?dist}
 Summary:        Athanor OS athanor-system-services
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -33,6 +33,12 @@ cp -a %{_sourcedir}/usr/lib/systemd/user/* %{buildroot}/usr/lib/systemd/user/
 /usr/lib/systemd/user/athanor-dock.service
 
 %changelog
+* Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.1-9
+- Drop MemoryDenyWriteExecute from the shell and the dock. Mesa JIT-compiles shaders
+  on the CPU wherever there is no GPU driver, and W^X made every start of both units
+  segfault at the first JIT'd function (acceptance run 34524538068), as it had done
+  to the greeter under greetd's drop-in before athanor-scudo removed it there.
+
 * Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.1-8
 - The shell and the dock allow mincore on top of @system-service: the GL stack calls
   it while the first frame is drawn, and the filter killed every start of both units

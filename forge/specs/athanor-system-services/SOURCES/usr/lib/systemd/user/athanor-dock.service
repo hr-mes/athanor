@@ -6,7 +6,9 @@ Requisite=athanor-desktop.service
 PartOf=graphical-session.target
 
 [Service]
-MemoryDenyWriteExecute=true
+# See athanor-shell.service: a GL client JIT-compiles shaders where there is no GPU
+# driver, and W^X made every start segfault (acceptance run 34524538068).
+MemoryDenyWriteExecute=no
 CPUWeight=150
 MemoryHigh=384M
 MemoryMax=512M
