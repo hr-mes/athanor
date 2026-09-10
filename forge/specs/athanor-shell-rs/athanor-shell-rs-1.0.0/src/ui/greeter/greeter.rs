@@ -578,5 +578,9 @@ pub fn build_ui(app: &Application, is_lockscreen: bool) {
     root_vbox.append(&bottom_bar);
 
     window.set_child(Some(&root_vbox));
+    // Keyboard focus starts on the password entry: the first key pressed is the first
+    // character of the password, nothing has to be clicked first. GTK moves focus to
+    // the first focusable widget otherwise, which is whatever the layout puts first.
+    password_entry.grab_focus();
     window.present();
 }
