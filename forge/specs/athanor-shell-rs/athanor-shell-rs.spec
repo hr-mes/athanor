@@ -2,7 +2,7 @@
 # Il crate vive nel workspace: la spec compila il checkout in place, non un tarball.
 Name:           athanor-shell-rs
 Version:        1.0.0
-Release:        24%{?dist}
+Release:        25%{?dist}
 Summary:        Athanor OS Native Rust GTK4 Shell
 
 License:        MIT
@@ -29,6 +29,11 @@ install -m 0755 target/release/athanor-shell-rs %{buildroot}/usr/bin/athanor-she
 /usr/bin/athanor-shell-rs
 
 %changelog
+* Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.0-25
+- Remove dead snap_overlay code: snap_overlay_old.rs (1102 lines, the pre-refactor file)
+  and three empty stubs (snap_overlay_core/geometry/render.rs) from an abandoned split.
+  None was declared by any mod, so none was ever compiled; the live overlay is
+  snap_overlay.rs. No behaviour change.
 * Wed Sep 09 2026 Athanor Forge <forge@athanor.os> - 1.0.0-24
 - Stop aborting when no eBPF ring-buffer descriptor is provided. Nothing in the system
   sets ATHANOR_EBPF_RINGBUF_FD, so start_ebpf_dbus_listener panicked at every start of
