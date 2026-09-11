@@ -283,12 +283,14 @@ SETTINGS_UNIT = b"athanor-settings-probe"
 SETTINGS_APP = b"os.athanor.Settings"
 SETTINGS_PROBE = (
     b"systemd-run --user --quiet --unit=" + SETTINGS_UNIT + b" athanor-settings-rs;"
-    b" w=; for i in $(seq 60); do busctl --user tree " + SETTINGS_APP
-    + b' --list 2>/dev/null | grep -q /window/ && { w=$i; break; }; sleep 1; done; sleep 5;'
-    b" if [ -n \"$w\" ] && systemctl --user -q is-active " + SETTINGS_UNIT + b".service;"
+    b" w=; for i in $(seq 60); do busctl --user tree "
+    + SETTINGS_APP
+    + b" --list 2>/dev/null | grep -q /window/ && { w=$i; break; }; sleep 1; done; sleep 5;"
+    b' if [ -n "$w" ] && systemctl --user -q is-active ' + SETTINGS_UNIT + b".service;"
     b" then printf 'SETTINGS_%s window-after:%ss\\n' ALIVE \"$w\";"
     b" else printf 'SETTINGS_%s window-after:%s %s\\n' DEAD \"${w:-never}\""
-    b' "$(systemctl --user show ' + SETTINGS_UNIT
+    b' "$(systemctl --user show '
+    + SETTINGS_UNIT
     + b".service -p ActiveState -p Result -p ExecMainStatus --value | tr '\\n' ' ')\"; fi"
 )
 # A minute of looking for the window, five seconds of watching, and a margin.
@@ -460,7 +462,9 @@ def main() -> int:
         # The guest has said whether Settings came up: keep the screen as it is now, with
         # the window on it or with whatever is there instead.
         if (seen & {"settings-alive", "settings-dead"}) and "settings-shot" not in seen:
-            monitor(f"screendump {pathlib.Path(log_path).with_name('screen-settings.ppm')}")
+            monitor(
+                f"screendump {pathlib.Path(log_path).with_name('screen-settings.ppm')}"
+            )
             note("settings-shot")
 
         # Whichever of the three died is the one worth interrogating.
@@ -479,6 +483,14 @@ def main() -> int:
         # or an emergency shell only spends the budget on a question already settled, and
         # this watcher ending is what shuts the machine down.
         if seen & DECIDED:
+            # The rest of the answer's line may still be on its way -- run 34588077759 kept
+            # "SETTINGS_ALIVE " and lost the timing after it -- so give it a moment to land
+            # in the log before the machine is shut down.
+            s.settimeout(2 * PACE)
+            try:
+                log.write(s.recv(65536))
+            except (socket.timeout, OSError):
+                pass
             break
 
         # Nothing has been said for a long time and nothing is expected: a guest that
