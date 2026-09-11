@@ -2,7 +2,7 @@ import os
 import json
 import networkx as nx
 
-GRAPH_FILE = ".agents/graphify_db.json"
+GRAPH_FILE = ".graphify/graphify_db.json"
 ROOT_DIR = "."
 
 def build_graph():

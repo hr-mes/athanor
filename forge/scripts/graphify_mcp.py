@@ -7,7 +7,7 @@ import os
 mcp = FastMCP("Graphify")
 
 # Graph Database file
-GRAPH_FILE = ".agents/graphify_db.json"
+GRAPH_FILE = ".graphify/graphify_db.json"
 
 def load_graph():
     G = nx.Graph()
