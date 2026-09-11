@@ -121,7 +121,7 @@
     "squashfuse",
     "upower",
     "virt-manager",
-    "wayland"
+    "libwayland-client"
   ],
   "upstream_desktop": [
     "cosmic-comp",
@@ -155,7 +155,7 @@
     "rsms-inter-fonts",
     "swaybg",
     "swaylock",
-    "thunar",
+    "Thunar",
     "thunar-archive-plugin",
     "thunar-volman",
     "usbguard",

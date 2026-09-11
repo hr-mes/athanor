@@ -44,17 +44,19 @@ TIER0_IMAGES=(
 for pkg in "${CUSTOM_TIER0[@]}"; do
   [[ -n "$pkg" ]] && TIER0_IMAGES+=("athanor-forge-$pkg")
 done
-for pkg in "${UPSTREAM_CORE[@]}" "${UPSTREAM_MEDIA[@]}"; do
-  [[ -n "$pkg" ]] && TIER0_IMAGES+=("athanor-forge-rolling-$pkg")
-done
 
 TIER1_IMAGES=()
 for pkg in "${CUSTOM_TIER1[@]}"; do
   [[ -n "$pkg" ]] && TIER1_IMAGES+=("athanor-forge-$pkg")
 done
-for pkg in "${UPSTREAM_DESKTOP[@]}" "${UPSTREAM_CLI[@]}"; do
-  [[ -n "$pkg" ]] && TIER1_IMAGES+=("athanor-forge-rolling-$pkg")
-done
+
+# The upstream_* packages (COSMIC, media, CLI) are NOT built into per-package rolling
+# images: no athanor-forge-rolling-<pkg> is published, and pulling them here failed
+# silently, so 50 of them were absent from the image while the build stayed green. They
+# are installed as Fedora/RPM Fusion binaries directly in system/Containerfile. When the
+# zero-trust rebuild-from-source lands (2026-09-11 decision), each will get a spec and a
+# tier image, and its name moves into the custom_tier* lists above -- not back here as a
+# rolling image. UPSTREAM_CORE/DESKTOP/MEDIA/CLI stay read for the manifest below.
 
 TIER2_IMAGES=()
 for pkg in "${CUSTOM_TIER2[@]}"; do
@@ -117,7 +119,12 @@ pull_and_extract() {
     buildah umount "$ctr"
     buildah rm "$ctr"
   else
-    echo "    [!] Image not found or pull failed: $img"
+    # Every image in the TIER*_IMAGES lists is a custom package the DAG has just built and
+    # published, so a missing one is a real failure -- a package that will be absent from
+    # the system image. This used to be swallowed (return 0), which is how 50 packages went
+    # missing while the build stayed green. Fail loudly instead.
+    echo "    [FATAL] Image not found or pull failed: $IMAGE_LOWER" >&2
+    return 1
   fi
 }
 
