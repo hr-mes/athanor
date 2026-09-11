@@ -14,7 +14,7 @@ says which part broke:
   kickstart-done   our additions ran too, so the disk has an account on it
   greeter          the installed system reports a greeter session alive and steady
   session          after the password is typed at that greeter, the account's own
-                   desktop session is alive and steady, shell and dock included
+                   desktop session is alive and steady, panel and wallpaper included
   settings         the settings application, started inside that session, is still
                    running twenty seconds later
 

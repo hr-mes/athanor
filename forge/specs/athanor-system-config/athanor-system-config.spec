@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:27.fc43}
+Release:        %{?autorelease}%{!?autorelease:28.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -82,6 +82,11 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) /etc/security/limits.d/99-athanor-realtime.conf
 
 %changelog
+* Fri Sep 11 2026 Athanor Forge <forge@athanor.os> - 1.0.0-28
+- The session announces XDG_CURRENT_DESKTOP=Athanor:COSMIC, so the COSMIC desktop
+  components that now make up the session (see athanor-system-services 1.0.1-10)
+  and the portals recognise it.
+
 * Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.0-27
 - Drop the cage and niri runtime dependencies. Greeter and session are on cosmic-comp;
   neither cage nor niri is on the desktop boot path any more. cage stays out of this

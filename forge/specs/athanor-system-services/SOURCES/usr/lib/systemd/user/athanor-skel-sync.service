@@ -1,7 +1,7 @@
 [Unit]
 Description=Athanor OS User Skeleton Sync
 Documentation=https://github.com/hr-mes/athanor-forge
-Before=athanor-shell.service athanor-dock.service
+Before=cosmic-panel.service
 DefaultDependencies=no
 
 [Service]

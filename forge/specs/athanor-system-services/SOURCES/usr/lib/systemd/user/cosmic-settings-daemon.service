@@ -1,0 +1,36 @@
+[Unit]
+Description=COSMIC settings daemon
+Documentation=https://github.com/pop-os/cosmic-settings-daemon
+After=graphical-session.target athanor-desktop.service
+Requisite=athanor-desktop.service
+PartOf=graphical-session.target
+
+[Service]
+# Applies the session's settings: theme, keyboard and display configuration, the
+# shortcut actions cosmic-comp runs. It draws nothing, so the GL exceptions of the
+# other units are not needed. It writes the backlight through sysfs, which
+# ProtectKernelTunables would make read-only, so that one protection is left out.
+MemoryHigh=256M
+MemoryMax=384M
+Type=simple
+Slice=session.slice
+ExecStart=/usr/bin/cosmic-settings-daemon
+Restart=on-failure
+RestartSec=2s
+
+ProtectSystem=strict
+ProtectHome=read-only
+ConfigurationDirectory=cosmic
+StateDirectory=cosmic
+PrivateTmp=true
+NoNewPrivileges=true
+SystemCallFilter=@system-service
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=graphical-session.target

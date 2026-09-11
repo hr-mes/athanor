@@ -64,8 +64,8 @@ MARKERS = (
     # there, with the shell inside it, after it has had time to die.
     (b"GREETER_ALIVE", "greeter-alive"),
     (b"GREETER_DEAD", "greeter-dead"),
-    # And to SESSION_PROBE: the account's own desktop session, with the shell and the
-    # dock in it, still up after logging in at the greeter.
+    # And to SESSION_PROBE: the account's own desktop session, with the panel and the
+    # wallpaper in it, still up after logging in at the greeter.
     (b"SESSION_ALIVE", "session-alive"),
     (b"SESSION_DEAD", "session-dead"),
     # And to SETTINGS_PROBE: the settings application started inside that session, still
@@ -227,9 +227,9 @@ GREETER_PASSWORD_KEYS = tuple(GUEST_PASSWORD.decode())
 # same account with no seat -- of type wayland, with the session target and the units it
 # gathers all still active fifteen seconds after the target came up. The units are asked
 # about one by one: `systemctl is-active` given several names answers yes when any one
-# of them is, and a desktop with the shell crashed out of it is exactly the failure this
+# of them is, and a desktop with the panel crashed out of it is exactly the failure this
 # is for. The names that are down go into the answer, so a dead session says what died.
-SESSION_UNITS = b"athanor-session.target athanor-shell.service athanor-dock.service"
+SESSION_UNITS = b"athanor-session.target cosmic-panel.service cosmic-bg.service"
 SESSION_PROBE = (
     b"for i in $(seq 60); do"
     b' s=$(loginctl list-sessions --no-legend 2>/dev/null | awk \'$3=="collaudo" && $4=="seat0"{print $1; exit}\');'
@@ -250,7 +250,7 @@ SESSION_DIAGNOSTICS = (
     b"loginctl list-sessions --no-pager",
     b"systemctl --user list-units --failed --no-pager",
     b"systemctl --user status athanor-session.target athanor-desktop.service"
-    b" athanor-shell.service athanor-dock.service --no-pager -l | head -60",
+    b" cosmic-panel.service cosmic-bg.service --no-pager -l | head -60",
     # The compositor's own words, and the greeter's before them, under the tags the
     # session scripts log them with.
     b"journalctl -b --no-pager -t athanor-session -t athanor-greeter --since '-300s'"
@@ -261,7 +261,7 @@ SESSION_DIAGNOSTICS = (
     # What greetd made of the login itself.
     b"printf 'collaudo\\n' | sudo -S journalctl -b --no-pager -u greetd --since '-300s' | tail -30",
     # Which system call a sandboxed unit died on. Run 34512758440 reached the session
-    # target with the shell and the dock crash-looping on signal SYS, which is a
+    # target with the desktop units crash-looping on signal SYS, which is a
     # SystemCallFilter= kill, and nothing above names the call: the kernel reports it
     # only in the SECCOMP audit record, as a number. ausearch -i decodes it; the journal
     # copy is the fallback when auditd is not around to answer.

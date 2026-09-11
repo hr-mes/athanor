@@ -6,7 +6,7 @@ Documentation=https://github.com/hr-mes/athanor-forge
 # answers. cosmic-comp creates its Wayland socket a moment before it can serve a surface,
 # and a client that connects in that window dies on the first request -- GTK4 reports
 # "Failed to open display" and, on the error path, trips the session sandbox's system-call
-# filter (SIGSYS). Pulled by the target the shell and the dock would race exactly there and
+# filter (SIGSYS). Pulled by the target the desktop units would race exactly there and
 # crash-loop to their start limit.
 #
 # So the target reaches "up" only through this gate, which blocks on a real Wayland

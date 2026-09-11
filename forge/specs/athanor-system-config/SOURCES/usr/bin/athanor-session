@@ -2,8 +2,8 @@
 # athanor-session - the session greetd starts once the user is authenticated.
 #
 # greetd runs it as the user, with the environment PAM built plus what the greeter asked
-# for in StartSession. The compositor is cosmic-comp. The desktop -- shell, dock -- is a
-# set of systemd user units gathered by athanor-session.target, which athanor-desktop,
+# for in StartSession. The compositor is cosmic-comp. The desktop -- COSMIC's panel,
+# wallpaper and daemons -- is a set of systemd user units gathered by athanor-session.target, which athanor-desktop,
 # the compositor's client, starts once the display exists and holds open for the life
 # of the session.
 set -eu
@@ -13,7 +13,9 @@ set -eu
 systemctl --user stop athanor-session.target
 systemctl --user reset-failed
 
-export XDG_CURRENT_DESKTOP=Athanor
+# A colon-separated list, most specific first, as the specification reads it: COSMIC's
+# own components and the portals recognise the desktop by its second name.
+export XDG_CURRENT_DESKTOP=Athanor:COSMIC
 export XDG_SESSION_TYPE=wayland
 
 # The USB policy is relaxed for an unlocked session; the hook does nothing where

@@ -1,0 +1,48 @@
+[Unit]
+Description=COSMIC panel and dock
+Documentation=https://github.com/pop-os/cosmic-panel
+After=graphical-session.target athanor-desktop.service athanor-skel-sync.service
+Requisite=athanor-desktop.service
+PartOf=graphical-session.target
+
+[Service]
+# One process draws every entry of /usr/share/cosmic/com.system76.CosmicPanel (the top
+# panel and the dock) and spawns the applets as its children, so they live and are
+# accounted for in this unit's cgroup.
+#
+# W^X cannot hold for a GL client: Mesa JIT-compiles shaders on the CPU wherever there
+# is no GPU driver (llvmpipe, the case of every VM), and the freshly written page must
+# then become executable; acceptance run 34524538068 saw every start of a GL client
+# segfault at the first JIT'd function with it on. mincore is no longer part of
+# @system-service and the GL stack calls it while the first frame is drawn (run
+# 34515239432, SECCOMP syscall=27).
+MemoryDenyWriteExecute=no
+CPUWeight=200
+MemoryHigh=1G
+MemoryMax=1536M
+OOMScoreAdjust=-500
+Type=simple
+Slice=session.slice
+ExecStart=/usr/bin/cosmic-panel
+Restart=on-failure
+RestartSec=2s
+
+ProtectSystem=strict
+ProtectHome=read-only
+# cosmic-config keeps the panel's and the applets' settings in $XDG_CONFIG_HOME/cosmic,
+# and their state in $XDG_STATE_HOME/cosmic.
+ConfigurationDirectory=cosmic
+StateDirectory=cosmic
+PrivateTmp=true
+NoNewPrivileges=true
+SystemCallFilter=@system-service mincore
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=graphical-session.target

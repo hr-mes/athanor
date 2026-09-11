@@ -211,6 +211,24 @@ athanor-recovery-ui`: un solo compositore per greeter, sessione e recovery. Buil
   navigazione visibile; il primo tentativo (34581940472) rispondeva sul processo e non
   sulla finestra, e la finestra non c'era ancora — da qui la sonda sull'oggetto D-Bus.
 
+  **Desktop COSMIC al posto di shell e dock (decisione 2026-09-11).** Il rework della shell
+  non si fa: Fedora 43 impacchetta l'intero desktop COSMIC 1.6.0, la stessa release del
+  cosmic-comp in immagine, e adottarlo costa un commit invece di settimane. In immagine
+  entrano cosmic-panel (pannello e dock, applet come figli), cosmic-bg, cosmic-settings-daemon,
+  cosmic-notifications, cosmic-osd, cosmic-launcher (avviato da cosmic-comp sul tasto Super,
+  via `system_actions`), cosmic-settings, cosmic-term e le icone; ognuno dei demoni è una
+  unit utente di `athanor-system-services` (1.0.1-10) voluta da `athanor-session.target`,
+  con la stessa sandbox delle unit di shell e dock, che spariscono. `athanor-shell-rs`
+  resta in immagine solo per il greeter; `athanor-settings-rs` resta per le pagine
+  zero-trust e per il passo Settings del collaudo, che non cambia. La sessione annuncia
+  `XDG_CURRENT_DESKTOP=Athanor:COSMIC`. Con questo decadono: il backend IPC su protocolli
+  cosmic della Tappa 6 (il pannello COSMIC li parla già), la disconnessione Wayland su Esc
+  (era in gtk4-layer-shell, che il pannello non usa), il widget Hardware finto, il redraw
+  a 50 fps. Il collaudo ora chiede `cosmic-panel.service` e `cosmic-bg.service`. Se in
+  futuro si vorrà una shell propria, si scrive in libcosmic sopra questo desktop, un pezzo
+  alla volta, senza buttare nulla. Gate: collaudo verde con pannello COSMIC e Settings,
+  poi installazione sul disco fisico dell'utente (rischio vero: NVIDIA e MOK, non la UI).
+
   **VM locale Hyper-V (2026-09-11)** — `athanor-disk.vhdx` installata da `athanor-iso:34528079682`,
   Gen2, Secure Boot off, 4 vCPU, 6 GB, Default Switch; strumenti in `/.scratch/vm/`
   (bridge WMI elevato, tastiera via codici VK, mouse via uinput, SSH per chiave). Greeter e
