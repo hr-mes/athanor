@@ -199,6 +199,18 @@ athanor-recovery-ui`: un solo compositore per greeter, sessione e recovery. Buil
   gate della Tappa 5: **Settings**. Note dallo screenshot, non bloccanti: due icone del dock
   sono segnaposto; il dock avverte `gdk_wayland_toplevel_compute_size: size.width > 0`.
 
+  **Settings: VERDE il 2026-09-11 — GATE DELLA TAPPA 5 CHIUSO.** Collaudo 34588077759 su
+  `athanor-iso:34581338485` (l'ISO col fix della shell, 490b0694): PASS con greeter a 103 s,
+  sessione 116 s dopo, Settings 81 s dopo la sessione. Il passo Settings del collaudo
+  (547fde2a, b3a69528) avvia `athanor-settings-rs` come unit transiente del manager utente
+  dal login seriale, attende l'oggetto D-Bus della finestra (`/os/athanor/Settings/window/N`,
+  esportato da GTK) e risponde `SETTINGS_ALIVE` se la unit è ancora attiva cinque secondi
+  dopo; lo screenshot, preso all'arrivo della risposta, mostra la finestra "Impostazioni di
+  Sistema" sopra il desktop. Note dallo screenshot, non bloccanti: la finestra è più alta
+  dello schermo (1280x800) e il dock la copre; si apre direttamente sulla pagina Rete senza
+  navigazione visibile; il primo tentativo (34581940472) rispondeva sul processo e non
+  sulla finestra, e la finestra non c'era ancora — da qui la sonda sull'oggetto D-Bus.
+
   **VM locale Hyper-V (2026-09-11)** — `athanor-disk.vhdx` installata da `athanor-iso:34528079682`,
   Gen2, Secure Boot off, 4 vCPU, 6 GB, Default Switch; strumenti in `/.scratch/vm/`
   (bridge WMI elevato, tastiera via codici VK, mouse via uinput, SSH per chiave). Greeter e
@@ -233,7 +245,22 @@ athanor-recovery-ui`: un solo compositore per greeter, sessione e recovery. Buil
   prodotto (MAC casuale anche su ethernet vale il costo su switch gestiti e prenotazioni
   DHCP?); `vconsole.keymap=` vuoto nella riga di comando del kernel installato; mcelog
   fallisce in VM ("CPU is unsupported", innocuo). Requisito x86-64-v3: sotto un
-  hypervisor senza AVX2 la shell muore in SIGILL senza messaggio.
+  hypervisor senza AVX2 la shell muore in SIGILL senza messaggio. `bootc status` nella
+  VM: `/etc/containers/policy.json` dell'immagine è `insecureAcceptAnything`, quindi
+  `bootc switch`/`upgrade` accetta qualunque immagine senza verificare la firma cosign
+  che la pipeline produce (da chiudere con una policy `sigstoreSigned` sulla chiave del
+  progetto); la versione dichiarata dell'immagine è ancora `latest.20260705` della base.
+  L'aggiornamento di una VM installata da ISO non è `bootc upgrade` (il tag è fissato al
+  run id) ma `bootc switch --apply ghcr.io/hr-mes/athanor-system:<run id>`.
+  **DNS: il sistema installato non risolve nulla sulla rete dell'utente.**
+  `99-dns-tls.conf` impone `DNSOverTLS=yes` (stretto) con DNSSEC su 1.1.1.1/9.9.9.9, e
+  il resolver del DHCP (senza DoT) viene comunque provato per primo sul link: la rete
+  di casa dell'utente rifiuta la porta 853 (verificato anche dall'host Windows), quindi
+  `bootc switch` falliva con "lookup ghcr.io: i/o timeout". Un OS che senza 853 non ha
+  DNS è inusabile su molte reti (ISP e aziende la bloccano): decisione di prodotto tra
+  `opportunistic` (cifra quando può, degrada in chiaro con avviso) e stretto con un
+  fallback esplicito. Nella VM: drop-in `99-vm-dns.conf` con `opportunistic` e
+  `ipv4.ignore-auto-dns yes` sulla connessione.
 
 ## Shell — lacune funzionali verso un utente Windows/macOS
 
