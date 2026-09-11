@@ -273,19 +273,26 @@ SESSION_DIAGNOSTICS = (
 )
 # With the desktop up, start the settings application inside it. The serial login shares
 # the account's user manager with the desktop, and that manager carries the session's
-# WAYLAND_DISPLAY, so a transient unit started here opens on the seat. A GTK application
-# that cannot reach the display exits at once, and one that crashed while drawing its
-# window is a failed unit: still active twenty seconds on means it opened and stayed.
+# WAYLAND_DISPLAY, so a transient unit started here opens on the seat. A running process
+# is not the question, a window is: GTK exports every application window on the session
+# bus under the application's own name, as /os/athanor/Settings/window/N, the moment it
+# is created, so the guest watches for that path for up to a minute -- run 34581940472
+# answered on the process alone and its screenshot showed no window yet -- and then
+# reports whether the unit is still active five seconds after the window appeared.
 SETTINGS_UNIT = b"athanor-settings-probe"
+SETTINGS_APP = b"os.athanor.Settings"
 SETTINGS_PROBE = (
-    b"systemd-run --user --quiet --unit=" + SETTINGS_UNIT + b" athanor-settings-rs; sleep 20;"
-    b" if systemctl --user -q is-active " + SETTINGS_UNIT + b".service;"
-    b" then printf 'SETTINGS_%s\\n' ALIVE;"
-    b" else printf 'SETTINGS_%s %s\\n' DEAD \"$(systemctl --user show " + SETTINGS_UNIT
-    + b".service -p Result -p ExecMainStatus --value | tr '\\n' ' ')\"; fi"
+    b"systemd-run --user --quiet --unit=" + SETTINGS_UNIT + b" athanor-settings-rs;"
+    b" w=; for i in $(seq 60); do busctl --user tree " + SETTINGS_APP
+    + b' --list 2>/dev/null | grep -q /window/ && { w=$i; break; }; sleep 1; done; sleep 5;'
+    b" if [ -n \"$w\" ] && systemctl --user -q is-active " + SETTINGS_UNIT + b".service;"
+    b" then printf 'SETTINGS_%s window-after:%ss\\n' ALIVE \"$w\";"
+    b" else printf 'SETTINGS_%s window-after:%s %s\\n' DEAD \"${w:-never}\""
+    b' "$(systemctl --user show ' + SETTINGS_UNIT
+    + b".service -p ActiveState -p Result -p ExecMainStatus --value | tr '\\n' ' ')\"; fi"
 )
-# Twenty seconds of watching, and a margin for the start itself.
-SETTINGS_PROBE_WAIT = 30.0
+# A minute of looking for the window, five seconds of watching, and a margin.
+SETTINGS_PROBE_WAIT = 75.0
 
 # What to ask when Settings did not stay up: the unit's own account of itself, what it
 # wrote before it went, and the stack if systemd-coredump caught it.
@@ -371,10 +378,9 @@ def main() -> int:
         note("login-sent")
 
     def open_settings() -> None:
-        """Start Settings inside the desktop session, ask the guest whether it stayed
-        up, and keep a picture of the screen as it answers."""
+        """Start Settings inside the desktop session and ask the guest whether its
+        window came up and stayed. The picture is taken when the answer arrives."""
         ask(SETTINGS_PROBE, SETTINGS_PROBE_WAIT)
-        monitor(f"screendump {pathlib.Path(log_path).with_name('screen-settings.ppm')}")
         note("settings-asked")
 
     def collect(diagnostics: tuple[bytes, ...]) -> None:
@@ -451,7 +457,13 @@ def main() -> int:
             open_settings()
             tail = b""
 
-        # Whichever of the two died is the one worth interrogating.
+        # The guest has said whether Settings came up: keep the screen as it is now, with
+        # the window on it or with whatever is there instead.
+        if (seen & {"settings-alive", "settings-dead"}) and "settings-shot" not in seen:
+            monitor(f"screendump {pathlib.Path(log_path).with_name('screen-settings.ppm')}")
+            note("settings-shot")
+
+        # Whichever of the three died is the one worth interrogating.
         if "diagnostics-sent" not in seen:
             if "greeter-dead" in seen:
                 collect(DIAGNOSTICS)

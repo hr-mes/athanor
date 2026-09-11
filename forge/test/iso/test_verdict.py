@@ -435,7 +435,7 @@ def test_console_logs_in_opens_settings_and_stops(tmp: pathlib.Path) -> None:
         # It starts Settings inside that session and asks whether it stayed up.
         typed_until(conn, b"SETTINGS_%s", 60)
         started = time.time()
-        conn.sendall(b"SETTINGS_ALIVE\r\n")
+        conn.sendall(b"SETTINGS_ALIVE window-after:3s\r\n")
         proc.wait(timeout=40)
         waited = time.time() - started
     finally:
@@ -461,6 +461,7 @@ def test_console_logs_in_opens_settings_and_stops(tmp: pathlib.Path) -> None:
         "session-alive",
         "settings-asked",
         "settings-alive",
+        "settings-shot",
     ):
         assert expected in phases, f"{expected} not recorded: {sorted(phases)}"
     assert "idle-timeout" not in phases, "it should not have waited out the idle window"
