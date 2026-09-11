@@ -38,16 +38,24 @@ readarray -t UPSTREAM_CLI < <(jq -r '.upstream_cli[] // empty' config/packages.j
 # only for builds from main). The NVIDIA modules (azoth-nvidia:<nvr>-<branch>) are
 # not RPMs: system/Containerfile copies them from their image.
 KERNEL_NVR=$(bash "$(dirname "${BASH_SOURCE[0]}")/../specs/azoth/nvr.sh")
+
+# Packages published by a dedicated workflow, not the DAG, so no athanor-forge-<pkg>
+# image is ever built for them -- the same exclusion dag_orchestrator.py applies. The
+# kernel is here as azoth:<nvr> in tier 0; kernel-forge names it in custom_tier2 but
+# has no image of its own. Skipping them keeps the fatal-on-missing check below true
+# only for packages that really should have an image.
+is_external() { case "$1" in kernel|kernel-forge) return 0 ;; *) return 1 ;; esac; }
+
 TIER0_IMAGES=(
   "azoth:${KERNEL_NVR}"
 )
 for pkg in "${CUSTOM_TIER0[@]}"; do
-  [[ -n "$pkg" ]] && TIER0_IMAGES+=("athanor-forge-$pkg")
+  [[ -n "$pkg" ]] && ! is_external "$pkg" && TIER0_IMAGES+=("athanor-forge-$pkg")
 done
 
 TIER1_IMAGES=()
 for pkg in "${CUSTOM_TIER1[@]}"; do
-  [[ -n "$pkg" ]] && TIER1_IMAGES+=("athanor-forge-$pkg")
+  [[ -n "$pkg" ]] && ! is_external "$pkg" && TIER1_IMAGES+=("athanor-forge-$pkg")
 done
 
 # The upstream_* packages (COSMIC, media, CLI) are NOT built into per-package rolling
@@ -60,12 +68,12 @@ done
 
 TIER2_IMAGES=()
 for pkg in "${CUSTOM_TIER2[@]}"; do
-  [[ -n "$pkg" ]] && TIER2_IMAGES+=("athanor-forge-$pkg")
+  [[ -n "$pkg" ]] && ! is_external "$pkg" && TIER2_IMAGES+=("athanor-forge-$pkg")
 done
 
 TIER3_IMAGES=()
 for pkg in "${CUSTOM_TIER3[@]}"; do
-  [[ -n "$pkg" ]] && TIER3_IMAGES+=("athanor-forge-$pkg")
+  [[ -n "$pkg" ]] && ! is_external "$pkg" && TIER3_IMAGES+=("athanor-forge-$pkg")
 done
 
 declare -A OLD_DIGESTS
