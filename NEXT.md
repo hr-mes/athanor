@@ -241,6 +241,29 @@ athanor-recovery-ui`: un solo compositore per greeter, sessione e recovery. Buil
   (nessuno sfondo Pop in immagine: `com.system76.CosmicBackground/v1/all` verso un file
   nostro). Prossimo: la VM locale sulla stessa immagine, poi l'installazione sul disco fisico.
 
+  **Desktop COSMIC completo: VERDE il 2026-09-11** — collaudo 34639821395 su
+  `athanor-iso:34633460472`: PASS, pannello con Workspaces e Applications a sinistra,
+  dock con launcher, griglia app, Firefox, file manager, editor, terminale, store e
+  toggle, tutte icone vere. La caccia ai bottoni vuoti ha rivelato un difetto grosso
+  della forge, non tre pacchetti mancanti. **Come i pacchetti entrano nell'immagine**:
+  tre canali, non uno. (1) l'immagine base `ermete-base-nvidia` (repo separato, `FROM`
+  del Containerfile) porta Fedora e il grosso del desktop COSMIC come **binari Fedora
+  ufficiali**; (2) i tier-repo portano solo i pacchetti **con spec locale**; (3) i
+  flatpak sul sistema installato. Le quattro liste `upstream_*` di `packages.json` **non
+  installavano niente**: le leggeva solo `dag_orchestrator` (per il grafo) e
+  `fetch_repo_rpms`, che cercava un'immagine rolling per-pacchetto **mai pubblicata**,
+  falliva in silenzio e restituiva successo — così **50 pacchetti su 85 mancavano
+  dall'immagine con build verdi** (cosmic-launcher/settings/term/files, mpv, ffmpeg,
+  thunar, btop, i font, qemu-kvm). Fix: `c403fd12` installa gli upstream con un
+  `dnf5 install` esplicito nel Containerfile (Fedora + RPM Fusion, `--allowerasing` per
+  ffmpeg), guidato dal manifest; `3148e1e9` esclude `kernel-forge` (kernel esterno,
+  `azoth:<nvr>`) dal nuovo controllo fail-loud che rende fatale un'immagine di pacchetto
+  custom mancante — il silenzio ingoiato era ciò che nascondeva i 50 buchi. **Debito
+  zero-trust** (decisione utente 2026-09-11): gli upstream sono binari Fedora per ora
+  (firma GPG = provenienza); vanno ricompilati da sorgente nel builder e serviti dai
+  tier-repo, e allora il nome passa in `custom_tier*` con una spec. Vedi
+  [[athanor-forge-package-channels]]. Prossimo: installazione sul disco fisico.
+
   **VM locale Hyper-V (2026-09-11)** — `athanor-disk.vhdx` installata da `athanor-iso:34528079682`,
   Gen2, Secure Boot off, 4 vCPU, 6 GB, Default Switch; strumenti in `/.scratch/vm/`
   (bridge WMI elevato, tastiera via codici VK, mouse via uinput, SSH per chiave). Greeter e
