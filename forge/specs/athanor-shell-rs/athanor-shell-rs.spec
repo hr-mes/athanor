@@ -2,7 +2,7 @@
 # Il crate vive nel workspace: la spec compila il checkout in place, non un tarball.
 Name:           athanor-shell-rs
 Version:        1.0.0
-Release:        28%{?dist}
+Release:        29%{?dist}
 Summary:        Athanor OS Native Rust GTK4 Shell
 
 License:        MIT
@@ -29,6 +29,14 @@ install -m 0755 target/release/athanor-shell-rs %{buildroot}/usr/bin/athanor-she
 /usr/bin/athanor-shell-rs
 
 %changelog
+* Fri Sep 11 2026 Athanor Forge <forge@athanor.os> - 1.0.0-29
+- Landlock confines writes to the unit's writable set (configuration and state
+  directories, runtime directory, /tmp) instead of denying reads outside /usr, /etc
+  and the runtime directory: the old policy left the shell unable to read its own
+  theme.css and widgets.json, and the desktop widgets rewrote widgets.json in a loop
+  until systemd-oomd killed the shell every one to two minutes (local Hyper-V VM).
+- Desktop widgets: write the default layout only when the file is missing, and let
+  the clock and system timers end with their widgets instead of surviving a reload.
 * Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.0-28
 - Keep the notification history under $XDG_STATE_HOME/athanor, the StateDirectory=
   of the shell's unit, instead of ~/.local/share/athanor, which ProtectHome=read-only

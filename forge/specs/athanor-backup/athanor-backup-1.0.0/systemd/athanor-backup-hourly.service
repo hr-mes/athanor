@@ -8,7 +8,7 @@ CPUWeight=50
 MemoryHigh=48M
 MemoryMax=64M
 Type=oneshot
-ExecStart=/usr/bin/dbus-send --system --dest=org.athanor.Backup1 --type=method_call /org/athanor/Backup1 org.athanor.Backup1.CreateSnapshot string:"Istantanea oraria automatica"
+ExecStart=/usr/bin/busctl call org.athanor.Backup1 /org/athanor/Backup1 org.athanor.Backup1 CreateSnapshot s "Istantanea oraria automatica"
 
 # Extreme Sandboxing
 ProtectSystem=strict

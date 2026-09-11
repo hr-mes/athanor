@@ -38,29 +38,40 @@ fn get_config_path() -> PathBuf {
 
 fn load_config() -> DesktopConfig {
     let path = get_config_path();
-    if let Ok(content) = fs::read_to_string(&path) {
-        serde_json::from_str(&content).unwrap_or_else(|_| default_config())
-    } else {
-        let default = default_config();
-        if let Some(parent) = path.parent() {
-            if let Err(e) = fs::create_dir_all(parent) {
-                tracing::error!("Failed to create parent directory {:?}: {:?}", parent, e);
+    match fs::read_to_string(&path) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
+            tracing::warn!("Unreadable desktop widget layout at {:?}, using the default: {}", path, e);
+            default_config()
+        }),
+        // Only a missing file gets the default layout written out. Writing on any other
+        // read error would turn the file monitor in build_desktop_widgets into a loop:
+        // write, change event, reload, failed read, write again.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let default = default_config();
+            if let Err(e) = write_config(&path, &default) {
+                tracing::error!("Failed to write the default desktop widget layout at {:?}: {:?}", path, e);
             }
+            default
         }
-        if let Ok(content) = serde_json::to_string_pretty(&default) {
-            if let Err(e) = std::fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(&path)
-                .and_then(|mut f| std::io::Write::write_all(&mut f, content.as_bytes()))
-            {
-                tracing::error!("Failed to write desktop widget content at {:?}: {:?}", path, e);
-            }
+        Err(e) => {
+            tracing::error!("Failed to read the desktop widget layout at {:?}: {:?}", path, e);
+            default_config()
         }
-        default
     }
+}
+
+fn write_config(path: &PathBuf, config: &DesktopConfig) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let content = serde_json::to_string_pretty(config).map_err(std::io::Error::other)?;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, content.as_bytes()))
 }
 
 fn default_config() -> DesktopConfig {
@@ -105,18 +116,9 @@ fn update_widget_position(target_id: &str, new_x: f64, new_y: f64) {
     }
     if updated {
         let path = get_config_path();
-        if let Ok(content) = serde_json::to_string_pretty(&config) {
-            LAST_INTERNAL_UPDATE.with(|cell| cell.set(Some(std::time::Instant::now())));
-            if let Err(e) = std::fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(&path)
-                .and_then(|mut f| std::io::Write::write_all(&mut f, content.as_bytes()))
-            {
-                tracing::error!("Failed to write desktop widget content at {:?}: {:?}", path, e);
-            }
+        LAST_INTERNAL_UPDATE.with(|cell| cell.set(Some(std::time::Instant::now())));
+        if let Err(e) = write_config(&path, &config) {
+            tracing::error!("Failed to write the desktop widget layout at {:?}: {:?}", path, e);
         }
     }
 }
@@ -166,11 +168,9 @@ fn build_system_widget() -> Box {
 
     let prev_cpu = Rc::new(Cell::new((0, 0)));
     
-    let update_sys = {
-        let cpu_label = cpu_label.clone();
-        let ram_label = ram_label.clone();
-        let prev_cpu = prev_cpu.clone();
-        move || {
+    // Weak references: once reload_widgets drops the labels the timer ends instead of
+    // keeping a detached widget tree alive at every reload.
+    let update_sys = glib::clone!(@weak cpu_label, @weak ram_label => @default-return glib::ControlFlow::Break, move || {
             let cpu_lbl = cpu_label.clone();
             let ram_lbl = ram_label.clone();
             let p_cpu = prev_cpu.clone();
@@ -193,8 +193,7 @@ fn build_system_widget() -> Box {
             });
 
             glib::ControlFlow::Continue
-        }
-    };
+    });
 
     update_sys();
     glib::timeout_add_seconds_local(2, update_sys);
@@ -221,16 +220,12 @@ fn build_clock_widget() -> Box {
         .halign(Align::Start)
         .build();
 
-    let update_time = {
-        let time_label = time_label.clone();
-        let date_label = date_label.clone();
-        move || {
-            let now = Local::now();
-            time_label.set_label(&now.format("%H:%M").to_string());
-            date_label.set_label(&now.format("%A, %d %B").to_string());
-            glib::ControlFlow::Continue
-        }
-    };
+    let update_time = glib::clone!(@weak time_label, @weak date_label => @default-return glib::ControlFlow::Break, move || {
+        let now = Local::now();
+        time_label.set_label(&now.format("%H:%M").to_string());
+        date_label.set_label(&now.format("%A, %d %B").to_string());
+        glib::ControlFlow::Continue
+    });
 
     update_time();
     glib::timeout_add_seconds_local(1, update_time);

@@ -2,7 +2,7 @@
 %global crate_dir forge/specs/%{name}/%{name}-%{version}
 Name:           athanor-backup
 Version:        1.0.0
-Release:        3%{?dist}
+Release:        4%{?dist}
 Summary:        Athanor OS Time Machine & Bcachefs Home Snapshot Manager
 
 License:        MIT
@@ -43,6 +43,9 @@ install -D -m 0644 %{crate_dir}/systemd/org.athanor.Backup1.conf %{buildroot}/us
 /usr/share/dbus-1/system.d/org.athanor.Backup1.conf
 
 %changelog
+* Fri Sep 11 2026 Athanor Forge <forge@athanor.os> - 1.0.0-4
+- The hourly snapshot trigger calls the daemon through busctl: dbus-send is not part
+  of the image and the unit failed at every timer tick (status=203/EXEC).
 * Sun Sep 06 2026 Athanor Forge <forge@athanor.os> - 1.0.0-3
 - Build only this crate from the workspace; install the systemd units and the
   D-Bus policy from the crate directory instead of empty placeholder files

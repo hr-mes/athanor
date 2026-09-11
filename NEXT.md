@@ -199,6 +199,42 @@ athanor-recovery-ui`: un solo compositore per greeter, sessione e recovery. Buil
   gate della Tappa 5: **Settings**. Note dallo screenshot, non bloccanti: due icone del dock
   sono segnaposto; il dock avverte `gdk_wayland_toplevel_compute_size: size.width > 0`.
 
+  **VM locale Hyper-V (2026-09-11)** — `athanor-disk.vhdx` installata da `athanor-iso:34528079682`,
+  Gen2, Secure Boot off, 4 vCPU, 6 GB, Default Switch; strumenti in `/.scratch/vm/`
+  (bridge WMI elevato, tastiera via codici VK, mouse via uinput, SSH per chiave). Greeter e
+  sessione partono a velocità nativa; un'ora di uso con la shell ha trovato quello che il
+  collaudo CI, con il suo screenshot a pochi secondi dal login, non vede:
+  (4) **la shell moriva ogni 60–130 s per systemd-oomd** (peak ~840 MB, `MemoryHigh=768M`),
+  27 riavvii in un'ora: `sys/sandbox.rs` applicava una policy Landlock di sola lettura
+  limitata a `/usr`, `/etc`, `$XDG_RUNTIME_DIR`, quindi la shell non poteva leggere la
+  propria `$XDG_CONFIG_HOME/athanor` (`theme.css: Permission denied` a ogni avvio, tema
+  dinamico mai applicato) e `desktop_widgets::load_config`, su qualunque errore di lettura,
+  riscriveva il layout di default: scrittura → evento del file monitor → `reload_widgets` →
+  lettura negata → scrittura, migliaia di volte al secondo, ogni giro con due timer in più
+  che tenevano vivo l'albero dei widget. Fix: Landlock confina le _scritture_ all'insieme
+  scrivibile della unit (config/state dir, runtime dir, /tmp) e lascia le letture alla unit;
+  il default viene scritto solo se il file manca; i timer tengono riferimenti deboli
+  (athanor-shell-rs 1.0.0-29). (5) `athanor-backup-hourly.service` chiamava `dbus-send`,
+  che non è nell'immagine: `busctl call` (athanor-backup 1.0.0-4).
+  Trovati e non ancora trattati: `athanor-journal-seal` fallisce perché il systemd di Fedora
+  è compilato senza FSS (`journalctl --setup-keys`: "Compiled without forward-secure sealing
+  support") — la unit va tolta o condizionata; `systemd-modules-load` fallisce sui moduli
+  nvidia ("Key was rejected by service") con Secure Boot off — da verificare su hardware con
+  la MOK arruolata, e comunque i moduli andrebbero caricati da udev, non forzati da
+  modules-load.d su macchine senza GPU; la shell perde la connessione Wayland ("Lost
+  connection to Wayland compositor", exit 1) chiudendo un popover con Esc, saltuario,
+  cosmic-comp non logga l'errore di protocollo (catturare con `WAYLAND_DEBUG=1`);
+  il widget "Hardware" mostra valori finti (`get_memory_usage` → `(4096, 16384)`);
+  il dock lancia le app via IPC niri (`NIRI_SOCKET` assente: ogni click è a vuoto — Tappa 6)
+  e ha `org.gnome.Terminal.desktop` fissato mentre l'immagine ha `foot`; la barra ridisegna
+  a ~50 fps anche a riposo (animazione dell'indicatore, costa CPU su llvmpipe);
+  `ethernet.cloned-mac-address=random` (`99-mac-randomization.conf`) lascia la VM senza
+  rete su Hyper-V, che scarta i frame con MAC diverso da quello assegnato — decisione di
+  prodotto (MAC casuale anche su ethernet vale il costo su switch gestiti e prenotazioni
+  DHCP?); `vconsole.keymap=` vuoto nella riga di comando del kernel installato; mcelog
+  fallisce in VM ("CPU is unsupported", innocuo). Requisito x86-64-v3: sotto un
+  hypervisor senza AVX2 la shell muore in SIGILL senza messaggio.
+
 ## Shell — lacune funzionali verso un utente Windows/macOS
 
 Analisi statica della shell 2026-09-10 (`athanor-shell-rs`, 83 file, ~15.6k righe vive):
