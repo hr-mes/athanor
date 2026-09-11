@@ -7,7 +7,7 @@ Reads phases.txt, written by console.py, and the console log beside it. Prints a
 on stdout, writes the same report to OUTPUT_DIR/verdict.md for the job summary, and
 exits non-zero when the run did not reach a desktop session.
 
-Four things have to be true for a pass, and they are checked separately so a failure
+Five things have to be true for a pass, and they are checked separately so a failure
 says which part broke:
 
   installed        the ISO's own kickstart finished, so ostreecontainer wrote the image
@@ -15,6 +15,8 @@ says which part broke:
   greeter          the installed system reports a greeter session alive and steady
   session          after the password is typed at that greeter, the account's own
                    desktop session is alive and steady, shell and dock included
+  settings         the settings application, started inside that session, is still
+                   running twenty seconds later
 
 The greeter is recognised from the console rather than from a screenshot, because a
 screenshot cannot tell a drawn greeter from a wallpaper. The screenshots are still kept
@@ -37,6 +39,9 @@ GREETER_SIGNALS = ("greeter-alive",)
 # The same, one step on: SESSION_ALIVE is the guest's report of the account's desktop
 # session still there, its units all active, after logging in at the greeter.
 SESSION_SIGNALS = ("session-alive",)
+# And one more: SETTINGS_ALIVE is the guest's report of the settings application, started
+# inside that session, still running after it has had time to open or to die.
+SETTINGS_SIGNALS = ("settings-alive",)
 # "reinstall-loop" is not a crash but it is a failure, and a distinctive one: the machine
 # booted the installer again instead of the system it had just written, so the run says
 # nothing about first boot no matter how long it is left going.
@@ -64,6 +69,7 @@ def main() -> int:
     kickstart_done = "kickstart-done" in phases
     greeter = next((s for s in GREETER_SIGNALS if s in phases), None)
     session = next((s for s in SESSION_SIGNALS if s in phases), None)
+    settings = next((s for s in SETTINGS_SIGNALS if s in phases), None)
     failures = [s for s in FAILURE_SIGNALS if s in phases]
 
     lines = ["## ISO acceptance test", ""]
@@ -73,6 +79,7 @@ def main() -> int:
     )
     lines.append(f"- greeter reached: {greeter if greeter else 'NO'}")
     lines.append(f"- session started: {session if session else 'NO'}")
+    lines.append(f"- settings opened: {settings if settings else 'NO'}")
     if failures:
         lines.append(f"- guest failures seen: {', '.join(failures)}")
     lines.append(f"- console log: {log_bytes} bytes")
@@ -89,12 +96,15 @@ def main() -> int:
         lines.append(f"- first boot to greeter: {elapsed}s (budget {greeter_wait}s)")
     if greeter and session:
         lines.append(f"- greeter to session: {phases[session] - phases[greeter]}s")
+    if session and settings:
+        lines.append(f"- session to settings: {phases[settings] - phases[session]}s")
 
     ok = (
         installed
         and kickstart_done
         and greeter is not None
         and session is not None
+        and settings is not None
         and not failures
     )
     lines.insert(1, f"**{'PASS' if ok else 'FAIL'}**")

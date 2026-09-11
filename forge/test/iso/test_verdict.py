@@ -52,12 +52,31 @@ def test_pass(tmp: pathlib.Path) -> None:
             ("kickstart-done", 110),
             ("greeter-alive", 400),
             ("session-alive", 460),
+            ("settings-alive", 500),
         ],
     )
     assert code == 0, f"a complete run must pass, got {code}"
     assert "**PASS**" in report, report
     assert "first boot to greeter: 300s" in report, report
     assert "greeter to session: 60s" in report, report
+    assert "session to settings: 40s" in report, report
+
+
+def test_session_without_settings_fails(tmp: pathlib.Path) -> None:
+    """A desktop that came up is not the whole gate: Settings has to open inside it."""
+    code, report = verdict(
+        tmp,
+        [
+            ("installed", 100),
+            ("kickstart-done", 110),
+            ("greeter-alive", 400),
+            ("session-alive", 460),
+            ("settings-dead", 500),
+        ],
+    )
+    assert code != 0, "a run whose Settings died passed"
+    assert "**FAIL**" in report, report
+    assert "settings opened: NO" in report, report
 
 
 def test_greeter_without_session_fails(tmp: pathlib.Path) -> None:
@@ -360,11 +379,12 @@ def play_the_monitor(server: socket.socket, received: list[bytes]) -> None:
         return  # the server socket was closed: the test is over
 
 
-def test_console_logs_in_and_stops_at_a_session(tmp: pathlib.Path) -> None:
-    """A steady greeter gets the password typed on the machine's keyboard, and a steady
-    session ends the run at once: the wait is what used to cost eighty minutes."""
+def test_console_logs_in_opens_settings_and_stops(tmp: pathlib.Path) -> None:
+    """A steady greeter gets the password typed on the machine's keyboard, a steady
+    session gets Settings started inside it, and Settings still running ends the run at
+    once: the wait is what used to cost eighty minutes."""
     if not hasattr(socket, "AF_UNIX"):
-        print("  skip test_console_logs_in_and_stops_at_a_session: no unix sockets")
+        print("  skip test_console_logs_in_opens_settings_and_stops: no unix sockets")
         return
 
     run = tmp / "prompt"
@@ -410,8 +430,12 @@ def test_console_logs_in_and_stops_at_a_session(tmp: pathlib.Path) -> None:
         # It types the password on the keyboard, one key at a time, then asks whether
         # the session came up.
         typed_until(conn, b"SESSION_%s", 60)
-        started = time.time()
         conn.sendall(b"SESSION_ALIVE c7\r\n")
+
+        # It starts Settings inside that session and asks whether it stayed up.
+        typed_until(conn, b"SETTINGS_%s", 60)
+        started = time.time()
+        conn.sendall(b"SETTINGS_ALIVE\r\n")
         proc.wait(timeout=40)
         waited = time.time() - started
     finally:
@@ -424,14 +448,20 @@ def test_console_logs_in_and_stops_at_a_session(tmp: pathlib.Path) -> None:
     assert keys[: 2 * 9] == [
         w for key in list("collaudo") + ["ret"] for w in ("sendkey", key)
     ], keys
-    assert "screendump" in keys, keys
+    assert keys.count("screendump") == 2, keys
     # The script shuts the machine down when this process returns, so a console that
     # lingers here is a run that lingers: exactly the eighty idle minutes this replaced.
     assert waited < 10, f"the console waited {waited:.1f}s after the answer was in"
     phases = dict(
         line.split() for line in (run / "phases.txt").read_text().splitlines()
     )
-    for expected in ("greeter-alive", "login-sent", "session-alive"):
+    for expected in (
+        "greeter-alive",
+        "login-sent",
+        "session-alive",
+        "settings-asked",
+        "settings-alive",
+    ):
         assert expected in phases, f"{expected} not recorded: {sorted(phases)}"
     assert "idle-timeout" not in phases, "it should not have waited out the idle window"
 
@@ -442,6 +472,7 @@ def main() -> int:
         for test in (
             test_pass,
             test_greeter_without_session_fails,
+            test_session_without_settings_fails,
             test_greetd_starting_is_not_a_greeter,
             test_installed_but_no_greeter,
             test_text_login_is_not_a_greeter,
@@ -451,7 +482,7 @@ def main() -> int:
             test_screenshot_keeps_the_pixels,
             test_console_boots_our_kickstart,
             test_installed_systems_own_grub_is_not_a_loop,
-            test_console_logs_in_and_stops_at_a_session,
+            test_console_logs_in_opens_settings_and_stops,
         ):
             test(tmp)
             print(f"  ok  {test.__name__}")

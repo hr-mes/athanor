@@ -24,7 +24,10 @@ MONITOR is QEMU's monitor socket, and it is the machine's keyboard: the greeter 
 on the seat, not on the serial line, so the password is typed into it through `sendkey`
 once the guest has said over the serial that the greeter is up. The guest is then asked,
 over the serial again, whether the desktop session came up and stayed. A screenshot is
-taken through the same socket at that point, whichever way it answered.
+taken through the same socket at that point, whichever way it answered. With the session
+up, the settings application is started inside it through the account's own user manager,
+the guest reports whether it is still running twenty seconds later, and a second
+screenshot keeps what it drew.
 
 Why the command line and not the menu editor. Editing the highlighted entry means moving
 the cursor onto the `linux` line, and GRUB's editor is a full-screen editor whose line
@@ -65,6 +68,10 @@ MARKERS = (
     # dock in it, still up after logging in at the greeter.
     (b"SESSION_ALIVE", "session-alive"),
     (b"SESSION_DEAD", "session-dead"),
+    # And to SETTINGS_PROBE: the settings application started inside that session, still
+    # running after it has had time to open its window or to die trying.
+    (b"SETTINGS_ALIVE", "settings-alive"),
+    (b"SETTINGS_DEAD", "settings-dead"),
 )
 ANSI = re.compile(rb"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
@@ -107,9 +114,10 @@ BETWEEN_COMMANDS = 2.0
 # three seconds later, three times, until the start limit. They say the system tried,
 # not that it succeeded. Nor, any longer, does the greeter itself: a steady greeter is
 # where the login is typed, and the run is settled by the guest's own report of a steady
-# desktop session after it. A greeter or a session found dead is not final either: the
+# desktop session after it and, one step on, of the settings application running inside
+# that session. A greeter, a session or Settings found dead is not final either: the
 # diagnostics are asked for first, and the idle window then ends the run.
-DECIDED = frozenset({"session-alive", "panic", "emergency"})
+DECIDED = frozenset({"settings-alive", "panic", "emergency"})
 
 # How long the guest may say nothing before the run is called over. A first boot that has
 # to relabel the filesystem is the slowest legitimate silence there is, and it does not
@@ -263,6 +271,29 @@ SESSION_DIAGNOSTICS = (
     # The crashing thread's stack, when systemd-coredump caught the dump.
     b"coredumpctl info --no-pager 2>&1 | grep -aE 'Signal|Command Line|#[0-9]+ ' | head -30",
 )
+# With the desktop up, start the settings application inside it. The serial login shares
+# the account's user manager with the desktop, and that manager carries the session's
+# WAYLAND_DISPLAY, so a transient unit started here opens on the seat. A GTK application
+# that cannot reach the display exits at once, and one that crashed while drawing its
+# window is a failed unit: still active twenty seconds on means it opened and stayed.
+SETTINGS_UNIT = b"athanor-settings-probe"
+SETTINGS_PROBE = (
+    b"systemd-run --user --quiet --unit=" + SETTINGS_UNIT + b" athanor-settings-rs; sleep 20;"
+    b" if systemctl --user -q is-active " + SETTINGS_UNIT + b".service;"
+    b" then printf 'SETTINGS_%s\\n' ALIVE;"
+    b" else printf 'SETTINGS_%s %s\\n' DEAD \"$(systemctl --user show " + SETTINGS_UNIT
+    + b".service -p Result -p ExecMainStatus --value | tr '\\n' ' ')\"; fi"
+)
+# Twenty seconds of watching, and a margin for the start itself.
+SETTINGS_PROBE_WAIT = 30.0
+
+# What to ask when Settings did not stay up: the unit's own account of itself, what it
+# wrote before it went, and the stack if systemd-coredump caught it.
+SETTINGS_DIAGNOSTICS = (
+    b"systemctl --user status " + SETTINGS_UNIT + b".service --no-pager -l | head -40",
+    b"journalctl --user -b --no-pager -u " + SETTINGS_UNIT + b".service | tail -40",
+    b"coredumpctl info --no-pager 2>&1 | grep -aE 'Signal|Command Line|#[0-9]+ ' | head -30",
+)
 # The tests drive a fake guest that answers at once and scale every wait in the login
 # path down through this; the run itself leaves it at one.
 PACE = float(os.environ.get("ATHANOR_CONSOLE_PACE", "1"))
@@ -339,6 +370,13 @@ def main() -> int:
         monitor(f"screendump {pathlib.Path(log_path).with_name('screen-session.ppm')}")
         note("login-sent")
 
+    def open_settings() -> None:
+        """Start Settings inside the desktop session, ask the guest whether it stayed
+        up, and keep a picture of the screen as it answers."""
+        ask(SETTINGS_PROBE, SETTINGS_PROBE_WAIT)
+        monitor(f"screendump {pathlib.Path(log_path).with_name('screen-settings.ppm')}")
+        note("settings-asked")
+
     def collect(diagnostics: tuple[bytes, ...]) -> None:
         """Record what systemd says about itself."""
         for index, command in enumerate(diagnostics):
@@ -408,6 +446,11 @@ def main() -> int:
             log_in_at_the_greeter()
             tail = b""
 
+        # A steady session is where Settings is opened. Once.
+        if "session-alive" in seen and "settings-asked" not in seen:
+            open_settings()
+            tail = b""
+
         # Whichever of the two died is the one worth interrogating.
         if "diagnostics-sent" not in seen:
             if "greeter-dead" in seen:
@@ -415,6 +458,9 @@ def main() -> int:
                 tail = b""
             elif "session-dead" in seen:
                 collect(SESSION_DIAGNOSTICS)
+                tail = b""
+            elif "settings-dead" in seen:
+                collect(SETTINGS_DIAGNOSTICS)
                 tail = b""
 
         # The run is over the moment there is an answer. Waiting past a session, a panic
