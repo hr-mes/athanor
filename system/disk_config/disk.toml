@@ -2,8 +2,8 @@
 mountpoint = "/"
 minsize = "20 GiB"
 
-# SECRETS_PROVIDED_AT_RUNTIME
-# password = "$6$REPLACE_WITH_SECURE_HASH"
-[[customizations.user]]
-name = "hermes"
-groups = ["wheel"]
+# No user is declared here on purpose: this configuration is public, and a disk image
+# built from it must not carry one person's account. A disk-image build that needs a
+# seed account should add a [[customizations.user]] block with its own name and a
+# password hash provided at build time, kept out of the repository. The interactive
+# ISO (iso.toml) is the normal install path and asks the installer to create the user.
