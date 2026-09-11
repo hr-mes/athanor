@@ -233,9 +233,19 @@ athanor-recovery-ui`: un solo compositore per greeter, sessione e recovery. Buil
   support") — la unit va tolta o condizionata; `systemd-modules-load` fallisce sui moduli
   nvidia ("Key was rejected by service") con Secure Boot off — da verificare su hardware con
   la MOK arruolata, e comunque i moduli andrebbero caricati da udev, non forzati da
-  modules-load.d su macchine senza GPU; la shell perde la connessione Wayland ("Lost
-  connection to Wayland compositor", exit 1) chiudendo un popover con Esc, saltuario,
-  cosmic-comp non logga l'errore di protocollo (catturare con `WAYLAND_DEBUG=1`);
+  modules-load.d su macchine senza GPU; **la shell perde la connessione Wayland chiudendo
+  un popover** ("Lost connection to Wayland compositor", exit 1, 3 volte su 4 con Esc su
+  Wi-Fi, control center, spotlight; verificato sull'immagine 34581338485): con
+  `WAYLAND_DEBUG=1` la sequenza è `zwlr_layer_surface_v1.destroy()` e _poi_
+  `wl_surface.attach(nil)+commit()` sulla stessa superficie, cioè un commit su una
+  superficie senza più ruolo, e cosmic-comp chiude la connessione senza inviare
+  `wl_display.error` (nessuna riga nel journal nemmeno con `RUST_LOG=debug`). È il
+  difetto noto di gtk4-layer-shell su COSMIC (pop-os/cosmic-comp#2159, marzo 2026, lo
+  stesso di Ghostty; l'ordine giusto è unmap, poi destroy del ruolo, poi della
+  superficie), ancora aperto in gtk4-layer-shell 1.3.0 ad agosto 2026. Rimedio da
+  scegliere: patch a gtk4-layer-shell nel nostro DAG (ordine di teardown), oppure la
+  decisione del blocco shell (cosmic-panel non usa GTK). Finché resta, ogni popover
+  chiuso può riavviare la barra (2 s di buco);
   il widget "Hardware" mostra valori finti (`get_memory_usage` → `(4096, 16384)`);
   il dock lancia le app via IPC niri (`NIRI_SOCKET` assente: ogni click è a vuoto — Tappa 6)
   e ha `org.gnome.Terminal.desktop` fissato mentre l'immagine ha `foot`; la barra ridisegna
@@ -261,6 +271,9 @@ athanor-recovery-ui`: un solo compositore per greeter, sessione e recovery. Buil
   `opportunistic` (cifra quando può, degrada in chiaro con avviso) e stretto con un
   fallback esplicito. Nella VM: drop-in `99-vm-dns.conf` con `opportunistic` e
   `ipv4.ignore-auto-dns yes` sulla connessione.
+  Sulla LAN dell'utente il DHCP imposta un hostname transitorio preso dal reverse DNS del
+  provider (`customer.….isp.starlink.com`): il sistema installato non ha hostname statico
+  (`hostnamectl`: unset), il kickstart o l'installer dovrebbe fissarlo.
 
 ## Shell — lacune funzionali verso un utente Windows/macOS
 
