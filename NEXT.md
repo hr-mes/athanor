@@ -229,6 +229,18 @@ athanor-recovery-ui`: un solo compositore per greeter, sessione e recovery. Buil
   alla volta, senza buttare nulla. Gate: collaudo verde con pannello COSMIC e Settings,
   poi installazione sul disco fisico dell'utente (rischio vero: NVIDIA e MOK, non la UI).
 
+  **Desktop COSMIC: VERDE il 2026-09-11** — commit `531c74c5`, orchestrator 34594986990,
+  collaudo 34601095629 su `athanor-iso:34594986990`: PASS al primo giro, greeter a 103 s,
+  sessione 117 s dopo, Settings 81 s dopo la sessione. Screenshot: pannello in alto con
+  orologio e area di stato, dock in basso con Firefox e la Settings aperta, finestra
+  Settings con decorazioni del compositore (titolo, minimizza, massimizza, chiudi). Da
+  sistemare, nessuno bloccante: l'ala sinistra del pannello è vuota (i bottoni vogliono
+  cosmic-app-library e cosmic-workspaces, non in immagine); i preferiti del dock sono
+  segnaposto (default COSMIC che punta a app assenti: si scrive
+  `com.system76.CosmicAppList/v1/favorites` con le nostre); lo sfondo è tinta unita
+  (nessuno sfondo Pop in immagine: `com.system76.CosmicBackground/v1/all` verso un file
+  nostro). Prossimo: la VM locale sulla stessa immagine, poi l'installazione sul disco fisico.
+
   **VM locale Hyper-V (2026-09-11)** — `athanor-disk.vhdx` installata da `athanor-iso:34528079682`,
   Gen2, Secure Boot off, 4 vCPU, 6 GB, Default Switch; strumenti in `/.scratch/vm/`
   (bridge WMI elevato, tastiera via codici VK, mouse via uinput, SSH per chiave). Greeter e
