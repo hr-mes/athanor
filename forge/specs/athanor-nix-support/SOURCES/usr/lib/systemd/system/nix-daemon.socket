@@ -1,9 +1,0 @@
-[Unit]
-Description=Nix Daemon Socket
-ConditionPathIsReadWrite=/nix/var/nix/daemon-socket
-
-[Socket]
-ListenStream=/nix/var/nix/daemon-socket/socket
-
-[Install]
-WantedBy=sockets.target

@@ -97,6 +97,7 @@
   ],
   "cachyos_addons": [],
   "upstream_core": [
+    "nix",
     "brightnessctl",
     "bcachefs-tools",
     "dbus-tools",
