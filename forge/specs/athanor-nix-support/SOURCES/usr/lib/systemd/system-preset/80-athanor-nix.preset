@@ -1,7 +1,14 @@
-# The Nix daemon socket is enabled through a preset rather than `systemctl enable` at
-# build time: the Fedora nix-daemon unit lives under the Nix profile in /nix, which on
-# this ostree system is a bind mount of /var/nix populated at boot, so the unit is not
-# visible to systemctl while the image is built. A preset is declarative and is applied
-# when the unit exists, so systemd enables the socket on first boot once nix.mount has
-# made /nix available.
+# Both Nix units are enabled through a system-preset, applied by preset-all, rather than
+# `systemctl enable` in the Containerfile.
+#
+# nix.mount: on this ostree image `systemctl enable nix.mount` at build time does not
+# create the local-fs.target.wants link that survives into the deployment (the /etc
+# wants directory a build-time enable writes is not reliably carried), so the mount stays
+# disabled and /nix is never backed by the writable /var/nix. preset-all applies this at
+# first boot and writes the link into /etc, where it persists across ostree updates.
+#
+# nix-daemon.socket: the Fedora nix-daemon unit is present in /usr/lib/systemd/system,
+# but keeping its enablement declarative here (rather than a build-time enable) keeps all
+# Nix wiring in one place and applied by the same preset-all pass.
+enable nix.mount
 enable nix-daemon.socket

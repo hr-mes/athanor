@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-nix-support
 Version:        1.0.0
-Release:        4%{?dist}
+Release:        5%{?dist}
 Summary:        Athanor OS athanor-nix-support
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -41,6 +41,17 @@ cp -a %{_sourcedir}/usr/lib/systemd/system-preset/* %{buildroot}/usr/lib/systemd
 /usr/lib/systemd/system-preset/80-athanor-nix.preset
 
 %changelog
+* Sat Sep 12 2026 Athanor Forge <forge@athanor.os> - 1.0.0-5
+- Make nix.mount actually activate, and back it with the store skeleton. On the built
+  image nix.mount was left `disabled`: `systemctl enable nix.mount` in the Containerfile
+  does not produce a local-fs.target.wants link that survives into the ostree deployment.
+  Enable nix.mount through the system-preset (80-athanor-nix.preset) instead, applied by
+  preset-all at first boot -- the same mechanism already used for nix-daemon.socket -- and
+  drop nix.mount from the Containerfile enable line. The bind mount hides the empty store
+  skeleton the Fedora packages bake under the read-only /nix, so the tmpfiles now recreates
+  that skeleton under /var/nix (store 1775 root:nixbld, var, var/nix, var/log/nix/drvs)
+  before the mount runs; without it nix finds no /nix/store and every command fails.
+
 * Fri Sep 12 2026 Athanor Forge <forge@athanor.os> - 1.0.0-4
 - Enable nix-daemon.socket through a system-preset (80-athanor-nix.preset) instead of
   `systemctl enable` at build time. The daemon unit is not resolvable while the image
