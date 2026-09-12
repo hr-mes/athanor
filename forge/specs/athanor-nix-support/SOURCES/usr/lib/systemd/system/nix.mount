@@ -7,7 +7,12 @@ Documentation=https://github.com/hr-mes/athanor-forge
 # native store at /nix while the data persists in /var -- the approach bootc images use,
 # rather than a symlink the store's own tooling can reject.
 Before=nix-daemon.service nix-daemon.socket
-ConditionPathExists=/var/nix
+# The store skeleton under /var/nix (store, var/nix, ...) is created by
+# systemd-tmpfiles-setup from 10-athanor-nix.conf. Order the mount after it and gate on
+# the store directory it creates last, so the bind mount never exposes a half-built
+# /var/nix as /nix.
+After=systemd-tmpfiles-setup.service
+ConditionPathExists=/var/nix/store
 RequiresMountsFor=/var
 
 [Mount]

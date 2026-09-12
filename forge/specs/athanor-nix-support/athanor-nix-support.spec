@@ -51,6 +51,8 @@ cp -a %{_sourcedir}/usr/lib/systemd/system-preset/* %{buildroot}/usr/lib/systemd
   skeleton the Fedora packages bake under the read-only /nix, so the tmpfiles now recreates
   that skeleton under /var/nix (store 1775 root:nixbld, var, var/nix, var/log/nix/drvs)
   before the mount runs; without it nix finds no /nix/store and every command fails.
+  Order nix.mount After=systemd-tmpfiles-setup.service and gate it on /var/nix/store so
+  it never binds a half-built /var/nix over /nix.
 
 * Fri Sep 12 2026 Athanor Forge <forge@athanor.os> - 1.0.0-4
 - Enable nix-daemon.socket through a system-preset (80-athanor-nix.preset) instead of
