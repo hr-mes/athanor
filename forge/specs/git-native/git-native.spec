@@ -1,10 +1,10 @@
 Name:           git-native
-Version:        2.48.1
+Version:        2.56.0-rc0
 Release:        1%{?dist}
 Summary:        Assimilated Git Version Control System built natively from source for Ermete OS
 License:        GPL-2.0-only
 URL:            https://git-scm.com/
-Source0:        git-2.48.1.tar.gz
+Source0:        git-2.56.0-rc0.tar.gz
 
 
 Provides:       git = %{version}-%{release}
