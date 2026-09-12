@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-nix-support
 Version:        1.0.0
-Release:        3%{?dist}
+Release:        4%{?dist}
 Summary:        Athanor OS athanor-nix-support
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -41,6 +41,13 @@ cp -a %{_sourcedir}/usr/lib/systemd/system-preset/* %{buildroot}/usr/lib/systemd
 /usr/lib/systemd/system-preset/80-athanor-nix.preset
 
 %changelog
+* Fri Sep 12 2026 Athanor Forge <forge@athanor.os> - 1.0.0-4
+- Enable nix-daemon.socket through a system-preset (80-athanor-nix.preset) instead of
+  `systemctl enable` at build time. The daemon unit is not resolvable while the image
+  builds, so enable errored and failed the whole preset step; a preset is applied by
+  preset-all at first boot, once nix.mount has made /nix available, and does not fail on
+  an absent unit.
+
 * Fri Sep 12 2026 Athanor Forge <forge@athanor.os> - 1.0.0-3
 - Make Nix actually work. The package used to hand-write a nix-daemon.service and
   .socket and create directories under /var/nix, but never installed Nix itself: the
