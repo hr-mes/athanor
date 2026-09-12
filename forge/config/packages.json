@@ -98,6 +98,7 @@
   "cachyos_addons": [],
   "upstream_core": [
     "nix",
+    "nix-daemon",
     "brightnessctl",
     "bcachefs-tools",
     "dbus-tools",
@@ -196,11 +197,7 @@
     "com.spotify.Client",
     "com.visualstudio.code"
   ],
-  "target_architectures": [
-    "x86_64",
-    "aarch64",
-    "riscv64"
-  ],
+  "target_architectures": ["x86_64", "aarch64", "riscv64"],
   "cross_compile_targets": {
     "aarch64": "aarch64-unknown-linux-gnu",
     "riscv64": "riscv64gc-unknown-linux-gnu"

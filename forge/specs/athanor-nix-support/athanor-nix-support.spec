@@ -9,11 +9,14 @@ BuildArch:      noarch
 
 # The Fedora Nix packages provide the binary, the store, the daemon and its systemd
 # units. This package no longer reinvents any of that; it adds only what makes Nix work
-# on an ostree system: the /nix bind mount from the writable /var/nix. The `nix` package
-# is NOT required here: this package is installed in tier 0, long before the upstream
-# packages, so a Requires would be unsatisfiable at that point. nix is installed with
-# the other upstream packages (it is in upstream_core), and this package's mount unit
-# waits for it at boot, ordered Before=nix-daemon, not at build time.
+# on an ostree system: the /nix bind mount from the writable /var/nix. The nix packages
+# are NOT required here: this package is installed in tier 0, long before the upstream
+# packages, so a Requires would be unsatisfiable at that point. The `nix` and
+# `nix-daemon` packages are installed with the other upstream packages (they are in
+# upstream_core -- nix-daemon is a separate subpackage that the `nix` meta-package does
+# NOT pull, and it ships /usr/bin/nix-daemon plus nix-daemon.{service,socket}, without
+# which a non-root user cannot use the store), and this package's mount unit waits for
+# them at boot, ordered Before=nix-daemon, not at build time.
 
 %description
 Provides athanor-nix-support for Athanor OS: the /nix store bind mount that lets the
