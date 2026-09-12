@@ -99,6 +99,7 @@
   "upstream_core": [
     "nix",
     "nix-daemon",
+    "busybox",
     "brightnessctl",
     "bcachefs-tools",
     "dbus-tools",
