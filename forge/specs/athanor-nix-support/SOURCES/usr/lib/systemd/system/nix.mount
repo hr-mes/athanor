@@ -8,9 +8,17 @@ Documentation=https://github.com/hr-mes/athanor-forge
 # rather than a symlink the store's own tooling can reject.
 Before=nix-daemon.service nix-daemon.socket
 # The store skeleton under /var/nix (store, var/nix, ...) is created by
-# systemd-tmpfiles-setup from 10-athanor-nix.conf. Order the mount after it and gate on
-# the store directory it creates last, so the bind mount never exposes a half-built
-# /var/nix as /nix.
+# systemd-tmpfiles-setup, which runs After=local-fs.target. A .mount is by default
+# ordered Before=local-fs.target, so ordering this mount After the tmpfiles service AND
+# hanging it off local-fs.target forms a cycle (mount -> tmpfiles-setup -> local-fs.target
+# -> mount) that systemd breaks by dropping the mount, leaving /nix unmounted. Instead the
+# mount is pulled up by sysinit.target instead. tmpfiles-setup is After=local-fs.target
+# and Before=sysinit.target; this mount is now Before=sysinit.target too, so ordering it
+# After=systemd-tmpfiles-setup.service gives a linear chain
+# (local-fs.target -> tmpfiles-setup -> nix.mount -> sysinit.target) with no cycle, and
+# the store skeleton is guaranteed in place before the bind mount runs. RequiresMountsFor
+# still orders it after /var is mounted; the ConditionPathExists gate keeps it from binding
+# a /var/nix that has no store yet.
 After=systemd-tmpfiles-setup.service
 ConditionPathExists=/var/nix/store
 RequiresMountsFor=/var
@@ -22,4 +30,4 @@ Type=none
 Options=bind
 
 [Install]
-WantedBy=local-fs.target
+WantedBy=sysinit.target

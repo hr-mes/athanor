@@ -1,41 +1,54 @@
 %global debug_package %{nil}
 Name:           athanor-selinux
 Version:        1.0
-Release:        4%{?dist}
+Release:        5%{?dist}
 Summary:        Custom SELinux policies for Athanor OS
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
 Source0:        bootupd_lsblk.te
 Source1:        athanor_scx.te
+Source2:        athanor_nix_daemon.te
 
 BuildArch:      noarch
 BuildRequires:  checkpolicy
 
 %description
 Custom SELinux Type Enforcement policies for Athanor OS.
-Includes mitigations for bootupd and scx eBPF schedulers.
+Includes mitigations for bootupd, the scx eBPF schedulers, and the Nix daemon socket.
 
 %prep
 %setup -q -c -T
-cp %{SOURCE0} %{SOURCE1} .
+cp %{SOURCE0} %{SOURCE1} %{SOURCE2} .
 
 %build
 # checkmodule compiles each .te into a CIL module (the require block resolves
 # against the base policy when the module is installed). CIL needs no
 # semodule_package step: `semodule -i module.cil` loads it as it is.
-for module in bootupd_lsblk athanor_scx; do
+for module in bootupd_lsblk athanor_scx athanor_nix_daemon; do
   checkmodule -M -m -C -o "${module}.cil" "${module}.te"
 done
 
 %install
 install -D -m 0644 bootupd_lsblk.cil %{buildroot}%{_datadir}/selinux/packages/bootupd_lsblk.cil
 install -D -m 0644 athanor_scx.cil %{buildroot}%{_datadir}/selinux/packages/athanor_scx.cil
+install -D -m 0644 athanor_nix_daemon.cil %{buildroot}%{_datadir}/selinux/packages/athanor_nix_daemon.cil
 
 %files
 %{_datadir}/selinux/packages/bootupd_lsblk.cil
 %{_datadir}/selinux/packages/athanor_scx.cil
+%{_datadir}/selinux/packages/athanor_nix_daemon.cil
 
 %changelog
+* Sat Sep 12 2026 Athanor Forge <forge@athanor.os> - 1.0-5
+- Add athanor_nix_daemon: allow init_t to create/write/unlink the Nix daemon
+  socket (a default_t sock_file under /nix/var/nix/daemon-socket, which on this
+  ostree image is a bind mount of /var/nix). Without it PID1 cannot open the
+  daemon's listening socket under SELinux enforcing and a non-root user gets
+  'Permission denied' on the store lock. Verified in the VM: the socket starts
+  and a non-root `nix run` works with enforcing on. The .cil modules are loaded
+  into the policy store at build time by the Containerfile (semodule -i), since
+  installing a .cil under /usr/share/selinux/packages does not activate it.
+
 * Sun Sep 06 2026 Athanor Forge <forge@athanor.os> - 1.0-4
 - Ship the modules as CIL: checkmodule -C produces them directly and the
   builder has no semodule_package
