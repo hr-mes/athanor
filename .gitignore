@@ -57,3 +57,9 @@ graphify-out/
 # Local workspace for AI agents and temporary scripts
 /.scratch/
 /.codegraph/
+
+# Claude Code: stato e approvazioni personali non appartengono al progetto
+.claude/settings.local.json
+.claude/state/
+.serena/cache/
+.serena/memories/
