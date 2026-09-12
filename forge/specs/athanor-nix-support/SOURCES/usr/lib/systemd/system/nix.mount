@@ -6,20 +6,20 @@ Documentation=https://github.com/hr-mes/athanor-forge
 # home volume. This unit makes /nix a bind mount of /var/nix so every Nix tool sees a
 # native store at /nix while the data persists in /var -- the approach bootc images use,
 # rather than a symlink the store's own tooling can reject.
-Before=nix-daemon.service nix-daemon.socket
-# The store skeleton under /var/nix (store, var/nix, ...) is created by
-# systemd-tmpfiles-setup, which runs After=local-fs.target. A .mount is by default
-# ordered Before=local-fs.target, so ordering this mount After the tmpfiles service AND
-# hanging it off local-fs.target forms a cycle (mount -> tmpfiles-setup -> local-fs.target
-# -> mount) that systemd breaks by dropping the mount, leaving /nix unmounted. Instead the
-# mount is pulled up by sysinit.target instead. tmpfiles-setup is After=local-fs.target
-# and Before=sysinit.target; this mount is now Before=sysinit.target too, so ordering it
-# After=systemd-tmpfiles-setup.service gives a linear chain
-# (local-fs.target -> tmpfiles-setup -> nix.mount -> sysinit.target) with no cycle, and
-# the store skeleton is guaranteed in place before the bind mount runs. RequiresMountsFor
-# still orders it after /var is mounted; the ConditionPathExists gate keeps it from binding
-# a /var/nix that has no store yet.
+# DefaultDependencies=no is the crux. A .mount unit otherwise gets an automatic
+# Before=local-fs.target. The store skeleton under /var/nix is created by
+# systemd-tmpfiles-setup, which is After=local-fs.target, so this mount must run after it
+# -- but with the implicit Before=local-fs.target that forms the cycle
+# nix.mount -> tmpfiles-setup -> local-fs.target -> nix.mount, which systemd breaks by
+# dropping the mount, leaving /nix unmounted (moving WantedBy to sysinit.target does not
+# help: the implicit Before=local-fs.target stays). With DefaultDependencies=no that
+# implicit ordering is gone, and the dependencies below are the only ones, giving the
+# linear chain var mounted -> tmpfiles-setup -> nix.mount -> nix-daemon, no cycle.
+DefaultDependencies=no
 After=systemd-tmpfiles-setup.service
+Before=nix-daemon.service nix-daemon.socket sysinit.target
+Conflicts=umount.target
+Before=umount.target
 ConditionPathExists=/var/nix/store
 RequiresMountsFor=/var
 

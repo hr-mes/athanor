@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-nix-support
 Version:        1.0.0
-Release:        5%{?dist}
+Release:        6%{?dist}
 Summary:        Athanor OS athanor-nix-support
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -44,6 +44,18 @@ cp -a %{_sourcedir}/usr/lib/systemd/system-preset/* %{buildroot}/usr/lib/systemd
 /usr/lib/systemd/system-preset/80-athanor-nix.preset
 
 %changelog
+* Sat Sep 12 2026 Athanor Forge <forge@athanor.os> - 1.0.0-6
+- Break the ordering cycle that kept nix.mount from activating on a clean boot. A .mount
+  unit gets an implicit Before=local-fs.target from DefaultDependencies; combined with the
+  needed After=systemd-tmpfiles-setup.service (which is After=local-fs.target) this forms
+  the cycle nix.mount -> tmpfiles-setup -> local-fs.target -> nix.mount, which systemd
+  breaks by dropping the mount -- so /nix stayed unmounted (moving WantedBy to
+  sysinit.target did not help, the implicit ordering remained). Set DefaultDependencies=no
+  and declare the ordering explicitly (After tmpfiles-setup, Before nix-daemon and
+  sysinit.target, Conflicts/Before umount.target). Verified on a clean boot in the VM:
+  the mount comes up on its own, the daemon socket starts, and a non-root nix works under
+  SELinux enforcing.
+
 * Sat Sep 12 2026 Athanor Forge <forge@athanor.os> - 1.0.0-5
 - Make nix.mount actually activate, and back it with the store skeleton. On the built
   image nix.mount was left `disabled`: `systemctl enable nix.mount` in the Containerfile
