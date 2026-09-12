@@ -29,13 +29,16 @@ writable, encrypted /var.
 %install
 mkdir -p %{buildroot}/usr/lib/tmpfiles.d
 mkdir -p %{buildroot}/usr/lib/systemd/system
+mkdir -p %{buildroot}/usr/lib/systemd/system-preset
 
 cp -a %{_sourcedir}/usr/lib/tmpfiles.d/* %{buildroot}/usr/lib/tmpfiles.d/
 cp -a %{_sourcedir}/usr/lib/systemd/system/* %{buildroot}/usr/lib/systemd/system/
+cp -a %{_sourcedir}/usr/lib/systemd/system-preset/* %{buildroot}/usr/lib/systemd/system-preset/
 
 %files
 /usr/lib/tmpfiles.d/10-athanor-nix.conf
 /usr/lib/systemd/system/nix.mount
+/usr/lib/systemd/system-preset/80-athanor-nix.preset
 
 %changelog
 * Fri Sep 12 2026 Athanor Forge <forge@athanor.os> - 1.0.0-3

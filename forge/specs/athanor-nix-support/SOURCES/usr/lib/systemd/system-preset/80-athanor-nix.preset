@@ -1,0 +1,7 @@
+# The Nix daemon socket is enabled through a preset rather than `systemctl enable` at
+# build time: the Fedora nix-daemon unit lives under the Nix profile in /nix, which on
+# this ostree system is a bind mount of /var/nix populated at boot, so the unit is not
+# visible to systemctl while the image is built. A preset is declarative and is applied
+# when the unit exists, so systemd enables the socket on first boot once nix.mount has
+# made /nix available.
+enable nix-daemon.socket
