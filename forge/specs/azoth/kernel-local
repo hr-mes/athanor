@@ -36,6 +36,12 @@ CONFIG_ZERO_CALL_USED_REGS=y
 CONFIG_RANDSTRUCT_NONE=y
 # CONFIG_RANDSTRUCT_FULL is not set
 CONFIG_MODULE_SIG_FORCE=y
+# External modules (NVIDIA) are trusted through the project module signing certificate
+# compiled into the kernel, whatever the firmware state; retired project keys are
+# revoked. build.sh places both files in the tree from keys/modules and keys/revoked.
+CONFIG_SYSTEM_TRUSTED_KEYS="certs/athanor-modules.pem"
+CONFIG_SYSTEM_REVOCATION_LIST=y
+CONFIG_SYSTEM_REVOCATION_KEYS="certs/athanor-revoked.pem"
 
 # Network: BBRv3 (TCP_CONG_BBR3 symbol of the CachyOS base) and FQ by default.
 CONFIG_TCP_CONG_BBR3=y

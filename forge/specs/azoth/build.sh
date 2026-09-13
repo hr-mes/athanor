@@ -188,6 +188,18 @@ for p in "${ATHANOR_PATCHES[@]}"; do
   g apply --cached "$p"
   (cd "$WORK/b" && git apply "$p")
 done
+# The certificates kernel-local compiles in (CONFIG_SYSTEM_TRUSTED_KEYS and
+# CONFIG_SYSTEM_REVOCATION_KEYS, paths relative to the tree): added to the index, so
+# linux-kernel-test.patch carries them into the tree rpmbuild prepares.
+mapfile -t MODULE_CERTS < <(find "$HERE/keys/modules" -name '*.pem' | sort)
+mapfile -t REVOKED_CERTS < <(find "$HERE/keys/revoked" -name '*.pem' | sort)
+[[ ${#MODULE_CERTS[@]} -eq 1 ]] || die "keys/modules: expected one certificate, found ${#MODULE_CERTS[@]}"
+[[ ${#REVOKED_CERTS[@]} -ge 1 ]] || die "keys/revoked: no certificate, CONFIG_SYSTEM_REVOCATION_KEYS needs one"
+add_to_tree() { # add_to_tree PATH FILE...: the concatenation of FILE... at PATH in the index
+  g update-index --add --cacheinfo "100644,$(cat "${@:2}" | g hash-object -w --stdin),$1"
+}
+add_to_tree certs/athanor-modules.pem "${MODULE_CERTS[@]}"
+add_to_tree certs/athanor-revoked.pem "${REVOKED_CERTS[@]}"
 g diff --binary "$FEDORA" "$(g write-tree)" -- . ':!.github' > "$SRC/linux-kernel-test.patch"
 
 # --- config -------------------------------------------------------------------------
