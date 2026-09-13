@@ -195,8 +195,11 @@ mapfile -t MODULE_CERTS < <(find "$HERE/keys/modules" -name '*.pem' | sort)
 mapfile -t REVOKED_CERTS < <(find "$HERE/keys/revoked" -name '*.pem' | sort)
 [[ ${#MODULE_CERTS[@]} -eq 1 ]] || die "keys/modules: expected one certificate, found ${#MODULE_CERTS[@]}"
 [[ ${#REVOKED_CERTS[@]} -ge 1 ]] || die "keys/revoked: no certificate, CONFIG_SYSTEM_REVOCATION_KEYS needs one"
+# awk 1 rather than cat ends every file with a newline: a PEM without one would glue its
+# END line to the next BEGIN, and extract-cert stops at the first unparsable block without
+# an error, dropping the remaining certificates.
 add_to_tree() { # add_to_tree PATH FILE...: the concatenation of FILE... at PATH in the index
-  g update-index --add --cacheinfo "100644,$(cat "${@:2}" | g hash-object -w --stdin),$1"
+  g update-index --add --cacheinfo "100644,$(awk 1 "${@:2}" | g hash-object -w --stdin),$1"
 }
 add_to_tree certs/athanor-modules.pem "${MODULE_CERTS[@]}"
 add_to_tree certs/athanor-revoked.pem "${REVOKED_CERTS[@]}"
