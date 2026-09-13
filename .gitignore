@@ -37,9 +37,11 @@ forge/*.tar.gz
 # Security / Keys
 *.key
 *.pem
-# Il certificato pubblico della MOK di progetto: solo la parte pubblica, la chiave
-# privata sta nell'environment GitHub `signing` (docs/architecture/doc_kernel_build.md, sezione 6).
-!forge/specs/azoth/keys/mok/athanor-mok.pem
+# The public certificates of the project signing keys; the private keys live in the
+# GitHub environment `signing` (docs/architecture/doc_kernel_build.md, section 6).
+!forge/specs/azoth/keys/secureboot/*.pem
+!forge/specs/azoth/keys/modules/*.pem
+!forge/specs/azoth/keys/revoked/*.pem
 .tmp_repo/
 tier0_extracted/
 
