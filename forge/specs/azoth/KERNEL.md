@@ -10,7 +10,7 @@ directory e come si usa.
 | `pins.env` | i pin: NVR Fedora (stesso patch level della release CachyOS), release CachyOS, commit del config e delle patch |
 | `SOURCES/sources.sha256` | hash di ogni file che build.sh scarica; lo scrive `build.sh --stage manifest` |
 | `SOURCES/keys/{cachyos,kernel.org}/` | chiavi pubbliche che firmano i tarball CachyOS e vanilla |
-| `keys/mok/` | certificato pubblico della MOK di progetto, che firma UKI e moduli esterni; la chiave privata sta nel secret `MOK_PRIVATE_KEY` dell'environment `signing` |
+| `keys/` | `profiles/` e `generate.sh`: le chiavi di firma del progetto; certificati pubblici in `secureboot/` (UKI e policy PCR, secret `SECUREBOOT_SIGNING_KEY`), `modules/` (moduli esterni, compilato nel kernel, secret `MODULE_SIGNING_KEY`) e `revoked/` (compilati nella blacklist del kernel); i secret stanno nell'environment `signing` |
 | `kernel-local` | delta Kconfig di Athanor sul config x86_64 di Fedora |
 | `patches.list` | patch di CachyOS/kernel-patches applicate sopra la base |
 | `patches/` | patch di Athanor, in formato git, applicate dopo quelle di CachyOS |
@@ -78,9 +78,11 @@ Serve solo il kernel-core: `--rpms` accetta l'`out/` di build.sh o una directory
 il solo RPM. Senza `/dev/kvm` (WSL, podman machine) aggiungi `--accel tcg`: minuti
 invece di secondi, e `host` diventa `max`. Log seriali e riepilogo in `boot-out/`.
 Con `--mok CERT` arruola altri certificati in MokList e con `--insmod FILE.ko:ERRNO`
-carica moduli nel guest (solo casi UEFI) pretendendo l'errno di insmod: `ENODEV` per un
-modulo firmato da una MOK arruolata senza il suo hardware, `EKEYREJECTED` per uno non
-firmato. E' la prova della catena dei moduli esterni (spec, sezione 7, gate 4).
+carica moduli nel guest, in tutti i casi, pretendendo l'errno di insmod: `ENODEV` per un
+modulo firmato con la chiave dei moduli compilata nel kernel, senza il suo hardware,
+`EKEYREJECTED` per uno non firmato o firmato da una MOK arruolata. Ogni caso verifica
+anche che i certificati di `keys/modules` e `keys/revoked` siano stati caricati. E' la
+prova della catena dei moduli esterni (spec, sezione 7, gate 4).
 
 ## Kernel guest MicroVM
 
@@ -123,9 +125,9 @@ di build.sh, o l'immagine `azoth-devel:<nvr>`). I `.ko` finiscono in
 `nvidia-out/<driver>/lib/modules/<kver>/extra/nvidia/` (il layout che l'immagine di
 sistema copia) con il vermagic del kernel e i preamboli kCFI, senza firma:
 `nvidia.sh sign --key K --cert C --devel DIR --out DIR` li firma con sign-file del
-kernel-devel, in locale con una chiave effimera, in CI con la MOK di progetto
-(workflow `.github/workflows/nvidia-kmod.yml`, che poi li carica in QEMU sotto Secure
-Boot con `boot.sh --mok --insmod` prima di pubblicarli).
+kernel-devel, in locale con una chiave effimera, in CI con la chiave dei moduli del
+progetto (workflow `.github/workflows/nvidia-kmod.yml`, che poi li carica in QEMU con
+`boot.sh --mok --insmod` prima di pubblicarli).
 
 ## Pubblicazione
 
