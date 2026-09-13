@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-system-services
 Version:        1.0.1
-Release:        10%{?dist}
+Release:        11%{?dist}
 Summary:        Athanor OS athanor-system-services
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -37,6 +37,14 @@ cp -a %{_sourcedir}/usr/lib/systemd/user/* %{buildroot}/usr/lib/systemd/user/
 /usr/lib/systemd/user/cosmic-osd.service
 
 %changelog
+* Sun Sep 13 2026 Athanor Forge <forge@athanor.os> - 1.0.1-11
+- Lift the daemon sandbox from cosmic-panel.service. The panel forks the user's
+  applications as its children, and a child inherits the mount namespace, the
+  no_new_privs flag and the system-call filter: every application opened from the dock
+  or the launcher ran on a read-only filesystem and could not sudo ("the no new
+  privileges flag is set"). The panel keeps the directives that do not propagate as a
+  restriction on its children; applications are confined by their own compartment.
+
 * Fri Sep 11 2026 Athanor Forge <forge@athanor.os> - 1.0.1-10
 - The desktop is COSMIC's: cosmic-panel (panel and dock, applets as its children),
   cosmic-bg, cosmic-settings-daemon, cosmic-notifications and cosmic-osd, each a user

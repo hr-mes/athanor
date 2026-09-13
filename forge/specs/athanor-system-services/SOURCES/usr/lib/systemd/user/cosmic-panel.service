@@ -13,9 +13,7 @@ PartOf=graphical-session.target
 # W^X cannot hold for a GL client: Mesa JIT-compiles shaders on the CPU wherever there
 # is no GPU driver (llvmpipe, the case of every VM), and the freshly written page must
 # then become executable; acceptance run 34524538068 saw every start of a GL client
-# segfault at the first JIT'd function with it on. mincore is no longer part of
-# @system-service and the GL stack calls it while the first frame is drawn (run
-# 34515239432, SECCOMP syscall=27).
+# segfault at the first JIT'd function with it on.
 MemoryDenyWriteExecute=no
 CPUWeight=200
 MemoryHigh=1G
@@ -27,22 +25,23 @@ ExecStart=/usr/bin/cosmic-panel
 Restart=on-failure
 RestartSec=2s
 
-ProtectSystem=strict
-ProtectHome=read-only
+# The panel is the launcher: the app list, the dock and the launcher applet fork the
+# user's applications as children of this process, and a child keeps its parent's mount
+# namespace, no_new_privs flag and seccomp filter for life. Under the daemon sandbox the
+# other COSMIC units carry, every application opened from the panel saw a read-only
+# filesystem (ProtectSystem=strict, ProtectHome=read-only), could not sudo
+# (NoNewPrivileges, RestrictSUIDSGID) and ran under a system-call filter written for the
+# panel. A transient scope would not help: it moves the child's cgroup, not its namespace.
+# The same goes for every seccomp-based directive (RestrictRealtime, LockPersonality):
+# a filter installed here is a filter on every application, and the image grants users
+# realtime scheduling on purpose (99-athanor-realtime.conf). So the panel keeps its
+# resource controls and nothing that propagates; applications are confined by their own
+# compartment, not by the launcher's unit.
+#
 # cosmic-config keeps the panel's and the applets' settings in $XDG_CONFIG_HOME/cosmic,
 # and their state in $XDG_STATE_HOME/cosmic.
 ConfigurationDirectory=cosmic
 StateDirectory=cosmic
-PrivateTmp=true
-NoNewPrivileges=true
-SystemCallFilter=@system-service mincore
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectKernelLogs=true
-ProtectControlGroups=true
-RestrictRealtime=true
-RestrictSUIDSGID=true
-LockPersonality=true
 
 [Install]
 WantedBy=graphical-session.target
