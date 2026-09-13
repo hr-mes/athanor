@@ -58,7 +58,7 @@ Directory `forge/specs/azoth/` dopo il blocco:
 | `builder/Containerfile`  | ambiente Fedora 43 (esiste già), base pinnata per digest                                                                                                                            |
 | `build.sh`               | l'intera build, riproducibile in locale e in CI                                                                                                                                     |
 | `build-inputs.py`        | gli input che cambiano gli RPM come JSON: predicato dell'attestazione dei pin e chiave del riuso (sezione 7)                                                                   |
-| `keys/mok/`              | certificato pubblico della MOK di progetto (sezione 6); la chiave privata è nell'environment `signing`                                                                        |
+| `keys/`                  | profili e generatore delle chiavi di firma (`profiles/`, `generate.sh`); certificati pubblici della chiave Secure Boot (`secureboot/`), della chiave dei moduli (`modules/`) e delle chiavi ritirate (`revoked/`) (sezione 6); le chiavi private sono nell'environment `signing` |
 | `microvm/`               | config e spec del kernel guest (sezione 9)                                                                                                                                          |
 | `KERNEL.md`              | cosa c'è nella directory, uso locale, bump; il bot (K5) ne riscrive la tabella dei pin                                                                                               |
 
@@ -242,23 +242,39 @@ patchano i Makefile per forzarlo.
 - **Moduli in albero**: firmati dalla chiave effimera generata dallo spec, il
   cui certificato è dentro il kernel. `MODULE_SIG_FORCE` rende il rifiuto un
   comportamento di compilazione, non di riga di comando.
-- **Moduli esterni** (NVIDIA): firmati con la MOK del progetto, in un job
-  separato che non vede altro. La chiave privata (RSA 4096, generata offline il
-  2026-09-04, copia cifrata fuori da GitHub) sta nel secret `MOK_PRIVATE_KEY`
-  dell'environment `signing`, ammesso solo ai branch `main` e `iso-v0`; il
-  certificato pubblico è committato in `keys/mok/athanor-mok.pem` (`.der` per
-  `mokutil --import` e `sign-file`). Un secret non è più sicuro per essere nato
-  sul runner: conta dove si usa, e chi ne ha la custodia.
+- **Moduli esterni** (NVIDIA): firmati con la chiave dei moduli del progetto, in
+  un job separato che non vede altro. Il suo certificato
+  (`keys/modules/athanor-modules.pem`) è compilato nel kernel
+  (`CONFIG_SYSTEM_TRUSTED_KEYS`): la fiducia non dipende dal firmware né da
+  Secure Boot. La chiave privata (RSA 4096, profilo `keys/profiles/modules.cnf`,
+  generata con `keys/generate.sh` il 2026-09-13, copia cifrata fuori da GitHub)
+  sta nel secret `MODULE_SIGNING_KEY` dell'environment `signing`, ammesso solo
+  ai branch `main` e `iso-v0`. Un secret non è più sicuro per essere nato sul
+  runner: conta dove si usa, e chi ne ha la custodia.
+- **Chiave Secure Boot**: firma la UKI e la sua policy PCR (`ukify
+  --pcr-private-key`; è la chiave pubblica con cui `athanor-tpm-luks-seal.sh`
+  sigilla LUKS). Profilo `keys/profiles/secureboot.cnf`: non CA, `codeSigning`.
+  Secret `SECUREBOOT_SIGNING_KEY`, certificato
+  `keys/secureboot/athanor-secureboot.pem` (`.der` per `mokutil --import`). Non
+  essendo una CA, anche arruolata resta fuori dal keyring machine
+  (`INTEGRITY_CA_MACHINE_KEYRING_MAX`): non può autorizzare un modulo.
+- **Revoca**: `keys/revoked/` sono i certificati ritirati, compilati nella
+  blacklist del kernel (`CONFIG_SYSTEM_REVOCATION_KEYS`): un modulo firmato con
+  uno di loro è rifiutato anche dove quella MOK fosse ancora arruolata. Il primo
+  è la MOK unica del 2026-09-04 ("Ermete OS Secure Boot MOK"), che firmava UKI e
+  moduli, ritirata il 2026-09-13.
 - **UKI**: kernel, initrd, `cmdline` e microcode early in un'unica immagine
-  firmata con la MOK dietro lo shim Fedora; la produce la fase system-image,
-  perché l'initrd dipende dall'immagine, non dal kernel. Lo spec Fedora fornisce
-  già le stringhe SBAT (`kernel.sbat`, `uki.sbat`).
-- **Primo avvio**: arruolamento guidato della MOK (`mokutil --import`), unica
-  interazione richiesta per avere Secure Boot acceso su un PC qualsiasi.
+  firmata con la chiave Secure Boot dietro lo shim Fedora; la produce la fase
+  system-image, perché l'initrd dipende dall'immagine, non dal kernel. Lo spec
+  Fedora fornisce già le stringhe SBAT (`kernel.sbat`, `uki.sbat`).
+- **Primo avvio**: arruolamento guidato del certificato Secure Boot
+  (`mokutil --import`), unica interazione richiesta per avere Secure Boot acceso
+  su un PC qualsiasi; i moduli non ne dipendono.
 - **`cmdline`** committata: `lockdown=integrity mitigations=auto init_on_alloc=1
 randomize_kstack_offset=on page_alloc.shuffle=1 vsyscall=none preempt=full
 amd_pstate=active zswap.enabled=1`. Niente `iommu=pt`, niente `mitigations=off`.
-- **Rootfs**: dm-verity con roothash firmato dalla stessa chiave del progetto,
+- **Rootfs**: dm-verity con roothash firmato da una chiave del progetto nel
+  keyring secondario (non quella Secure Boot, che non vi entra),
   fs-verity per composefs, TPM 2.0 per LUKS (`systemd-cryptenroll`) con fallback
   a passphrase sui PC 2014–2016 senza TPM 2.0. Le opzioni kernel ci sono già;
   la parte immagine è del blocco system-image.
@@ -282,7 +298,9 @@ Ogni PR di bump e ogni cambio in `forge/specs/azoth/**` passa:
    `ima_policy=tcb` solo nella riga di comando di prova), lockdown `integrity`,
    `tcp_congestion_control=bbr3`, `tainted=0`, `dmesg` senza splat (`BUG:`,
    `WARNING: CPU:`, `Oops:`, `Call Trace:`; gli avvisi hw-vuln come SRSO non lo
-   sono); in UEFI anche `SecureBoot=1` e `MokListRT` presente. `publish`
+   sono); i certificati compilati nel kernel (chiave dei moduli e revocati)
+   caricati, per subject key identifier (`Loaded X.509 cert` nel log); in UEFI
+   anche `SecureBoot=1` e `MokListRT` presente. `publish`
    dipende da `boot`: senza matrice verde non si pubblica;
 4. **kmod NVIDIA** (job `kmod` di `kernel-build.yml`, che chiama il workflow
    riusabile `nvidia-build.yml`; sezione 10): `nvidia-open` (610) e ramo legacy
@@ -290,11 +308,13 @@ Ogni PR di bump e ogni cambio in `forge/specs/azoth/**` passa:
    pubblicato per l'NVR dei pin quando il kernel è riusato, con la toolchain del
    kernel; ogni `.ko` deve portare il vermagic del kernel e i tipi kCFI. Poi, sui
    push, `nvidia-kmod.yml`, avviato da Kernel Build a valle della pubblicazione
-   (`workflow_run` vale solo dal branch di default): il job `sign` li firma con la MOK del
-   progetto; il job `boot` (`boot.sh --mok --insmod`, casi UEFI) arruola la MOK
-   di progetto accanto a quella effimera della UKI e nel guest carica il
-   `nvidia.ko` firmato di ogni ramo, atteso `ENODEV` (firma accettata, GPU
-   assente), e una copia non firmata, atteso `EKEYREJECTED`; `publish`
+   (`workflow_run` vale solo dal branch di default): il job `sign` li firma con la
+   chiave dei moduli del progetto e firma una copia con una MOK effimera dal
+   profilo Secure Boot; il job `boot` (`boot.sh --mok --insmod`, tutti e quattro
+   i casi) arruola quella MOK e nel guest carica il `nvidia.ko` firmato di ogni
+   ramo, atteso `ENODEV` (firma accettata, GPU assente), una copia non firmata e
+   quella firmata dalla MOK, attese `EKEYREJECTED`: SeaBIOS prova che la fiducia
+   non dipende dal firmware, UEFI che una MOK arruolata non la estende; `publish`
    verifica firma e attestazione con cosign;
 5. **benchmark di tendenza** (non bloccante): hackbench, schbench, fio null,
    netperf loopback per cinque minuti, risultati come artefatto e grafico nel
@@ -417,7 +437,7 @@ kernel:
 | Livello         | GPU                              | Meccanismo                                                                                                                                                         |
 | --------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | default         | tutte                            | `nouveau` in-tree, firmware GSP; NVK in Mesa                                                                                                                       |
-| `nvidia-open`   | Turing 2018+                     | moduli aperti 610.x compilati nel container Fedora contro `kernel-devel`, clang e kCFI coerenti, firmati MOK                                                       |
+| `nvidia-open`   | Turing 2018+                     | moduli aperti 610.x compilati nel container Fedora contro `kernel-devel`, clang e kCFI coerenti, firmati con la chiave dei moduli                                                       |
 | `nvidia-legacy` | Maxwell, Pascal, Volta 2014–2018 | ramo 580, stesso meccanismo; la parte RM è il blob gcc di NVIDIA, senza kCFI né return thunk: rischio noto, verificabile solo su hardware                         |
 
 Pubblicazione `azoth-nvidia:<kernel-nvr>-<driver>`; le varianti
