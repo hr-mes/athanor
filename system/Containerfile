@@ -1,5 +1,5 @@
-# The NVIDIA modules are built for the kernel NVR of the pins, signed with the
-# project MOK by nvidia-kmod.yml and published as azoth-nvidia:<nvr>-<branch>: a
+# The NVIDIA modules are built for the kernel NVR of the pins, signed with the project
+# module signing key by nvidia-kmod.yml and published as azoth-nvidia:<nvr>-<branch>: a
 # scratch image with lib/modules/<kver>/extra/nvidia/*.ko, copied next to the kernel
 # in tier 0. AZOTH_NVR is passed by call-system-image.yml from forge/specs/azoth/nvr.sh.
 ARG AZOTH_NVR
