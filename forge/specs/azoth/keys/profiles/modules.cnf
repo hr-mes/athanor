@@ -1,0 +1,20 @@
+# Kernel module signing key of Athanor (docs/architecture/doc_kernel_build.md, section 6):
+# signs the external modules (NVIDIA); its certificate is compiled into the kernel
+# (kernel-local, CONFIG_SYSTEM_TRUSTED_KEYS). The extensions are those of the key the
+# kernel generates for its own modules (certs/default_x509.genkey).
+[ req ]
+default_bits = 4096
+default_md = sha256
+distinguished_name = req_distinguished_name
+prompt = no
+string_mask = utf8only
+x509_extensions = exts
+
+[ req_distinguished_name ]
+CN = Athanor Kernel Module Signing Key
+
+[ exts ]
+basicConstraints = critical,CA:FALSE
+keyUsage = digitalSignature
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid
