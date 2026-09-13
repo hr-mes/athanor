@@ -4,9 +4,10 @@ name: NVIDIA kmod
 # docs/architecture/doc_kernel_build.md, section 10). build: nvidia-build.yml, the two
 # branches (open 610, legacy 580) against the kernel-devel published for the NVR of the
 # pins. sign: on a GitHub runner in the `signing` environment, a job that only sees the
-# .ko files and the project MOK. boot: in QEMU with Secure Boot and the project MOK
-# enrolled, the signed nvidia.ko of each branch must pass the signature check (ENODEV: no
-# GPU) and an unsigned copy must be rejected (EKEYREJECTED). publish: OCI
+# .ko files and the module signing key. boot: in QEMU, every case of the matrix: the
+# signed nvidia.ko of each branch must pass the signature check against the certificate
+# compiled into the kernel (ENODEV: no GPU), while an unsigned copy and a copy signed by
+# an enrolled Secure Boot-profile MOK must be rejected (EKEYREJECTED). publish: OCI
 # azoth-nvidia:<nvr>-<branch> with cosign, SBOM, attestation of the pins and retention.
 # Runs only on dispatch: from Kernel Build downstream of the publication (or the reuse)
 # of the kernel, or by hand. The gate on PRs is the kmod job of Kernel Build.
@@ -66,23 +67,48 @@ jobs:
           ctr=$(podman create "${KERNEL_IMAGE}-devel:${nvr}" /kernel-devel)
           mkdir -p devel && podman cp "${ctr}:/." devel/ && podman rm "$ctr" > /dev/null
 
-      - name: Sign with the project MOK
-        # The key lives in a 0600 file in the runner's tmp for the duration of the
-        # command, mounted read-only in the container; the public certificate is in the
-        # repository.
-        env:
-          MOK_PRIVATE_KEY: ${{ secrets.MOK_PRIVATE_KEY }}
+      - name: Sign a copy with an enrolled-MOK-shaped key
+        # The negative sample of the boot job: nvidia.ko of the open branch signed by an
+        # ephemeral key with the Secure Boot profile, whose certificate boot.sh enrols in
+        # MokList. The kernel must refuse it: a Secure Boot key never authorises a module.
         run: |
           set -euo pipefail
-          umask 077
-          printf '%s\n' "$MOK_PRIVATE_KEY" > "$RUNNER_TEMP/mok.key"
-          trap 'rm -f "$RUNNER_TEMP/mok.key"' EXIT
+          mkdir -p mok
+          cp -a out/open mok/open
+          openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
+            -config forge/specs/azoth/keys/profiles/secureboot.cnf -subj '/CN=Athanor OS K3 test MOK/' \
+            -keyout "$RUNNER_TEMP/test-mok.key" -out mok/test-mok.pem 2> /dev/null
           podman run --rm \
             -v "$GITHUB_WORKSPACE:/forge" \
-            -v "$RUNNER_TEMP/mok.key:/run/mok.key:ro" \
+            -v "$RUNNER_TEMP/test-mok.key:/run/test-mok.key:ro" \
             -w /forge localhost/azoth-nvidia \
-            bash forge/specs/azoth/nvidia.sh sign --key /run/mok.key \
-              --cert forge/specs/azoth/keys/mok/athanor-mok.pem --devel /forge/devel --out /forge/out
+            bash forge/specs/azoth/nvidia.sh sign --key /run/test-mok.key \
+              --cert mok/test-mok.pem --devel /forge/devel --out /forge/mok
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nvidia-mok-signed
+          path: mok/
+          if-no-files-found: error
+
+      - name: Sign with the module signing key
+        # The key lives in a 0600 file in the runner's tmp for the duration of the
+        # command, mounted read-only in the container; the public certificate is in the
+        # repository and compiled into the kernel (kernel-local).
+        env:
+          MODULE_SIGNING_KEY: ${{ secrets.MODULE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          [[ -n ${MODULE_SIGNING_KEY:-} ]] || { echo "MODULE_SIGNING_KEY is not available to this job: check the signing environment" >&2; exit 1; }
+          umask 077
+          printf '%s\n' "$MODULE_SIGNING_KEY" > "$RUNNER_TEMP/module.key"
+          trap 'rm -f "$RUNNER_TEMP/module.key"' EXIT
+          podman run --rm \
+            -v "$GITHUB_WORKSPACE:/forge" \
+            -v "$RUNNER_TEMP/module.key:/run/module.key:ro" \
+            -w /forge localhost/azoth-nvidia \
+            bash forge/specs/azoth/nvidia.sh sign --key /run/module.key \
+              --cert forge/specs/azoth/keys/modules/athanor-modules.pem --devel /forge/devel --out /forge/out
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -108,6 +134,12 @@ jobs:
           name: nvidia-open-unsigned
           path: unsigned
 
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        # The negative check of key separation: nvidia.ko signed by an enrolled MOK.
+        with:
+          name: nvidia-mok-signed
+          path: mok
+
       - name: Kernel-core from the published image
         run: |
           set -euo pipefail
@@ -124,20 +156,20 @@ jobs:
         run: podman build -t localhost/azoth-boot forge/specs/azoth/boot
 
       - name: Run boot.sh with the signed modules
-        # UEFI cases only: the trust in the MOK comes from MokListRT, which does not exist
-        # without shim. The project MOK enters the varstore next to the ephemeral one of
-        # the UKI.
+        # Every case: the trust in the module signing key is compiled into the kernel, so
+        # SeaBIOS proves it holds without firmware, and the UEFI cases prove that a MOK
+        # enrolled in MokList does not extend it.
         run: |
           set -euo pipefail
           mkdir -p boot-out
           ko="lib/modules/${nvr}.x86_64/extra/nvidia/nvidia.ko"
           podman run --rm --device /dev/kvm -v "$GITHUB_WORKSPACE:/forge" -w /forge localhost/azoth-boot \
             bash forge/specs/azoth/boot.sh --rpms /forge/out --out /forge/boot-out \
-              --case uefi-nehalem --case uefi-host \
-              --mok forge/specs/azoth/keys/mok/athanor-mok.pem \
+              --mok mok/test-mok.pem \
               --insmod "signed/open/${ko}:ENODEV" \
               --insmod "signed/legacy/${ko}:ENODEV" \
-              --insmod "unsigned/open/${ko}:EKEYREJECTED"
+              --insmod "unsigned/open/${ko}:EKEYREJECTED" \
+              --insmod "mok/open/${ko}:EKEYREJECTED"
 
       - name: Summary
         if: ${{ always() }}
