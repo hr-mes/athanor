@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:28.fc43}
+Release:        %{?autorelease}%{!?autorelease:29.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -80,8 +80,18 @@ mkdir -p /etc/yum.repos.d
 /usr/share/athanor-system-config/athanor-forge.repo
 %attr(0755,root,root) /etc/greenboot/check/required.d/10-greetd-running.sh
 %config(noreplace) /etc/security/limits.d/99-athanor-realtime.conf
+%config(noreplace) %attr(0600,root,root) /etc/usbguard/rules.d/10-athanor-baseline.conf
 
 %changelog
+* Sun Sep 13 2026 Athanor Forge <forge@athanor.os> - 1.0.0-29
+- Ship a USBGuard baseline policy in /etc/usbguard/rules.d. The preset enables
+  usbguard.service and the only rule ever shipped, the rules.conf tmpfiles writes,
+  admits hubs alone, so the implicit block policy, applied to present devices too, cut
+  off the USB keyboard and mouse on the first install on real hardware. The baseline
+  admits hubs and HID-only devices and rejects devices that pair HID with storage or
+  networking; everything else remains blocked until admitted. usbguard-daemon.conf
+  now names RuleFolder: the daemon reads no rule directory unless the setting is
+  present, and it refuses a rule file readable by others, hence mode 0600.
 * Fri Sep 11 2026 Athanor Forge <forge@athanor.os> - 1.0.0-28
 - The session announces XDG_CURRENT_DESKTOP=Athanor:COSMIC, so the COSMIC desktop
   components that now make up the session (see athanor-system-services 1.0.1-10)

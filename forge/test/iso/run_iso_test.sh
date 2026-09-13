@@ -135,9 +135,15 @@ shots_pid=$!
 # virtio_gpu_dri.so, so nothing has to be added to the product for this. virtio-vga rather
 # than virtio-gpu-pci because it keeps a VGA framebuffer, which is what the screenshots
 # read; a machine with no display device at all is also not what anyone installs onto.
+# The keyboard is a USB one on an xHCI controller and the PS/2 controller is switched off,
+# so `sendkey` has nowhere to go but USB: that is the keyboard every desktop actually has,
+# and it is the one usbguard blocks when the image ships no policy for it. With QEMU's
+# default PS/2 keyboard the first install on real hardware reached a greeter nobody could
+# type into while this test stayed green.
 set +e
 timeout "$TIMEOUT" qemu-system-x86_64 \
-    -machine q35 -accel "$accel" -cpu max -smp "${VCPUS:-4}" -m "${MEMORY_MIB:-6144}" \
+    -machine q35,i8042=off -accel "$accel" -cpu max -smp "${VCPUS:-4}" -m "${MEMORY_MIB:-6144}" \
+    -device qemu-xhci -device usb-kbd \
     -drive "if=pflash,format=raw,readonly=on,file=${ovmf_code}" \
     -drive "if=pflash,format=raw,file=${vars}" \
     -device virtio-blk-pci,drive=hd,bootindex=0 \
