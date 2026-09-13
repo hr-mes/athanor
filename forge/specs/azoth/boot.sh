@@ -6,9 +6,11 @@
 # firmware {SeaBIOS, OVMF+Secure Boot via shim} x CPU {Nehalem, host}. Nehalem proves that
 # no instruction beyond the x86-64 baseline made it into the kernel. Every boot must end
 # with `K3 RESULT ok` on the serial console (the assertions are in boot/init).
-# With --mok and --insmod it also exercises the external module chain (section 7, gate
-# 4): the project MOK enrolled next to the ephemeral one, and a signed .ko that the kernel
-# must accept (ENODEV: good signature, no GPU) or reject (EKEYREJECTED).
+# Every boot also checks that the certificates of keys/modules and keys/revoked are
+# compiled into the kernel. With --insmod it exercises the external module chain (section
+# 7, gate 4) in every case: a .ko signed with the module signing key compiled into the
+# kernel must load (ENODEV: good signature, no GPU), and any other must be rejected
+# (EKEYREJECTED).
 #
 # Usage: boot.sh --rpms DIR --out DIR [--accel kvm|tcg] [--case NAME]... [--mok CERT]...
 #                [--insmod FILE.ko:ERRNO]...
@@ -16,10 +18,10 @@
 #   --out    serial logs, summary and test material
 #   --accel  kvm (default, needs /dev/kvm) or tcg (emulation: slow, `host` becomes `max`)
 #   --case   restricts the matrix (repeatable): bios-nehalem bios-host uefi-nehalem uefi-host
-#   --mok    certificate (PEM) to enrol in MokList besides the ephemeral one of the UKI
+#   --mok    certificate (PEM) to enrol in MokList besides the ephemeral one of the UKI,
+#            to prove an enrolled MOK does not authorise modules
 #   --insmod module to load in the guest and the errno expected from insmod (ENODEV,
-#            EKEYREJECTED, or 0). UEFI cases only: without shim there is no MokListRT, and
-#            the trust in the MOKs comes from there.
+#            EKEYREJECTED, or 0), in every case
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -48,7 +50,14 @@ KVER=$(rpm -qp --qf '%{VERSION}-%{RELEASE}.%{ARCH}' "${CORE[0]}")
 CMDLINE=$(< "$HERE/cmdline")
 # Test only: serial console, immediate reboot on panic (with -no-reboot QEMU exits), an
 # IMA policy that measures something, and the parameters read by boot/init.
-TEST_CMDLINE="$CMDLINE console=ttyS0,115200 panic=-1 ima_policy=tcb k3.uname=$KVER"
+# The certificates the kernel must have compiled in (kernel-local), by subject key
+# identifier, the id the kernel logs them with: the module signing one and the revoked.
+skid() { openssl x509 -in "$1" -noout -ext subjectKeyIdentifier | tail -n 1 | tr -d ' :' | tr 'A-F' 'a-f'; }
+K3_CERTS=''
+for cert in "$HERE"/keys/modules/*.pem "$HERE"/keys/revoked/*.pem; do
+  K3_CERTS+="${K3_CERTS:+,}$(skid "$cert")"
+done
+TEST_CMDLINE="$CMDLINE console=ttyS0,115200 panic=-1 ima_policy=tcb k3.uname=$KVER k3.certs=$K3_CERTS"
 
 WORK=$(mktemp -d)
 mkdir -p "$OUT"
@@ -73,7 +82,7 @@ ldd /usr/sbin/bpftool | awk '/=> \//{print $3} /^\s*\/lib64\/ld-linux/{print $1}
   | while read -r lib; do install -D "$lib" "$R/lib64/${lib##*/}"; done
 install -m 755 "$HERE/boot/init" "$R/init"
 # The modules under test, numbered: two branches share the same nvidia.ko. The k3.insmod
-# parameter lists file:errno and goes only into the command line of the UKI (UEFI cases).
+# parameter lists file:errno and goes into the command line of every case.
 K3_INSMOD=''
 for i in "${!INSMOD[@]}"; do
   ko=${INSMOD[$i]%%:*}; errno=${INSMOD[$i]##*:}
@@ -81,20 +90,23 @@ for i in "${!INSMOD[@]}"; do
   install -D -m 644 "$ko" "$R/modules/$i-${ko##*/}"
   K3_INSMOD+="${K3_INSMOD:+,}$i-${ko##*/}:$errno"
 done
+TEST_CMDLINE+="${K3_INSMOD:+ k3.insmod=$K3_INSMOD}"
 (cd "$R" && find . | cpio -o -H newc --quiet | zstd -q -T0 -19 -o "$WORK/initramfs.img")
 echo "initramfs: $(du -sh "$R" | cut -f1) uncompressed, $(du -h "$WORK/initramfs.img" | cut -f1) compressed"
 
 step "UKI signed with an ephemeral MOK, enrolled in the OVMF varstore"
-openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj '/CN=Athanor OS K3 test MOK/' \
-  -keyout "$WORK/mok.key" -out "$OUT/mok.pem" 2> /dev/null
+# The Secure Boot profile of the project key: the MOK the matrix enrols has its shape.
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 -config "$HERE/keys/profiles/secureboot.cnf" \
+  -subj '/CN=Athanor OS K3 test MOK/' -keyout "$WORK/mok.key" -out "$OUT/mok.pem" 2> /dev/null
 ukify build --linux "$VMLINUZ" --initrd "$WORK/initramfs.img" --uname "$KVER" \
-  --cmdline "$TEST_CMDLINE k3.sb=1${K3_INSMOD:+ k3.insmod=$K3_INSMOD}" --stub /usr/lib/systemd/boot/efi/linuxx64.efi.stub \
+  --cmdline "$TEST_CMDLINE k3.sb=1" --stub /usr/lib/systemd/boot/efi/linuxx64.efi.stub \
   --signtool sbsign --secureboot-private-key "$WORK/mok.key" --secureboot-certificate "$OUT/mok.pem" \
   --output "$WORK/uki.efi" > "$OUT/ukify.log"
 sbverify --cert "$OUT/mok.pem" "$WORK/uki.efi" >> "$OUT/ukify.log"
 OVMF_CODE=/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd
-# MokList: the ephemeral MOK of the UKI and those of --mok (the project MOK, for the
-# modules). shim copies it to MokListRT and the kernel loads it into the platform keyring.
+# MokList: the ephemeral MOK of the UKI and those of --mok. shim copies it to MokListRT;
+# none of them is a CA, so the kernel keeps them out of the machine keyring and they
+# verify boot artefacts, never modules.
 ADD_MOK=()
 for cert in "$OUT/mok.pem" "${MOKS[@]}"; do ADD_MOK+=(--add-mok "$(< /proc/sys/kernel/random/uuid)" "$cert"); done
 virt-fw-vars -i /usr/share/edk2/ovmf/OVMF_VARS.secboot.fd -o "$WORK/vars.fd" "${ADD_MOK[@]}" > "$OUT/varstore.log"
