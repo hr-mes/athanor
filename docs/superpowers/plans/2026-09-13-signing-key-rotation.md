@@ -278,8 +278,11 @@ mapfile -t MODULE_CERTS < <(find "$HERE/keys/modules" -name '*.pem' | sort)
 mapfile -t REVOKED_CERTS < <(find "$HERE/keys/revoked" -name '*.pem' | sort)
 [[ ${#MODULE_CERTS[@]} -eq 1 ]] || die "keys/modules: expected one certificate, found ${#MODULE_CERTS[@]}"
 [[ ${#REVOKED_CERTS[@]} -ge 1 ]] || die "keys/revoked: no certificate, CONFIG_SYSTEM_REVOCATION_KEYS needs one"
+# awk 1 rather than cat ends every file with a newline: a PEM without one would glue its
+# END line to the next BEGIN, and extract-cert stops at the first unparsable block without
+# an error, dropping the remaining certificates.
 add_to_tree() { # add_to_tree PATH FILE...: the concatenation of FILE... at PATH in the index
-  g update-index --add --cacheinfo "100644,$(cat "${@:2}" | g hash-object -w --stdin),$1"
+  g update-index --add --cacheinfo "100644,$(awk 1 "${@:2}" | g hash-object -w --stdin),$1"
 }
 add_to_tree certs/athanor-modules.pem "${MODULE_CERTS[@]}"
 add_to_tree certs/athanor-revoked.pem "${REVOKED_CERTS[@]}"
@@ -690,6 +693,8 @@ Expected: `Kernel gate` green; the boot job log shows `K3 ok   cert-<module skid
 - [ ] **Step 3: Watch the chain.** `gh run watch` on Kernel Build, then on NVIDIA kmod. Expected in the kmod `boot` log: `insmod-0 ok`, `insmod-1 ok` (ENODEV), `insmod-2 ok`, `insmod-3 ok` (EKEYREJECTED) in `bios-*` and `uefi-*`.
 
 - [ ] **Step 4: Rebuild the image on the new kernel and modules**, once NVIDIA kmod has published: `gh workflow run athanor-forge-orchestrator.yml --ref iso-v0`, then `gh run watch`. Expected: green; the tier 0 repository reports `[CACHE MISS] Pulling azoth:7.1.8-100.azoth.fc43` (new revision label).
+
+- [ ] **Precondition for any machine with Secure Boot already on** (not the desktop, where it is off): enrol the new certificate *before* upgrading, while the old image still runs: `sudo mokutil --import forge/specs/azoth/keys/secureboot/athanor-secureboot.der`, confirm in MokManager at the next boot, then upgrade. Otherwise shim refuses the new UKI and bootc falls back to the previous deployment.
 
 - [ ] **Step 5: Deploy on the desktop and verify**
 ```bash
