@@ -3,8 +3,9 @@
 section 3 step 8 and section 7): the predicate of the pins attestation that publish
 attaches to the images, and the key with which the inputs job recognises a kernel
 already built from these identical inputs. Only what changes the RPMs goes in: pins,
-source manifest, config delta, patches, merge rules, the guest kernel (fragment and
-spec), build.sh and the environment. Not cmdline, boot/, retention.sh or the workflow:
+source manifest, config delta, patches, the certificates compiled in (keys/modules,
+keys/revoked), merge rules, the guest kernel (fragment and spec), build.sh and the
+environment. Not cmdline, boot/, retention.sh or the workflow:
 changing them must not rebuild anything."""
 
 import hashlib
@@ -38,6 +39,11 @@ print(
             "patches_sha256": {
                 p.name: sha(f"patches/{p.name}")
                 for p in sorted((k / "patches").glob("*.patch"))
+            },
+            "keys_sha256": {
+                p.relative_to(k).as_posix(): sha(p.relative_to(k))
+                for d in ("modules", "revoked")
+                for p in sorted((k / "keys" / d).glob("*.pem"))
             },
             "fedora_wins_sha256": sha("fedora-wins.list"),
             "microvm_sha256": {
