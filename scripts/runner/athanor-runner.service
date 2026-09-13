@@ -1,0 +1,46 @@
+[Unit]
+Description=Self-hosted GitHub Actions runner in an ephemeral KVM guest
+Documentation=file:///usr/local/libexec/athanor-runner/README.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/libexec/athanor-runner/vm.sh
+# vm.sh serves one job per run: the guest powers off after it and a clean one boots.
+Restart=always
+RestartSec=10s
+# kernel-build.yml allows a job six hours; a guest that never powers off stops at eight.
+RuntimeMaxSec=8h
+
+# The runner executes workflow code: nothing of the host is reachable but /dev/kvm, the
+# service's own directories and the network.
+DynamicUser=yes
+StateDirectory=athanor-runner
+RuntimeDirectory=athanor-runner
+LogsDirectory=athanor-runner
+LoadCredentialEncrypted=github-token:/etc/credstore.encrypted/athanor-runner.github-token
+DevicePolicy=closed
+DeviceAllow=/dev/kvm rw
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+# passt, the user-mode network of the guest, reads the host routes over netlink.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+# The desktop keeps priority: a kernel build yields CPU and I/O to interactive work.
+CPUWeight=20
+IOWeight=20
+MemoryMax=22G
+
+[Install]
+WantedBy=multi-user.target
