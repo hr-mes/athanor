@@ -1,0 +1,23 @@
+# Secure Boot signing key of Athanor (docs/architecture/doc_kernel_build.md, section 6):
+# signs the UKI, which shim verifies through MokList, and its PCR policy (ukify
+# --pcr-private-key). Not a CA: the kernel admits into the machine keyring only CA
+# certificates (CONFIG_INTEGRITY_CA_MACHINE_KEYRING_MAX), so an enrolled copy of this key
+# can never authorise a kernel module. boot.sh and nvidia-kmod.yml build their ephemeral
+# test MOKs from this same profile.
+[ req ]
+default_bits = 4096
+default_md = sha256
+distinguished_name = req_distinguished_name
+prompt = no
+string_mask = utf8only
+x509_extensions = exts
+
+[ req_distinguished_name ]
+CN = Athanor Secure Boot Signing Key
+
+[ exts ]
+basicConstraints = critical,CA:FALSE
+keyUsage = digitalSignature
+extendedKeyUsage = codeSigning
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid
