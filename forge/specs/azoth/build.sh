@@ -4,13 +4,15 @@
 # in pins.env, verified against SOURCES/sources.sha256 and against the signatures of the
 # keys in SOURCES/keys. Every failing check stops the build. The manifest stage downloads
 # the pinned sources and writes their manifest: that is how the bump bot (bump.py)
-# regenerates SOURCES/sources.sha256. The microvm stage runs prep and compiles only the
+# regenerates SOURCES/sources.sha256. The refresh stage stops after the patches and writes
+# to DIR/refreshed the copies of the CachyOS patches that no longer apply without fuzz, for
+# a human to review and commit under patches/refreshed (section 8). The microvm stage runs prep and compiles only the
 # MicroVM guest kernel (section 9); build compiles both kernels. --variant NAME
 # (variants/NAME) is the same build with a fragment overriding kernel-local, for the A/B
 # comparison of the benchmark (kernel-weekly.yml): buildid .azoth.NAME, never published.
 set -euo pipefail
 
-usage() { echo "usage: ${0##*/} --stage manifest|prep|microvm|build --out DIR [--variant NAME]" >&2; exit 2; }
+usage() { echo "usage: ${0##*/} --stage manifest|prep|refresh|microvm|build --out DIR [--variant NAME]" >&2; exit 2; }
 STAGE='' OUT='' VARIANT=''
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -20,7 +22,7 @@ while [[ $# -gt 0 ]]; do
     *) usage ;;
   esac
 done
-[[ ( $STAGE == manifest || $STAGE == prep || $STAGE == microvm || $STAGE == build ) && -n $OUT ]] || usage
+[[ ( $STAGE == manifest || $STAGE == prep || $STAGE == refresh || $STAGE == microvm || $STAGE == build ) && -n $OUT ]] || usage
 
 die() { echo "build.sh: $*" >&2; exit 1; }
 step() { echo; echo ">>> $*"; }
@@ -32,6 +34,7 @@ CACHE=${AZOTH_CACHE:-/var/cache/azoth}
 TOP=$HOME/rpmbuild
 SRC=$TOP/SOURCES
 mkdir -p "$CACHE" "$OUT" "$TOP"
+OUT=$(cd "$OUT" && pwd)     # absolute: the patch step applies files from inside $WORK/b
 # A fresh work area on every run: the git repository of the merge does not survive a
 # second pass on the same index (the patches show up as already applied).
 WORK=$(mktemp -d "$TOP/athanor.XXXXXX")
@@ -143,12 +146,6 @@ step "kernel.spec and Fedora sources in $TOP"
 printf '%%_topdir %s\n%%buildid .azoth%s\n' "$TOP" "${VARIANT:+.$VARIANT}" > "$HOME/.rpmmacros"
 rpm -i "$SIGNED_SRPM"
 
-# Before the config derivation: listnewconfig must see the same toolchain as rpmbuild
-# (rust-src, bindgen, pahole), otherwise RUST_IS_AVAILABLE and the options depending on
-# it change between the pre-pass and the Fedora gate.
-step "BuildRequires of kernel.spec"
-dnf -y builddep "${DEFINES[@]}" "$TOP/SPECS/kernel.spec"
-
 step "CachyOS base: three-way merge of vanilla, CachyOS and the Red Hat patch, then patches.list and patches/"
 tar -C "$WORK" -xf "$CACHE/$VANILLA_TAR" && mv "$WORK/linux-$KVER" "$WORK/a"
 tar -C "$WORK" -xzf "$CACHE/$CACHY_TAR" && mv "$WORK/$CACHYOS_RELEASE" "$WORK/b"
@@ -183,10 +180,90 @@ else
   g restore --staged --source="$FEDORA" -- "${CONFLICTS[@]}"
   echo "conflicts resolved with the Fedora tree (fedora-wins.list): ${CONFLICTS[*]}"
 fi
+# patches/refreshed/ (doc_kernel_build.md, sections 1 and 8): a CachyOS patch that no
+# longer applies without fuzz is refreshed once with --stage refresh, where GNU patch
+# proposes a copy on the real merged tree and a human reviews the fuzzed hunks before
+# committing it. The copy records the hash of the upstream file it comes from. prep and
+# build apply everything with git apply, without fuzz, and stop when a copy is needed,
+# stale (refreshed from another upstream file) or obsolete (the upstream file applies again).
+REFRESHED=$HERE/patches/refreshed
+sha256_of() { sha256sum "$1" | cut -d' ' -f1; }
+recorded_sha256() { sed -n 's/^Upstream-SHA256: //p' "$1"; }
+applies() { # applies PATCH: PATCH applies without fuzz to the merged index and to the CachyOS tree
+  g apply --cached --check "$1" 2> /dev/null && (cd "$WORK/b" && git apply --check "$1" 2> /dev/null)
+}
+refresh_copy() { # refresh_copy PATH UPSTREAM: GNU patch proposes the refreshed copy; prints its path
+  local p=$1 upstream=$2 dest=$OUT/refreshed/$1 tmp=$WORK/refresh idx=$WORK/refresh.index
+  local log before after f mode files present
+  mapfile -t files < <(git apply --numstat "$upstream" | cut -f3)
+  [[ -z $(printf '%s\n' "${files[@]}" | awk '/ => /') ]] || die "$p: a patch with renames cannot be refreshed, refresh it by hand"
+  rm -rf "$tmp" && mkdir -p "$tmp"
+  mapfile -t present < <(g ls-files -- "${files[@]}")
+  [[ ${#present[@]} -eq 0 ]] || g checkout-index --prefix="$tmp/" -- "${present[@]}"
+  if ! log=$(patch -d "$tmp" -p1 --forward --fuzz=2 --no-backup-if-mismatch --reject-file=- < "$upstream" 2>&1); then
+    printf '%s\n' "$log" >&2
+    die "$p: GNU patch cannot apply it even with fuzz 2, refresh it by hand"
+  fi
+  # The copy is the diff between the index and the files GNU patch produced, written through
+  # a second index so the real one moves only when the copy is applied below.
+  before=$(g write-tree)
+  cp "$WORK/a/.git/index" "$idx"
+  for f in "${files[@]}"; do
+    if [[ -f $tmp/$f ]]; then
+      mode=100644
+      [[ ! -x $tmp/$f ]] || mode=100755
+      GIT_INDEX_FILE=$idx g update-index --add --cacheinfo "$mode,$(g hash-object -w "$tmp/$f"),$f"
+    else
+      GIT_INDEX_FILE=$idx g update-index --force-remove -- "$f"
+    fi
+  done
+  after=$(GIT_INDEX_FILE=$idx g write-tree)
+  mkdir -p "$(dirname "$dest")"
+  {
+    echo "Refreshed-From: CachyOS/kernel-patches $CACHYOS_PATCHES_COMMIT $SERIES/$p"
+    echo "Upstream-SHA256: $(sha256_of "$upstream")"
+    echo "Refreshed-On: $CACHYOS_RELEASE merged with the Red Hat patch of kernel-$FEDORA_KERNEL_NVR"
+    echo
+    echo "GNU patch output: review every hunk applied with fuzz before committing this copy."
+    # shellcheck disable=SC2001  # per-line indentation of a multi-line string, not a literal substitution
+    sed 's/^/  /' <<< "$log"
+    echo
+    g diff --binary "$before" "$after"
+  } > "$dest"
+  applies "$dest" || die "$p: the refreshed copy does not apply without fuzz to both trees, which need different copies: refresh it by hand"
+  echo "$p: refreshed copy written to $dest" >&2
+  echo "$dest"
+}
 for p in "${PATCHES[@]}"; do
-  g apply --cached "$CACHE/$(patch_file "$p")"
-  (cd "$WORK/b" && git apply "$CACHE/$(patch_file "$p")")     # the CachyOS tree serves the config derivation
+  upstream=$CACHE/$(patch_file "$p")
+  copy=$REFRESHED/$p
+  if [[ $STAGE == refresh ]]; then
+    if applies "$upstream"; then
+      use=$upstream
+      [[ ! -f $copy ]] || echo "$p: the upstream patch applies without fuzz, delete patches/refreshed/$p"
+    elif [[ -f $copy && $(recorded_sha256 "$copy") == "$(sha256_of "$upstream")" ]] && applies "$copy"; then
+      use=$copy
+      echo "$p: patches/refreshed/$p is up to date"
+    else
+      use=$(refresh_copy "$p" "$upstream")
+    fi
+  elif [[ -f $copy ]]; then
+    [[ $(recorded_sha256 "$copy") == "$(sha256_of "$upstream")" ]] \
+      || die "refresh needed: $p (patches/refreshed/$p was refreshed from another upstream file)"
+    ! applies "$upstream" || die "patches/refreshed/$p is obsolete: the upstream patch applies without fuzz again, delete the copy"
+    applies "$copy" || die "refresh needed: $p (patches/refreshed/$p no longer applies without fuzz)"
+    use=$copy
+  else
+    applies "$upstream" || die "refresh needed: $p (it no longer applies without fuzz)"
+    use=$upstream
+  fi
+  g apply --cached "$use"
+  (cd "$WORK/b" && git apply "$use")     # the CachyOS tree serves the config derivation
 done
+if [[ $STAGE == refresh ]]; then
+  step "refresh done: the copies to review are in $OUT/refreshed (none if nothing needed a refresh)"
+  exit 0
+fi
 # The Athanor patches (patches/), in name order, after the CachyOS ones.
 for p in "${ATHANOR_PATCHES[@]}"; do
   g apply --cached "$p"
@@ -212,6 +289,13 @@ add_to_tree() { # add_to_tree PATH FILE...: the concatenation of FILE... at PATH
 add_to_tree certs/athanor-modules.pem "${MODULE_CERTS[@]}"
 add_to_tree certs/athanor-revoked.pem "${REVOKED_CERTS[@]}"
 g diff --binary "$FEDORA" "$(g write-tree)" -- . ':!.github' > "$SRC/linux-kernel-test.patch"
+
+# Before the config derivation: listnewconfig must see the same toolchain as rpmbuild
+# (rust-src, bindgen, pahole), otherwise RUST_IS_AVAILABLE and the options depending on
+# it change between the pre-pass and the Fedora gate. After the patches: a patch that does
+# not apply stops prep in seconds, and the refresh stage, which ends there, needs no toolchain.
+step "BuildRequires of kernel.spec"
+dnf -y builddep "${DEFINES[@]}" "$TOP/SPECS/kernel.spec"
 
 # --- config -------------------------------------------------------------------------
 
