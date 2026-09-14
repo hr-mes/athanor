@@ -328,6 +328,13 @@ athanor-recovery-ui`: un solo compositore per greeter, sessione e recovery. Buil
   provider (`customer.….isp.starlink.com`): il sistema installato non ha hostname statico
   (`hostnamectl`: unset), il kickstart o l'installer dovrebbe fissarlo.
 
+## BLOCCO P — kernel and platform profile
+
+Specification: [docs/architecture/doc_kernel_profile.md](docs/architecture/doc_kernel_profile.md), approved at gate P0 on 2026-09-14. Blocks run in order behind their gates (section 15); spike S1 runs alongside P1–P4a.
+
+- **P1**: `forge/specs/athanor-kernel-profile`, holding `profile.toml`, `kernel_profile.py` (validator over every role combination and generator of the effective profiles), `athanor-profile-check` and the acceptance marker `profile-ok`. Plan: [docs/superpowers/plans/2026-09-14-kernel-profile-p1.md](docs/superpowers/plans/2026-09-14-kernel-profile-p1.md). Gate: ISO acceptance PASS with `profile-ok`.
+- **P2**: kernel build profile (section 5) and boot matrix assertions. Gate: Kernel Build gate green.
+
 ## Shell — lacune funzionali verso un utente Windows/macOS
 
 Analisi statica della shell 2026-09-10 (`athanor-shell-rs`, 83 file, ~15.6k righe vive):
