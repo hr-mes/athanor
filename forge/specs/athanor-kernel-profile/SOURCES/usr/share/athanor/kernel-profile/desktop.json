@@ -1,0 +1,122 @@
+{
+  "combination": "desktop",
+  "roles": [
+    "desktop"
+  ],
+  "schema": 1,
+  "settings": {
+    "kconfig": {
+      "CONFIG_BPF_LSM": {
+        "decision": "section 5",
+        "value": "y"
+      },
+      "CONFIG_BTRFS_FS": {
+        "decision": "D17",
+        "value": "y"
+      },
+      "CONFIG_CFI": {
+        "decision": "section 5",
+        "value": "y"
+      },
+      "CONFIG_DEFAULT_TCP_CONG": {
+        "decision": "section 6",
+        "value": "\"bbr3\""
+      },
+      "CONFIG_DRM_PANIC": {
+        "decision": "section 11",
+        "value": "y"
+      },
+      "CONFIG_EROFS_FS": {
+        "decision": "section 5",
+        "value": "y"
+      },
+      "CONFIG_HZ": {
+        "decision": "section 6",
+        "value": "1000"
+      },
+      "CONFIG_IA32_EMULATION": {
+        "decision": "section 5",
+        "value": "y"
+      },
+      "CONFIG_IMA_ARCH_POLICY": {
+        "decision": "section 5",
+        "value": "y"
+      },
+      "CONFIG_INTEGRITY_CA_MACHINE_KEYRING_MAX": {
+        "decision": "D40",
+        "value": "y"
+      },
+      "CONFIG_MODIFY_LDT_SYSCALL": {
+        "decision": "section 5",
+        "value": "y"
+      },
+      "CONFIG_MODULE_SIG_FORCE": {
+        "decision": "section 5",
+        "value": "y"
+      },
+      "CONFIG_PREEMPT_DYNAMIC": {
+        "decision": "D13",
+        "value": "y"
+      },
+      "CONFIG_PREEMPT_LAZY": {
+        "decision": "D13",
+        "value": "y"
+      },
+      "CONFIG_RUST": {
+        "decision": "D4",
+        "value": "y"
+      },
+      "CONFIG_SCHED_BORE": {
+        "decision": "D5",
+        "value": "y"
+      },
+      "CONFIG_SECURITY_IPE": {
+        "decision": "D8",
+        "value": "y"
+      },
+      "CONFIG_SECURITY_LANDLOCK": {
+        "decision": "section 10",
+        "value": "y"
+      },
+      "CONFIG_SHUFFLE_PAGE_ALLOCATOR": {
+        "decision": "section 5",
+        "value": "y"
+      },
+      "CONFIG_X86_64_VERSION": {
+        "decision": "D14",
+        "value": "1"
+      }
+    },
+    "runtime": {
+      "lockdown": {
+        "decision": "section 5",
+        "value": "integrity"
+      },
+      "lsm": {
+        "decision": "section 5",
+        "value": [
+          "lockdown",
+          "yama",
+          "selinux",
+          "bpf",
+          "landlock",
+          "ipe"
+        ]
+      }
+    },
+    "sysctl": {
+      "kernel.dmesg_restrict": {
+        "decision": "D47",
+        "value": "1"
+      },
+      "kernel.kptr_restrict": {
+        "decision": "D47",
+        "value": "2"
+      },
+      "net.core.default_qdisc": {
+        "decision": "section 6",
+        "value": "fq"
+      }
+    }
+  }
+}

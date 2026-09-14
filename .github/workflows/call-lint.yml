@@ -24,3 +24,8 @@ jobs:
         run: /tmp/actionlint -no-color -shellcheck= -pyflakes=
       - name: Structural checks (scripts/verify.py workflows)
         run: python3 scripts/verify.py workflows
+      - name: Kernel profile manifest and checker (kernel_profile.py check, unit tests)
+        run: |
+          set -euo pipefail
+          python3 -B forge/specs/athanor-kernel-profile/kernel_profile.py check
+          python3 -B -m unittest discover -s forge/specs/athanor-kernel-profile/tests -v

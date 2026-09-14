@@ -1,0 +1,60 @@
+# The kernel profile manifest of Athanor (docs/architecture/doc_kernel_profile.md,
+# sections 3 and 7). Every setting carries its value and the decision or section that
+# motivates it; `locked` (base only), `priority` and `ordering` ("max" or "min") follow
+# the composition rules of section 7. kernel_profile.py composes every role combination
+# and writes the effective profiles to SOURCES/usr/share/athanor/kernel-profile.
+#
+# Block P1 declares the settings of the profile that are already in force on the image;
+# later blocks extend the manifest as they deliver the rest.
+schema = 1
+
+# One kernel binary for every role (D1): a build option is never a role setting, so
+# every kconfig entry is locked.
+[base.kconfig]
+CONFIG_MODULE_SIG_FORCE = { value = "y", decision = "section 5", locked = true }
+CONFIG_CFI = { value = "y", decision = "section 5", locked = true }
+CONFIG_RUST = { value = "y", decision = "D4", locked = true }
+CONFIG_SCHED_BORE = { value = "y", decision = "D5", locked = true }
+CONFIG_X86_64_VERSION = { value = "1", decision = "D14", locked = true }
+CONFIG_PREEMPT_DYNAMIC = { value = "y", decision = "D13", locked = true }
+CONFIG_PREEMPT_LAZY = { value = "y", decision = "D13", locked = true }
+CONFIG_HZ = { value = "1000", decision = "section 6", locked = true }
+CONFIG_DEFAULT_TCP_CONG = { value = '"bbr3"', decision = "section 6", locked = true }
+CONFIG_SECURITY_IPE = { value = "y", decision = "D8", locked = true }
+CONFIG_SECURITY_LANDLOCK = { value = "y", decision = "section 10", locked = true }
+CONFIG_BPF_LSM = { value = "y", decision = "section 5", locked = true }
+CONFIG_IMA_ARCH_POLICY = { value = "y", decision = "section 5", locked = true }
+CONFIG_INTEGRITY_CA_MACHINE_KEYRING_MAX = { value = "y", decision = "D40", locked = true }
+CONFIG_IA32_EMULATION = { value = "y", decision = "section 5", locked = true }
+CONFIG_MODIFY_LDT_SYSCALL = { value = "y", decision = "section 5", locked = true }
+CONFIG_SHUFFLE_PAGE_ALLOCATOR = { value = "y", decision = "section 5", locked = true }
+CONFIG_DRM_PANIC = { value = "y", decision = "section 11", locked = true }
+CONFIG_BTRFS_FS = { value = "y", decision = "D17", locked = true }
+CONFIG_EROFS_FS = { value = "y", decision = "section 5", locked = true }
+
+[base.sysctl]
+"kernel.kptr_restrict" = { value = "2", decision = "D47", locked = true }
+"kernel.dmesg_restrict" = { value = "1", decision = "D47", locked = true }
+"net.core.default_qdisc" = { value = "fq", decision = "section 6", locked = true }
+
+[base.runtime]
+# The lockdown level selected in /sys/kernel/security/lockdown.
+lockdown = { value = "integrity", decision = "section 5", locked = true }
+# LSMs that must be active; others (capability, ima, evm) may be present as well.
+lsm = { value = ["lockdown", "yama", "selinux", "bpf", "landlock", "ipe"], decision = "section 5" }
+
+# Shared by desktop and laptop (D18); settings arrive with block P5.
+[fragments.interactive]
+
+[roles.desktop]
+includes = ["interactive"]
+
+[roles.laptop]
+includes = ["interactive"]
+
+[roles.mesh]
+
+[rules]
+# An interactive role together with the mesh role waits for the mesh specification
+# (section 7, D27).
+rejected = [["desktop", "mesh"], ["laptop", "mesh"]]
