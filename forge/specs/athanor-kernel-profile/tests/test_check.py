@@ -147,6 +147,25 @@ class Checker(unittest.TestCase):
         self.assertEqual(code, 0, text)
         self.assertIn("base: 25/25 settings hold", text)
 
+    def test_malformed_profile_cannot_be_checked(self) -> None:
+        """Profiles with wrong shapes (null settings, leaf strings) are unreadable."""
+        # Test settings=null
+        with self.subTest(malformation="settings is null"):
+            doc = {"schema": 1, "combination": "base", "roles": [], "settings": None}
+            (self.profiles / "base.json").parent.mkdir(parents=True, exist_ok=True)
+            (self.profiles / "base.json").write_text(json.dumps(doc))
+            code, text = run(self.system.root, self.profiles)
+            self.assertEqual(code, 2, text)
+            self.assertIn("cannot check the profile", text)
+
+        # Test leaf string instead of {"value":..,"decision":..}
+        with self.subTest(malformation="leaf is string not dict"):
+            doc = {"schema": 1, "combination": "base", "roles": [], "settings": {"sysctl": {"kernel.kptr_restrict": "2"}}}
+            (self.profiles / "base.json").write_text(json.dumps(doc))
+            code, text = run(self.system.root, self.profiles)
+            self.assertEqual(code, 2, text)
+            self.assertIn("cannot check the profile", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -109,7 +109,7 @@ def main(argv: list | None = None) -> int:
         name = combination_name(active_roles(args.root))
         settings = json.loads((args.profiles / f"{name}.json").read_text())["settings"]
         drift = compare(args.root, settings)
-    except (OSError, ValueError, KeyError) as error:
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
         print(f"athanor-profile-check: cannot check the profile: {error}", file=sys.stderr)
         return 2
 
