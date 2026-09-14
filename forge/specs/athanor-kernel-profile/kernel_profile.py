@@ -39,6 +39,8 @@ def definitions(section: dict, where: str) -> dict:
     out = {}
     for kind, table in section.items():
         if kind == "includes":
+            if not where.startswith("roles."):
+                raise ProfileError(f"{where}: includes is only allowed on a role's own section")
             continue
         if kind not in KINDS:
             raise ProfileError(f"{where}: unknown kind {kind!r}, expected one of {', '.join(KINDS)}")
@@ -181,11 +183,15 @@ def combinations(manifest: dict) -> tuple:
     unknown_rules = set(rules) - {"rejected"}
     if unknown_rules:
         raise ProfileError(f"rules: unknown fields {sorted(unknown_rules)}")
-    rejected = [frozenset(pair) for pair in rules.get("rejected", [])]
-    for pair in rejected:
-        unknown = pair - set(roles)
+    rejected = []
+    for pair in rules.get("rejected", []):
+        distinct = frozenset(pair)
+        if len(distinct) < 2:
+            raise ProfileError(f"rules.rejected: {list(pair)!r} must name at least two distinct roles")
+        unknown = distinct - set(roles)
         if unknown:
             raise ProfileError(f"rules.rejected names unknown roles {sorted(unknown)}")
+        rejected.append(distinct)
     allowed, refused = [], []
     for size in range(len(roles) + 1):
         for combination in itertools.combinations(roles, size):

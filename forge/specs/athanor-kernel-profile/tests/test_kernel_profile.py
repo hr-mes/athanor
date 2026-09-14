@@ -194,6 +194,9 @@ class Composition(unittest.TestCase):
             ('[roles.desktop.sysctl]\n"x" = { value = 1, decision = "t", locked = true }', "only base"),
             ('[roles.desktop]\nincludes = ["nope"]', "unknown fragment"),
             ('[rules]\nrejected = [["desktop", "ghost"]]\n[roles.desktop]', "unknown roles"),
+            ('[base]\nincludes = ["x"]', "includes"),
+            ('[rules]\nrejected = [[]]\n', "at least two"),
+            ('[rules]\nrejected = [["desktop"]]\n[roles.desktop]', "at least two"),
         )
         for text, message in cases:
             with self.subTest(message=message):
