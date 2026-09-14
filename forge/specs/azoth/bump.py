@@ -31,6 +31,7 @@ CONTAINERFILES = [HERE / d / "Containerfile" for d in ("builder", "boot", "nvidi
 KERNEL_MD = HERE / "KERNEL.md"
 FEDORA_RELEASES = ("F43", "F44")  # in order of preference for the same patch level
 LTS_SERIES = "6.18"  # KERNEL_CHANNEL=lts: the longterm Fedora and CachyOS maintain
+KERNEL_RELEASES = "https://www.kernel.org/releases.json"
 BODHI = "https://bodhi.fedoraproject.org/updates/"
 NVIDIA_INDEX = "https://download.nvidia.com/XFree86/Linux-x86_64/"
 NVR_RE = re.compile(r"^kernel-(\d+\.\d+\.\d+)-(\d+)\.fc(\d+)$")
@@ -155,6 +156,16 @@ def kernel_pair(pins, notes):
     return version, fedora[version], cachy[version][0], cachy[version][1]
 
 
+def maintained_series():
+    """The X.Y series kernel.org still maintains: stable and longterm entries not marked EOL."""
+    releases = json.loads(http(KERNEL_RELEASES)[1])["releases"]
+    return {
+        series(r["version"])
+        for r in releases
+        if r["moniker"] in ("stable", "longterm") and not r["iseol"]
+    }
+
+
 def head_commit(repo, path, until=None):
     params = {"path": path, "per_page": 1}
     if until:
@@ -232,6 +243,16 @@ def compute():
         patches = head_commit("CachyOS/kernel-patches", series(version))
         if patches != pins["CACHYOS_PATCHES_COMMIT"]:
             new["CACHYOS_PATCHES_COMMIT"] = patches
+    # A series kernel.org no longer maintains gets no fixes: the bot fails instead of
+    # leaving the kernel there, and blocks the other bumps until a pair moves it.
+    pinned = series(new.get("FEDORA_KERNEL_NVR", pins["FEDORA_KERNEL_NVR"]))
+    maintained = maintained_series()
+    if pinned not in maintained:
+        sys.exit(
+            f"kernel: series {pinned} is end of life on kernel.org and no Fedora/CachyOS pair "
+            f"moves off it (maintained: {', '.join(sorted(maintained, key=vtuple))}; "
+            f"{'; '.join(notes) or 'no notes'})"
+        )
     open_version, open_commit = nvidia_open(pins["NVIDIA_OPEN_VERSION"])
     if open_version != pins["NVIDIA_OPEN_VERSION"]:
         new["NVIDIA_OPEN_VERSION"], new["NVIDIA_OPEN_COMMIT"] = (

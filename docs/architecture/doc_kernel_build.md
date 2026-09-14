@@ -109,6 +109,13 @@ Fedora sono autonomi: un SRPM di Fedora 44 si ricostruisce e gira su una rootfs
 "latest" resta pinnabile. Se la coppia non esiste, la PR è rossa e decide
 l'umano. `KERNEL_CHANNEL=lts` sposta la stessa logica sulla 6.18.
 
+**Obbligo di bump alla fine vita** (decisione del maintainer, 2026-09-14). Il bot
+legge `https://www.kernel.org/releases.json`: se la serie che resterebbe pinnata
+non è tra le `stable` e `longterm` non EOL, il job `check` fallisce e nessun altro
+bump passa finché una coppia non la sposta. Una serie a fine vita non riceve più
+correzioni; restarci in silenzio è il caso della 7.1, EOL il 2026-09-02 mentre
+Azoth era fermo a 7.1.8 perché il cron del bot non partiva da `main`.
+
 ## 3. La build (`build.sh`)
 
 Gira nel container `builder/Containerfile` sul runner self-hosted (16 core) e
