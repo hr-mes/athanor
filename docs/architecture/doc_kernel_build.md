@@ -403,13 +403,16 @@ default; a mano con `workflow_dispatch` su qualunque branch), in tre job:
    con il `GITHUB_TOKEN` non fanno partire i check): branch `bump/kernel-<data>`,
    un commit con `pins.env`, i manifesti, i Containerfile e `KERNEL.md`, PR
    verso il branch da cui il bot è partito, con nel corpo la tabella prima/dopo
-   dei pin, le note, l'esito di prep e le opzioni derivate; poi `gh pr merge
-   --auto --squash`.
+   dei pin, le note, l'esito di prep e le opzioni derivate; con prep verde
+   (`ok`) `gh pr merge --auto --squash`, con prep rosso (`FAIL` o `REFRESH`)
+   niente auto-merge: la PR resta aperta finché una persona non corregge e fa
+   il merge a mano.
 
 Il gate della PR è il check `Kernel gate` di `kernel-build.yml` (sezione 7),
-l'unico richiesto dalla protezione del branch. Con il check verde la PR va in
-merge da sola; rossa resta aperta con il log del gate fallito. È l'unico momento
-in cui serve una persona, e sa già dove guardare. Al merge il push fa partire
+l'unico richiesto dalla protezione del branch. Con prep verde e il check verde
+la PR va in merge da sola; con prep rosso, o con il check rosso, resta aperta
+con il log del gate fallito. È l'unico momento in cui serve una persona, e sa
+già dove guardare. Al merge il push fa partire
 Kernel Build, che pubblica il kernel e alla fine avvia `nvidia-kmod.yml` per
 firma, boot e pubblicazione dei moduli. Il cambio di release Fedora della rootfs
 (43→44) e il cambio di `KERNEL_CHANNEL` restano PR umane.
@@ -431,7 +434,14 @@ del file upstream e i pin su cui è stata rinfrescata. La build rifiuta una copi
 che registra un altro file upstream (CachyOS ha cambiato la patch: si rinfresca di
 nuovo) e una copia diventata inutile (il file upstream entra di nuovo senza fuzz:
 si cancella). Se GNU patch non riesce nemmeno con fuzz, o se i due alberi
-richiedono copie diverse, `refresh` si ferma e la patch si rinfresca a mano.
+richiedono copie diverse, `refresh` si ferma e la patch si rinfresca a mano:
+la copia scritta a mano porta lo stesso preambolo (`Refreshed-From`,
+`Upstream-SHA256` del file upstream, `Refreshed-On`) e deve entrare senza fuzz
+in entrambi gli alberi (indice Fedora e albero CachyOS); se un hunk tocca
+codice che esiste solo nell'albero Red Hat, va in `patches/redhat/` invece che
+qui (sezione 2). Una copia sotto `patches/refreshed/` senza una voce
+corrispondente in `patches.list` ferma la build in ogni stadio che arriva al
+ciclo delle patch: va cancellata.
 
 ## 9. Kernel guest per le MicroVM
 
@@ -592,7 +602,7 @@ l'implementazione scopre che un gancio Fedora non è come descritto.
    7.2 sceglie la modalità per tipo (`KMALLOC_PARTITION_TYPED`), più forte, che richiede i
    token di allocazione del compilatore (`-falloc-token-max`); il clang di Fedora 43 non li
    ha. `kernel-local` fissa la modalità casuale e `build.sh` si ferma quando il config
-   generato riporta `CC_HAS_ALLOC_TOKEN=y`, per passare alla modalità per tipo invece di
-   restare in silenzio sulla protezione più debole.
+   generato riporta `CC_HAS_ALLOC_TOKEN=y`, per togliere il pin e tornare alla modalità per
+   tipo scelta da Fedora, invece di restare in silenzio sulla protezione più debole.
 
 | `bump.py`                | il bot di bump (sezione 8): pin nuovi da Bodhi, CachyOS, NVIDIA e registro; riscrive `pins.env`, i `FROM` e `KERNEL.md` |

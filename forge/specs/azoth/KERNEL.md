@@ -66,6 +66,18 @@ completo delle opzioni derivate; `build` produce gli RPM (un'ora su 16 core) in
 coincide con l'attestazione dei pin dell'immagine `<nvr>` gia' pubblicata; altrimenti
 la boot matrix gira sul kernel-core pubblicato e non si pubblica nulla.
 
+Se `prep` si ferma con `refresh needed` (una patch di `patches.list` non entra piu'
+senza fuzz):
+
+```sh
+podman run --rm -v "$PWD:/forge" -v "$HOME/.cache/azoth:/var/cache/azoth" \
+  -w /forge localhost/azoth-builder \
+  bash forge/specs/azoth/build.sh --stage refresh --out /forge/out
+```
+
+Le copie da rivedere finiscono in `out/refreshed/`, da copiare sotto
+`patches/refreshed/` dopo aver riletto gli hunk applicati con fuzz.
+
 ## Boot matrix
 
 ```sh
