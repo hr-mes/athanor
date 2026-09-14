@@ -67,7 +67,11 @@ CACHY_CONFIG=cachyos-config-${CACHYOS_CONFIG_COMMIT:0:12}
 CACHY_CONFIG_URL=https://raw.githubusercontent.com/CachyOS/linux-cachyos/$CACHYOS_CONFIG_COMMIT/linux-cachyos/config
 PATCHES_URL=https://raw.githubusercontent.com/CachyOS/kernel-patches/$CACHYOS_PATCHES_COMMIT/$SERIES
 mapfile -t PATCHES < <(grep -vE '^\s*(#|$)' "$HERE/patches.list")
-mapfile -t ATHANOR_PATCHES < <(find "$HERE/patches" -name '*.patch' | sort)
+mapfile -t ATHANOR_PATCHES < <(find "$HERE/patches" -maxdepth 1 -name '*.patch' | sort)
+# patches/redhat/: Athanor patches to code that only the Red Hat patch adds. They go on the
+# Fedora merge alone, because the CachyOS tree of the config derivation lacks that code, so
+# they must not touch Kconfig.
+mapfile -t REDHAT_PATCHES < <(find "$HERE/patches/redhat" -name '*.patch' | sort)
 # In the cache the CachyOS patches carry the commit prefix: the same file name comes back
 # with different content at every kernel-patches commit, and the cache is persistent.
 patch_file() { echo "${CACHYOS_PATCHES_COMMIT:0:12}-${1##*/}"; }
@@ -187,6 +191,10 @@ done
 for p in "${ATHANOR_PATCHES[@]}"; do
   g apply --cached "$p"
   (cd "$WORK/b" && git apply "$p")
+done
+for p in "${REDHAT_PATCHES[@]}"; do
+  [[ -z $(git apply --numstat "$p" | awk '$3 ~ /(^|\/)Kconfig/') ]] || die "${p##*/}: a patch in patches/redhat must not touch Kconfig"
+  g apply --cached "$p"
 done
 # The certificates kernel-local compiles in (CONFIG_SYSTEM_TRUSTED_KEYS and
 # CONFIG_SYSTEM_REVOCATION_KEYS, paths relative to the tree): added to the index, so

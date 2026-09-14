@@ -37,8 +37,8 @@ print(
             "kernel_local_sha256": sha("kernel-local"),
             "patches_list_sha256": sha("patches.list"),
             "patches_sha256": {
-                p.name: sha(f"patches/{p.name}")
-                for p in sorted((k / "patches").glob("*.patch"))
+                p.relative_to(k / "patches").as_posix(): sha(p.relative_to(k))
+                for p in sorted((k / "patches").rglob("*.patch"))
             },
             "keys_sha256": {
                 p.relative_to(k).as_posix(): sha(p.relative_to(k))
