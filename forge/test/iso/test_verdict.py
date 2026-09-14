@@ -50,6 +50,7 @@ def test_pass(tmp: pathlib.Path) -> None:
         [
             ("installed", 100),
             ("kickstart-done", 110),
+            ("profile-ok", 390),
             ("greeter-alive", 400),
             ("session-alive", 460),
             ("settings-alive", 500),
@@ -57,6 +58,7 @@ def test_pass(tmp: pathlib.Path) -> None:
     )
     assert code == 0, f"a complete run must pass, got {code}"
     assert "**PASS**" in report, report
+    assert "kernel profile holds: profile-ok" in report, report
     assert "first boot to greeter: 300s" in report, report
     assert "greeter to session: 60s" in report, report
     assert "session to settings: 40s" in report, report
@@ -77,6 +79,44 @@ def test_session_without_settings_fails(tmp: pathlib.Path) -> None:
     assert code != 0, "a run whose Settings died passed"
     assert "**FAIL**" in report, report
     assert "settings opened: NO" in report, report
+
+
+def test_profile_drift_fails(tmp: pathlib.Path) -> None:
+    """A desktop that works on a kernel profile that does not hold is not a pass: the
+    installed system is not the one the profile describes."""
+    code, report = verdict(
+        tmp,
+        [
+            ("installed", 100),
+            ("kickstart-done", 110),
+            ("profile-drift", 390),
+            ("greeter-alive", 400),
+            ("session-alive", 460),
+            ("settings-alive", 500),
+        ],
+    )
+    assert code != 0, "a run whose kernel profile drifted passed"
+    assert "**FAIL**" in report, report
+    assert "kernel profile holds: NO" in report, report
+
+
+def test_profile_unreadable_fails(tmp: pathlib.Path) -> None:
+    """A desktop that works when the kernel profile itself could not be read is not a
+    pass either: an unreadable profile proves nothing about the installed system."""
+    code, report = verdict(
+        tmp,
+        [
+            ("installed", 100),
+            ("kickstart-done", 110),
+            ("profile-unreadable", 390),
+            ("greeter-alive", 400),
+            ("session-alive", 460),
+            ("settings-alive", 500),
+        ],
+    )
+    assert code != 0, "a run whose kernel profile could not be read passed"
+    assert "**FAIL**" in report, report
+    assert "kernel profile holds: NO" in report, report
 
 
 def test_greeter_without_session_fails(tmp: pathlib.Path) -> None:
@@ -424,7 +464,10 @@ def test_console_logs_in_opens_settings_and_stops(tmp: pathlib.Path) -> None:
         # The installed system offers its serial login; the console logs in and asks the
         # guest whether the greeter is up. Play the guest: wait for the question, answer.
         conn.sendall(b"athanor login: ")
-        typed_until(conn, b"GREETER_%s", 20)
+        typed = typed_until(conn, b"PROFILE_%s", 20)
+        conn.sendall(b"PROFILE_OK\r\n")
+        if b"GREETER_%s" not in typed:
+            typed_until(conn, b"GREETER_%s", 20)
         conn.sendall(b"GREETER_ALIVE c5\r\n")
 
         # It types the password on the keyboard, one key at a time, then asks whether
@@ -456,6 +499,7 @@ def test_console_logs_in_opens_settings_and_stops(tmp: pathlib.Path) -> None:
         line.split() for line in (run / "phases.txt").read_text().splitlines()
     )
     for expected in (
+        "profile-ok",
         "greeter-alive",
         "login-sent",
         "session-alive",
@@ -474,6 +518,8 @@ def main() -> int:
             test_pass,
             test_greeter_without_session_fails,
             test_session_without_settings_fails,
+            test_profile_drift_fails,
+            test_profile_unreadable_fails,
             test_greetd_starting_is_not_a_greeter,
             test_installed_but_no_greeter,
             test_text_login_is_not_a_greeter,

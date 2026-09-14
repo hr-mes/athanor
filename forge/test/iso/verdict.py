@@ -7,11 +7,13 @@ Reads phases.txt, written by console.py, and the console log beside it. Prints a
 on stdout, writes the same report to OUTPUT_DIR/verdict.md for the job summary, and
 exits non-zero when the run did not reach a desktop session.
 
-Five things have to be true for a pass, and they are checked separately so a failure
+Six things have to be true for a pass, and they are checked separately so a failure
 says which part broke:
 
   installed        the ISO's own kickstart finished, so ostreecontainer wrote the image
   kickstart-done   our additions ran too, so the disk has an account on it
+  profile          athanor-profile-check reports the installed system's kernel profile holds
+                   (fails on drift, and fails if the profile itself could not be read)
   greeter          the installed system reports a greeter session alive and steady
   session          after the password is typed at that greeter, the account's own
                    desktop session is alive and steady, panel and wallpaper included
@@ -42,6 +44,10 @@ SESSION_SIGNALS = ("session-alive",)
 # And one more: SETTINGS_ALIVE is the guest's report of the settings application, started
 # inside that session, still running after it has had time to open or to die.
 SETTINGS_SIGNALS = ("settings-alive",)
+# And the kernel profile: PROFILE_OK is the guest's report that athanor-profile-check found
+# every setting of its role combination's profile in force (doc_kernel_profile.md,
+# section 12 item 3). PROFILE_DRIFT fails the run by leaving this unset.
+PROFILE_SIGNALS = ("profile-ok",)
 # "reinstall-loop" is not a crash but it is a failure, and a distinctive one: the machine
 # booted the installer again instead of the system it had just written, so the run says
 # nothing about first boot no matter how long it is left going.
@@ -67,6 +73,7 @@ def main() -> int:
 
     installed = "installed" in phases
     kickstart_done = "kickstart-done" in phases
+    profile = next((s for s in PROFILE_SIGNALS if s in phases), None)
     greeter = next((s for s in GREETER_SIGNALS if s in phases), None)
     session = next((s for s in SESSION_SIGNALS if s in phases), None)
     settings = next((s for s in SETTINGS_SIGNALS if s in phases), None)
@@ -77,6 +84,7 @@ def main() -> int:
     lines.append(
         f"- unattended kickstart finished: {'yes' if kickstart_done else 'NO'}"
     )
+    lines.append(f"- kernel profile holds: {profile if profile else 'NO'}")
     lines.append(f"- greeter reached: {greeter if greeter else 'NO'}")
     lines.append(f"- session started: {session if session else 'NO'}")
     lines.append(f"- settings opened: {settings if settings else 'NO'}")
@@ -102,6 +110,7 @@ def main() -> int:
     ok = (
         installed
         and kickstart_done
+        and profile is not None
         and greeter is not None
         and session is not None
         and settings is not None

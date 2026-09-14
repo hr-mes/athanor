@@ -60,6 +60,12 @@ MARKERS = (
     (b"login:", "login-prompt"),
     (b"Reached target graphical.target", "graphical-target"),
     (b"Started greetd.service", "greeter-unit"),
+    # The guest's own answer to PROFILE_PROBE below: athanor-profile-check found the
+    # installed system's kernel profile holding, reported what drifted, or could not
+    # read or validate the profile at all.
+    (b"PROFILE_OK", "profile-ok"),
+    (b"PROFILE_DRIFT", "profile-drift"),
+    (b"PROFILE_UNREADABLE", "profile-unreadable"),
     # The guest's own answer to GREETER_PROBE below: a greeter session that is still
     # there, with the shell inside it, after it has had time to die.
     (b"GREETER_ALIVE", "greeter-alive"),
@@ -218,6 +224,22 @@ GREETER_PROBE = (
 # Thirty seconds of looking plus fifteen of watching, and a margin for the shell.
 GREETER_PROBE_WAIT = 50.0
 
+# Ask the guest whether its kernel profile holds (docs/architecture/doc_kernel_profile.md,
+# section 12 item 3). athanor-profile-check's own exit status tells the three cases apart:
+# 0 the profile holds, 1 drift, anything else the profile itself could not be read or
+# validated. On drift or on an unreadable profile it runs a second time without --quiet,
+# so its report lands in the console log next to the answer. As with the other probes,
+# printf assembles the marker, so the echo of the typed line cannot pass for the answer.
+PROFILE_PROBE = (
+    b"athanor-profile-check --quiet; case $? in"
+    b" 0) printf 'PROFILE_%s\\n' OK;;"
+    b" 1) printf 'PROFILE_%s\\n' DRIFT; athanor-profile-check;;"
+    b" *) printf 'PROFILE_%s\\n' UNREADABLE; athanor-profile-check;;"
+    b" esac"
+)
+# A handful of file reads, and a margin for the report on drift or on an unreadable profile.
+PROFILE_PROBE_WAIT = 10.0
+
 # The password as QEMU's `sendkey` wants it, one key per command. QEMU names a letter key
 # by the letter, and letters are all the password has.
 GREETER_PASSWORD_KEYS = tuple(GUEST_PASSWORD.decode())
@@ -367,6 +389,8 @@ def main() -> int:
         time.sleep(DIAGNOSTIC_PAUSE * PACE)
         s.sendall(GUEST_PASSWORD + b"\n")
         time.sleep(DIAGNOSTIC_PAUSE * PACE)
+        ask(PROFILE_PROBE, PROFILE_PROBE_WAIT)
+        note("profile-asked")
         ask(GREETER_PROBE, GREETER_PROBE_WAIT)
         note("greeter-asked")
 
