@@ -234,10 +234,19 @@ refresh_copy() { # refresh_copy PATH UPSTREAM: GNU patch proposes the refreshed 
     echo
     g diff --binary "$before" "$after"
   } > "$dest"
-  applies "$dest" || die "$p: the refreshed copy does not apply without fuzz to both trees, which need different copies: refresh it by hand"
+  applies "$dest" || die "$p: the proposed copy does not apply without fuzz to both the merged index and the CachyOS tree: refresh it by hand (doc_kernel_build.md, section 8)"
   echo "$p: refreshed copy written to $dest" >&2
   REFRESH_DEST=$dest
 }
+# Orphan copies: a file under patches/refreshed with no matching patches.list entry would
+# never be checked by the loop below and could drift unnoticed from what the build applies.
+if [[ -d $REFRESHED ]]; then
+  mapfile -t REFRESHED_FILES < <(find "$REFRESHED" -name '*.patch' | sort)
+  for f in "${REFRESHED_FILES[@]}"; do
+    rel=${f#"$REFRESHED"/}
+    printf '%s\n' "${PATCHES[@]}" | grep -qxF "$rel" || die "patches/refreshed/$rel matches no entry of patches.list: delete it"
+  done
+fi
 [[ $STAGE != refresh ]] || rm -rf "$OUT/refreshed"
 for p in "${PATCHES[@]}"; do
   upstream=$CACHE/$(patch_file "$p")
@@ -372,7 +381,7 @@ check_delta "$CONFIG" "$LOCAL"
 # allocation tokens. The generated config says whether it has them (CC_HAS_ALLOC_TOKEN, the
 # same cc-option Kconfig uses): once it does, the pin is obsolete and the build stops.
 if grep -qx 'CONFIG_CC_HAS_ALLOC_TOKEN=y' "$CONFIG" && grep -qx 'CONFIG_KMALLOC_PARTITION_RANDOM=y' "$LOCAL"; then
-  die "kernel-local: the compiler now supports allocation tokens (CC_HAS_ALLOC_TOKEN=y): replace the KMALLOC_PARTITION_RANDOM pin with KMALLOC_PARTITION_TYPED (section 13, decision 6)"
+  die "kernel-local: the compiler now supports allocation tokens (CC_HAS_ALLOC_TOKEN=y): remove the three KMALLOC_PARTITION lines from kernel-local, Fedora already selects KMALLOC_PARTITION_TYPED (section 13, decision 6)"
 fi
 cp "$CONFIG" "$SRC/kernel-local" "$OUT/"
 

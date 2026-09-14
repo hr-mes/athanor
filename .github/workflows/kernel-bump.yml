@@ -5,12 +5,12 @@ name: Kernel Bump
 # the NVIDIA tags and the Fedora registry; when nothing changed it stops here. prep: on
 # the self-hosted runner, inside the builder, regenerates the hash manifests for the new
 # pins and runs `build.sh --stage prep` (signatures, patches, config gate): the outcome
-# goes into the PR, green or red. pr: opens the PR with the regenerated files and enables
-# its auto-merge; the check required by the branch protection is "Kernel gate" of Kernel
-# Build. One open bump PR at a time. `schedule` only works from the default branch; by
-# hand on any branch; and on a push of this file: a change to the bot exercises it right
-# away, and that is how GitHub registers the workflow outside the default branch, where
-# workflow_dispatch alone does not make it runnable.
+# goes into the PR, green or red. pr: opens the PR with the regenerated files and, only
+# when prep is green, enables its auto-merge; the check required by the branch protection
+# is "Kernel gate" of Kernel Build. One open bump PR at a time. `schedule` only works from
+# the default branch; by hand on any branch; and on a push of this file: a change to the
+# bot exercises it right away, and that is how GitHub registers the workflow outside the
+# default branch, where workflow_dispatch alone does not make it runnable.
 
 on:
   schedule:
@@ -125,10 +125,10 @@ jobs:
             echo; echo "## prep: ${outcome}"; echo
             if [[ $outcome == REFRESH ]]; then
               # shellcheck disable=SC2016
-              echo 'A CachyOS patch no longer applies without fuzz. On this branch run `build.sh --stage refresh`, review the hunks GNU patch applied with fuzz, commit the copy under `forge/specs/azoth/patches/refreshed/` and merge by hand (doc_kernel_build.md, section 8). This PR does not merge by itself.'
+              echo 'A CachyOS patch no longer applies without fuzz. On this branch run `build.sh --stage refresh --out DIR` in the builder, as in `forge/specs/azoth/KERNEL.md`, review the hunks GNU patch applied with fuzz, commit the copy under `forge/specs/azoth/patches/refreshed/` and merge by hand (doc_kernel_build.md, section 8). This PR does not merge by itself.'
               echo; echo '```'; grep '^build.sh: refresh needed: ' prep.log; echo '```'
             fi
-            if [[ $outcome == FAIL ]]; then
+            if [[ $outcome != ok ]]; then
               echo '```'; tail -n 40 prep.log; echo '```'
             fi
             if grep -q '^derived options: ' prep.log; then
@@ -170,7 +170,7 @@ jobs:
           pattern: bump-*
           merge-multiple: true
 
-      - name: Branch, commit, PR with auto-merge
+      - name: Branch, commit, PR (auto-merge only on a green prep)
         run: |
           set -euo pipefail
           git add forge/specs/azoth
@@ -187,9 +187,9 @@ jobs:
           git push -u origin "$branch"
           cat body.md prep.md > pr.md
           url=$(gh pr create --base "$GITHUB_REF_NAME" --head "$branch" --label kernel-bump --title "$title" --body-file pr.md)
-          if [[ $outcome == REFRESH ]]; then
-            echo "PR: ${url} (patch refresh needed: no auto-merge, a person merges after reviewing the refreshed copy)" | tee -a "$GITHUB_STEP_SUMMARY"
-          else
+          if [[ $outcome == ok ]]; then
             gh pr merge --auto --squash "$url"
             echo "PR: ${url} (auto-merge once the Kernel gate check is green)" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "PR: ${url} (prep ${outcome}: no auto-merge, a person merges after fixing it)" | tee -a "$GITHUB_STEP_SUMMARY"
           fi
