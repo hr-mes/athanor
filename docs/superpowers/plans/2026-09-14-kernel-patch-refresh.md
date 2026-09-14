@@ -644,6 +644,136 @@ Claude-Session: https://claude.ai/code/session_01EUnNXqv8jNWDVMA83G7eZ4"
 
 ---
 
+### Task 3b: Pin the random kmalloc partition mode until clang has allocation tokens
+
+Added on 2026-09-14 after Task 4's full prep stopped at Fedora's config gate. The maintainer chose "path 1".
+
+**Root cause, verified:**
+- Linux 7.2 renames `RANDOM_KMALLOC_CACHES` to `KMALLOC_PARTITION_CACHES`, which defaults from the transitional old symbol, and adds a choice between `KMALLOC_PARTITION_RANDOM` and `KMALLOC_PARTITION_TYPED`.
+- Fedora's `kernel-x86_64-fedora.config` for 7.2.5 selects `TYPED`.
+- `TYPED` depends on `CC_HAS_ALLOC_TOKEN`, which is `$(cc-option,-falloc-token-max=123)`. Fedora 43's clang 21.1.8 rejects that flag, and gcc does too.
+- The choice therefore falls back to `RANDOM`, and `process_configs.sh` fails with `Found CONFIG_KMALLOC_PARTITION_RANDOM=y after generation, had CONFIG_KMALLOC_PARTITION_RANDOM=is not set in Source tree`.
+
+Today's 7.1.8 kernel runs with `CONFIG_RANDOM_KMALLOC_CACHES=y`, the random mode, so pinning `RANDOM` keeps the current protection.
+
+**Files:**
+- Modify: `forge/specs/azoth/kernel-local` (a new block between the `# Memory:` block and `# Immutable rootfs:`)
+- Modify: `forge/specs/azoth/build.sh` (a guard right after `check_delta "$CONFIG" "$LOCAL"`)
+- Modify: `docs/architecture/doc_kernel_build.md` (section 13, a new item 6)
+
+**Interfaces:**
+- Consumes: the generated config `$CONFIG` and `$LOCAL`, both already defined in `build.sh`.
+- Produces: prep passes the config gate on the 7.2.5 pins. Once the builder's compiler supports allocation tokens, prep stops with a message starting `build.sh: kernel-local: the compiler now supports allocation tokens`.
+
+- [ ] **Step 1: Record the failing behaviour (RED)**
+
+Run: `grep -n "Mismatches found\|KMALLOC_PARTITION_RANDOM" "$SCRATCH/azoth-out/prep-full.log"`
+
+Expected: `Error: Mismatches found in configuration files for x86_64 x86_64` and `Found CONFIG_KMALLOC_PARTITION_RANDOM=y after generation, had CONFIG_KMALLOC_PARTITION_RANDOM=is not set in Source tree`.
+
+- [ ] **Step 2: Pin the mode in kernel-local**
+
+In `forge/specs/azoth/kernel-local`, replace:
+
+```
+# CONFIG_ZRAM_DEF_COMP_LZORLE is not set
+
+# Immutable rootfs: EROFS in the kernel, config readable from /proc.
+```
+
+with:
+
+```
+# CONFIG_ZRAM_DEF_COMP_LZORLE is not set
+
+# Slab hardening: partitioned kmalloc caches in the random mode, the protection of
+# RANDOM_KMALLOC_CACHES in 7.1. Fedora selects the type-based mode (KMALLOC_PARTITION_TYPED),
+# which needs the compiler's allocation tokens (-falloc-token-max): the clang of Fedora 43
+# has none, so the choice would fall back to random and fail Fedora's config gate. build.sh
+# stops once the compiler supports allocation tokens, to switch to the type-based mode
+# (decision of 2026-09-14, section 13 of the specification).
+CONFIG_KMALLOC_PARTITION_CACHES=y
+CONFIG_KMALLOC_PARTITION_RANDOM=y
+# CONFIG_KMALLOC_PARTITION_TYPED is not set
+
+# Immutable rootfs: EROFS in the kernel, config readable from /proc.
+```
+
+- [ ] **Step 3: The guard in build.sh**
+
+Replace:
+
+```bash
+check_delta "$CONFIG" "$LOCAL"
+cp "$CONFIG" "$SRC/kernel-local" "$OUT/"
+```
+
+with:
+
+```bash
+check_delta "$CONFIG" "$LOCAL"
+# kernel-local pins the random kmalloc partition mode only because the compiler has no
+# allocation tokens. The generated config says whether it has them (CC_HAS_ALLOC_TOKEN, the
+# same cc-option Kconfig uses): once it does, the pin is obsolete and the build stops.
+if grep -qx 'CONFIG_CC_HAS_ALLOC_TOKEN=y' "$CONFIG" && grep -qx 'CONFIG_KMALLOC_PARTITION_RANDOM=y' "$LOCAL"; then
+  die "kernel-local: the compiler now supports allocation tokens (CC_HAS_ALLOC_TOKEN=y): replace the KMALLOC_PARTITION_RANDOM pin with KMALLOC_PARTITION_TYPED (section 13, decision 6)"
+fi
+cp "$CONFIG" "$SRC/kernel-local" "$OUT/"
+```
+
+- [ ] **Step 4: Record the decision**
+
+In `docs/architecture/doc_kernel_build.md`, section 13, after item 5, which ends with `task_struct\`.`, add:
+
+```markdown
+6. (2026-09-14) Cache kmalloc partizionate in modalità casuale
+   (`KMALLOC_PARTITION_RANDOM`, la protezione di `RANDOM_KMALLOC_CACHES` in 7.1). Fedora
+   7.2 sceglie la modalità per tipo (`KMALLOC_PARTITION_TYPED`), più forte, che richiede i
+   token di allocazione del compilatore (`-falloc-token-max`); il clang di Fedora 43 non li
+   ha. `kernel-local` fissa la modalità casuale e `build.sh` si ferma quando il config
+   generato riporta `CC_HAS_ALLOC_TOKEN=y`, per passare alla modalità per tipo invece di
+   restare in silenzio sulla protezione più debole.
+```
+
+- [ ] **Step 5: Lint and guard check**
+
+Run: `bash -n forge/specs/azoth/build.sh && shellcheck -x forge/specs/azoth/build.sh`
+
+Expected: only the finding that is already there, SC1091 on `source "$HERE/pins.env"`.
+
+Check the guard condition on its own, first with a config that reports allocation tokens and then with one that does not:
+
+```bash
+printf 'CONFIG_CC_HAS_ALLOC_TOKEN=y\n' > "$SCRATCH/cfg-token"; printf '# none\n' > "$SCRATCH/cfg-notoken"
+for c in "$SCRATCH/cfg-token" "$SCRATCH/cfg-notoken"; do
+  if grep -qx 'CONFIG_CC_HAS_ALLOC_TOKEN=y' "$c" && grep -qx 'CONFIG_KMALLOC_PARTITION_RANDOM=y' forge/specs/azoth/kernel-local; then echo "${c##*/}: stops"; else echo "${c##*/}: passes"; fi
+done
+```
+
+Expected: `cfg-token: stops` and `cfg-notoken: passes`.
+
+- [ ] **Step 6: Full prep (GREEN)**
+
+`forge/specs/azoth/patches/refreshed/sched/0001-bore-cachy.patch` is in the working tree, uncommitted: it is Task 4's file, left in place and not committed here. With it present:
+
+Run: `builder bash forge/specs/azoth/build.sh --stage prep --out /out > "$SCRATCH/azoth-out/prep-full-2.log" 2>&1; echo "exit $?"; tail -3 "$SCRATCH/azoth-out/prep-full-2.log"`
+
+Expected: `exit 0`, and the last step is `>>> done:`, listing the generated config and `kernel-local`. Then `grep -E "^CONFIG_KMALLOC_PARTITION|KMALLOC_PARTITION_TYPED|CC_HAS_ALLOC_TOKEN" "$SCRATCH"/azoth-out/kernel-*x86_64.config` shows `CONFIG_KMALLOC_PARTITION_CACHES=y`, `CONFIG_KMALLOC_PARTITION_RANDOM=y` and no `CONFIG_CC_HAS_ALLOC_TOKEN=y`.
+
+If prep stops at another option of the config gate, report it with the exact message and stop. Each option is its own decision.
+
+- [ ] **Step 7: Commit (without the refreshed copy)**
+
+```bash
+git -C /var/home/hr-mes/athanor add forge/specs/azoth/kernel-local forge/specs/azoth/build.sh docs/architecture/doc_kernel_build.md
+git -C /var/home/hr-mes/athanor commit -m "feat(kernel): pin the random kmalloc partition mode until clang has allocation tokens" -m "Linux 7.2 turns RANDOM_KMALLOC_CACHES into KMALLOC_PARTITION_CACHES with a random or type-based mode. Fedora selects the type-based one, which needs -falloc-token-max; Fedora 43's clang 21 lacks it, so the choice fell back to random and failed process_configs.sh. kernel-local pins the random mode (the 7.1 protection) and build.sh stops once the generated config reports CC_HAS_ALLOC_TOKEN=y, so the pin cannot outlive its reason." -m "Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EUnNXqv8jNWDVMA83G7eZ4"
+```
+
+Expected: `git status --short` still shows only `?? forge/specs/azoth/patches/refreshed/`.
+
+---
+
 ### Task 4: Refresh BORE for 7.2.5, with the maintainer's review
 
 **Files:**
