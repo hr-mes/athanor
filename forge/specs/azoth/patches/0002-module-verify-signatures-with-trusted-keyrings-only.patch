@@ -1,0 +1,37 @@
+From: athanor <kernel@athanor.os>
+Subject: [PATCH] module: verify signatures with the trusted keyrings only
+
+The Red Hat patch retries a module signature against the platform
+keyring when the builtin and secondary keyrings return -ENOKEY. The
+platform keyring holds the UEFI db and, with
+CONFIG_INTEGRITY_CA_MACHINE_KEYRING_MAX, every MokList certificate that
+is not a CA: the Secure Boot key that signs the UKI, and any key a user
+enrols through MokManager. Each of them can then authorise a module,
+which defeats a module signing key compiled into the kernel.
+
+Restore the upstream check: builtin and secondary keyrings only. A CA
+enrolled in MokList still reaches the secondary keyring through the
+machine keyring, which is the upstream way to extend module trust.
+The platform keyring keeps its other users (kexec image verification).
+---
+--- a/kernel/module/signing.c
++++ b/kernel/module/signing.c
+@@ -61,17 +61,10 @@
+ 	modlen -= sig_len + sizeof(ms);
+ 	info->len = modlen;
+ 
+-	ret = verify_pkcs7_signature(mod, modlen, mod + modlen, sig_len,
++	return verify_pkcs7_signature(mod, modlen, mod + modlen, sig_len,
+ 				      VERIFY_USE_SECONDARY_KEYRING,
+ 				      VERIFYING_MODULE_SIGNATURE,
+ 				      NULL, NULL);
+-	if (ret == -ENOKEY && IS_ENABLED(CONFIG_INTEGRITY_PLATFORM_KEYRING)) {
+-		ret = verify_pkcs7_signature(mod, modlen, mod + modlen, sig_len,
+-				VERIFY_USE_PLATFORM_KEYRING,
+-				VERIFYING_MODULE_SIGNATURE,
+-				NULL, NULL);
+-	}
+-	return ret;
+ }
+ 
+ int module_sig_check(struct load_info *info, int flags)
