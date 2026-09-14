@@ -52,6 +52,7 @@ Directory `forge/specs/azoth/` dopo il blocco:
 | `kernel-local`           | frammento di config, una riga di motivazione per opzione                                                                                                                            |
 | `patches.list`           | patch di `CachyOS/kernel-patches` da accodare dopo la base, in ordine                                                                                                               |
 | `patches/`               | patch di Athanor in formato git, applicate dopo `patches.list` in ordine di nome; il messaggio spiega il perché, e ogni patch è candidata all'upstream                            |
+| `patches/redhat/`        | patch di Athanor al codice che aggiunge solo la patch Red Hat: vanno soltanto sull'indice Fedora, non sull'albero CachyOS della derivazione del config, e non toccano Kconfig |
 | `fedora-wins.list`       | percorsi in cui un conflitto del merge tra base CachyOS e patch Red Hat si risolve con l'albero Fedora; ogni altro conflitto ferma la build                                        |
 | `cmdline`                | riga di comando del kernel, firmata nella UKI (sezione 6)                                                                                                                           |
 | `boot.sh`, `boot/`       | la boot matrix (sezione 7, gate 3): ambiente QEMU/OVMF/shim pinnato come il builder, PID 1 dell'initramfs di prova con le asserzioni                                              |
@@ -122,9 +123,10 @@ identica in locale. Passi, tutti senza rete tranne i download verificati:
    bindgen, pahole: `RUST_IS_AVAILABLE` e le opzioni che ne dipendono);
 3. genera `linux-kernel-test.patch`: repo git temporaneo con tre commit (vanilla,
    CachyOS, vanilla + patch Red Hat), `git merge-tree --write-tree` dei due rami
-   sopra il vanilla, `patches.list` e poi `patches/` applicate sull'indice, diff
-   dal commit Fedora al risultato. Le stesse patch vanno anche sull'albero CachyOS
-   estratto, che serve al passo 4;
+   sopra il vanilla, `patches.list`, `patches/` e `patches/redhat/` applicate
+   sull'indice, diff dal commit Fedora al risultato. `patches.list` e `patches/`
+   vanno anche sull'albero CachyOS estratto, che serve al passo 4; `patches/redhat/`
+   no, perché quell'albero non contiene il codice Red Hat;
 4. genera il `kernel-local` completo: il delta Athanor committato, più le opzioni
    che l'albero introduce (`make listnewconfig` sul config Fedora fuso con i
    frammenti clang e con il delta, iterato fino a convergenza) con il valore del
@@ -259,7 +261,7 @@ patchano i Makefile per forzarlo.
   essendo una CA, anche arruolata resta fuori dal keyring machine
   (`INTEGRITY_CA_MACHINE_KEYRING_MAX`) e finisce nel keyring platform. La patch
   Red Hat verificherebbe i moduli anche con quel keyring (ripiego su `-ENOKEY`):
-  `patches/0002-module-verify-signatures-with-trusted-keyrings-only.patch` lo
+  `patches/redhat/0001-module-verify-signatures-with-trusted-keyrings-only.patch` lo
   toglie, quindi non può autorizzare un modulo.
 - **Revoca**: `keys/revoked/` sono i certificati ritirati, compilati nella
   blacklist del kernel (`CONFIG_SYSTEM_REVOCATION_KEYS`): un modulo firmato con

@@ -14,6 +14,7 @@ directory e come si usa.
 | `kernel-local` | delta Kconfig di Athanor sul config x86_64 di Fedora |
 | `patches.list` | patch di CachyOS/kernel-patches applicate sopra la base |
 | `patches/` | patch di Athanor, in formato git, applicate dopo quelle di CachyOS |
+| `patches/redhat/` | patch di Athanor al codice della patch Red Hat: solo sull'albero Fedora, mai su Kconfig |
 | `fedora-wins.list` | percorsi in cui un conflitto tra base CachyOS e patch Red Hat si risolve con l'albero Fedora |
 | `cmdline` | la riga di comando del kernel che la UKI firma (spec, sezione 6) |
 | `build.sh` | dai pin agli RPM: stadi `manifest` (scarica i sorgenti dei pin e scrive il loro manifesto), `prep` (sorgenti, patch, gate dei config), `microvm` (prep e il solo kernel guest) e `build` (entrambi i kernel); `--variant NOME` per una variante di `variants/` |
