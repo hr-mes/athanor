@@ -192,13 +192,17 @@ recorded_sha256() { sed -n 's/^Upstream-SHA256: //p' "$1"; }
 applies() { # applies PATCH: PATCH applies without fuzz to the merged index and to the CachyOS tree
   g apply --cached --check "$1" 2> /dev/null && (cd "$WORK/b" && git apply --check "$1" 2> /dev/null)
 }
-refresh_copy() { # refresh_copy PATH UPSTREAM: GNU patch proposes the refreshed copy; prints its path
+applies_verbose() { # applies_verbose PATCH: like applies(), but leaves git's own diagnostics (file and line) on stderr
+  g apply --cached --check "$1" && (cd "$WORK/b" && git apply --check "$1")
+}
+refresh_copy() { # refresh_copy PATH UPSTREAM: GNU patch proposes the refreshed copy; sets REFRESH_DEST
   local p=$1 upstream=$2 dest=$OUT/refreshed/$1 tmp=$WORK/refresh idx=$WORK/refresh.index
   local log before after f mode files present
-  mapfile -t files < <(git apply --numstat "$upstream" | cut -f3)
+  mapfile -t files < <(g apply --numstat "$upstream" | cut -f3)
+  [[ ${#files[@]} -gt 0 ]] || die "$p: the patch lists no files"
   [[ -z $(printf '%s\n' "${files[@]}" | awk '/ => /') ]] || die "$p: a patch with renames cannot be refreshed, refresh it by hand"
   rm -rf "$tmp" && mkdir -p "$tmp"
-  mapfile -t present < <(g ls-files -- "${files[@]}")
+  mapfile -t present < <(git --literal-pathspecs -C "$WORK/a" ls-files -- "${files[@]}")
   [[ ${#present[@]} -eq 0 ]] || g checkout-index --prefix="$tmp/" -- "${present[@]}"
   if ! log=$(patch -d "$tmp" -p1 --forward --fuzz=2 --no-backup-if-mismatch --reject-file=- < "$upstream" 2>&1); then
     printf '%s\n' "$log" >&2
@@ -232,8 +236,9 @@ refresh_copy() { # refresh_copy PATH UPSTREAM: GNU patch proposes the refreshed 
   } > "$dest"
   applies "$dest" || die "$p: the refreshed copy does not apply without fuzz to both trees, which need different copies: refresh it by hand"
   echo "$p: refreshed copy written to $dest" >&2
-  echo "$dest"
+  REFRESH_DEST=$dest
 }
+[[ $STAGE != refresh ]] || rm -rf "$OUT/refreshed"
 for p in "${PATCHES[@]}"; do
   upstream=$CACHE/$(patch_file "$p")
   copy=$REFRESHED/$p
@@ -245,16 +250,17 @@ for p in "${PATCHES[@]}"; do
       use=$copy
       echo "$p: patches/refreshed/$p is up to date"
     else
-      use=$(refresh_copy "$p" "$upstream")
+      refresh_copy "$p" "$upstream"
+      use=$REFRESH_DEST
     fi
   elif [[ -f $copy ]]; then
     [[ $(recorded_sha256 "$copy") == "$(sha256_of "$upstream")" ]] \
       || die "refresh needed: $p (patches/refreshed/$p was refreshed from another upstream file)"
     ! applies "$upstream" || die "patches/refreshed/$p is obsolete: the upstream patch applies without fuzz again, delete the copy"
-    applies "$copy" || die "refresh needed: $p (patches/refreshed/$p no longer applies without fuzz)"
+    applies_verbose "$copy" || die "refresh needed: $p (patches/refreshed/$p no longer applies without fuzz)"
     use=$copy
   else
-    applies "$upstream" || die "refresh needed: $p (it no longer applies without fuzz)"
+    applies_verbose "$upstream" || die "refresh needed: $p (it no longer applies without fuzz)"
     use=$upstream
   fi
   g apply --cached "$use"
