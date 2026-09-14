@@ -118,9 +118,16 @@ jobs:
                  -w /forge localhost/azoth-builder \
                  bash forge/specs/azoth/build.sh --stage prep --out /forge/out > prep.log 2>&1; then
             outcome=FAIL
+            if grep -q '^build.sh: refresh needed: ' prep.log; then outcome=REFRESH; fi
           fi
+          echo "$outcome" > prep-outcome
           {
             echo; echo "## prep: ${outcome}"; echo
+            if [[ $outcome == REFRESH ]]; then
+              # shellcheck disable=SC2016
+              echo 'A CachyOS patch no longer applies without fuzz. On this branch run `build.sh --stage refresh`, review the hunks GNU patch applied with fuzz, commit the copy under `forge/specs/azoth/patches/refreshed/` and merge by hand (doc_kernel_build.md, section 8). This PR does not merge by itself.'
+              echo; echo '```'; grep '^build.sh: refresh needed: ' prep.log; echo '```'
+            fi
             if [[ $outcome == FAIL ]]; then
               echo '```'; tail -n 40 prep.log; echo '```'
             fi
@@ -140,6 +147,7 @@ jobs:
           path: |
             prep.md
             prep.log
+            prep-outcome
             forge/specs/azoth/SOURCES/sources.sha256
             forge/specs/azoth/nvidia/sources.sha256
           if-no-files-found: error
@@ -169,6 +177,8 @@ jobs:
           keys=$(git diff --cached -U0 -- forge/specs/azoth/pins.env | sed -n 's/^+\([A-Z_]\+\)=.*/\1/p')
           git diff --cached --quiet -- 'forge/specs/azoth/*/Containerfile' || keys+=${keys:+$'\n'}"base image"
           title="chore(kernel): bump $(paste -sd, - <<< "$keys" | sed 's/,/, /g')"
+          outcome=$(cat prep-outcome)
+          [[ $outcome != REFRESH ]] || title+=" (patch refresh needed)"
           branch="bump/kernel-$(date -u +%Y%m%d-%H%M)"
           git config user.name "athanor-bump"
           git config user.email "kernel@athanor.os"
@@ -177,5 +187,9 @@ jobs:
           git push -u origin "$branch"
           cat body.md prep.md > pr.md
           url=$(gh pr create --base "$GITHUB_REF_NAME" --head "$branch" --label kernel-bump --title "$title" --body-file pr.md)
-          gh pr merge --auto --squash "$url"
-          echo "PR: ${url} (auto-merge once the Kernel gate check is green)" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [[ $outcome == REFRESH ]]; then
+            echo "PR: ${url} (patch refresh needed: no auto-merge, a person merges after reviewing the refreshed copy)" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            gh pr merge --auto --squash "$url"
+            echo "PR: ${url} (auto-merge once the Kernel gate check is green)" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
