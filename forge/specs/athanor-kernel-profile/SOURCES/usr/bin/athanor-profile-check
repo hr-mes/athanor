@@ -15,14 +15,44 @@ import argparse
 import gzip
 import json
 import pathlib
+import re
 import sys
+import zlib
 
 PROFILES = pathlib.Path("/usr/share/athanor/kernel-profile")
+SCHEMA = 1
+KINDS = ("kconfig", "sysctl", "runtime")
+ROLE_PATTERN = re.compile(r"^[a-z0-9-]+$")
 
 
 def active_roles(root: pathlib.Path) -> list:
+    """The athanor.role= values on /proc/cmdline, validated: a role name is lowercase
+    letters, digits and hyphens, and never the reserved combination name "base"."""
     arguments = (root / "proc" / "cmdline").read_text().split()
-    return sorted({arg.split("=", 1)[1] for arg in arguments if arg.startswith("athanor.role=")})
+    roles = sorted({arg.split("=", 1)[1] for arg in arguments if arg.startswith("athanor.role=")})
+    for role in roles:
+        if role == "base" or not ROLE_PATTERN.match(role):
+            raise ValueError(f"invalid role {role!r} on /proc/cmdline")
+    return roles
+
+
+def validate(document) -> dict:
+    """The settings table of a loaded profile document, or raise ValueError: a setting
+    the checker cannot read must never be silently skipped and counted as holding."""
+    if not isinstance(document, dict) or document.get("schema") != SCHEMA:
+        raise ValueError(f"schema must be {SCHEMA}")
+    settings = document.get("settings")
+    if not isinstance(settings, dict) or not settings:
+        raise ValueError("settings must be a non-empty object")
+    for kind, table in settings.items():
+        if kind not in KINDS:
+            raise ValueError(f"unknown setting kind {kind!r}, expected one of {', '.join(KINDS)}")
+        if not isinstance(table, dict):
+            raise ValueError(f"settings.{kind} must be an object")
+        for name, entry in table.items():
+            if not isinstance(entry, dict) or "value" not in entry:
+                raise ValueError(f"settings.{kind}.{name} must be an object with a value")
+    return settings
 
 
 def combination_name(roles: list) -> str:
@@ -107,13 +137,16 @@ def main(argv: list | None = None) -> int:
 
     try:
         name = combination_name(active_roles(args.root))
-        settings = json.loads((args.profiles / f"{name}.json").read_text())["settings"]
+        path = args.profiles / f"{name}.json"
+        if not path.is_file():
+            raise ValueError(f"role combination {name!r} has no profile (it is unknown or rejected)")
+        settings = validate(json.loads(path.read_text()))
         drift = compare(args.root, settings)
-    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        total = sum(len(entries) for entries in settings.values())
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, EOFError, zlib.error) as error:
         print(f"athanor-profile-check: cannot check the profile: {error}", file=sys.stderr)
         return 2
 
-    total = sum(len(entries) for entries in settings.values())
     if not args.quiet:
         for key, expected, found in drift:
             print(f"DRIFT {key}: expected {expected!r}, found {found!r}")

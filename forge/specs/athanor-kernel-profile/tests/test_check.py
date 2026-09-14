@@ -8,6 +8,7 @@ import importlib.util
 import io
 import json
 import pathlib
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -165,6 +166,99 @@ class Checker(unittest.TestCase):
             code, text = run(self.system.root, self.profiles)
             self.assertEqual(code, 2, text)
             self.assertIn("cannot check the profile", text)
+
+    def test_unknown_setting_kind_cannot_be_checked(self) -> None:
+        doc = {"schema": 1, "combination": "base", "roles": [], "settings": {"cmdline": {"x": {"value": "1", "decision": "t"}}}}
+        (self.profiles / "base.json").parent.mkdir(parents=True, exist_ok=True)
+        (self.profiles / "base.json").write_text(json.dumps(doc))
+        code, text = run(self.system.root, self.profiles)
+        self.assertEqual(code, 2, text)
+        self.assertIn("cannot check the profile", text)
+
+    def test_wrong_schema_cannot_be_checked(self) -> None:
+        doc = {"schema": 99, "combination": "base", "roles": [], "settings": {"sysctl": {"kernel.kptr_restrict": {"value": "2", "decision": "t"}}}}
+        (self.profiles / "base.json").parent.mkdir(parents=True, exist_ok=True)
+        (self.profiles / "base.json").write_text(json.dumps(doc))
+        code, text = run(self.system.root, self.profiles)
+        self.assertEqual(code, 2, text)
+        self.assertIn("cannot check the profile", text)
+
+    def test_empty_settings_cannot_be_checked(self) -> None:
+        doc = {"schema": 1, "combination": "base", "roles": [], "settings": {}}
+        (self.profiles / "base.json").parent.mkdir(parents=True, exist_ok=True)
+        (self.profiles / "base.json").write_text(json.dumps(doc))
+        code, text = run(self.system.root, self.profiles)
+        self.assertEqual(code, 2, text)
+        self.assertIn("cannot check the profile", text)
+
+    def test_unknown_runtime_key_is_still_reported_as_drift(self) -> None:
+        profile(self.profiles, "base", {"runtime": {"selinux-mode": "enforcing"}})
+        code, text = run(self.system.root, self.profiles)
+        self.assertEqual(code, 1, text)
+        self.assertIn("no reader for this setting", text)
+
+    def test_invalid_json_cannot_be_checked(self) -> None:
+        (self.profiles).mkdir(parents=True, exist_ok=True)
+        (self.profiles / "base.json").write_text("{not json")
+        code, text = run(self.system.root, self.profiles)
+        self.assertEqual(code, 2, text)
+        self.assertIn("cannot check the profile", text)
+
+    def test_truncated_config_gz_cannot_be_checked(self) -> None:
+        self.system.config(["CONFIG_RUST=y"])
+        path = self.system.root / "proc" / "config.gz"
+        path.write_bytes(path.read_bytes()[:10])
+        profile(self.profiles, "base", {"kconfig": {"CONFIG_RUST": "y"}})
+        code, text = run(self.system.root, self.profiles)
+        self.assertEqual(code, 2, text)
+        self.assertIn("cannot check the profile", text)
+
+    def test_non_gzip_config_cannot_be_checked(self) -> None:
+        (self.system.root / "proc" / "config.gz").write_bytes(b"not a gzip file at all")
+        profile(self.profiles, "base", {"kconfig": {"CONFIG_RUST": "y"}})
+        code, text = run(self.system.root, self.profiles)
+        self.assertEqual(code, 2, text)
+        self.assertIn("cannot check the profile", text)
+
+    def test_traversal_role_name_cannot_be_checked(self) -> None:
+        # A profile that would hold if the checker followed the traversal instead of
+        # rejecting the role name outright.
+        self.profiles.mkdir(parents=True, exist_ok=True)
+        profile(self.profiles.parent, "x", {"runtime": {"lockdown": "integrity"}})
+        self.system.write("proc/cmdline", "root=UUID=1 athanor.role=../x\n")
+        code, text = run(self.system.root, self.profiles)
+        self.assertEqual(code, 2, text)
+        self.assertIn("../x", text)
+
+    def test_base_role_name_cannot_be_checked(self) -> None:
+        # A "base" profile that would hold if the checker accepted "base" as a role name.
+        profile(self.profiles, "base", {"runtime": {"lockdown": "integrity"}})
+        self.system.write("proc/cmdline", "root=UUID=1 athanor.role=base\n")
+        code, text = run(self.system.root, self.profiles)
+        self.assertEqual(code, 2, text)
+        self.assertIn("base", text)
+
+    def test_role_name_with_plus_cannot_be_checked(self) -> None:
+        # A profile matching the raw cmdline value, which would hold if the checker did
+        # not reject a single athanor.role= value that already contains "+".
+        profile(self.profiles, "desktop+laptop", {"runtime": {"lockdown": "integrity"}})
+        self.system.write("proc/cmdline", "root=UUID=1 athanor.role=desktop+laptop\n")
+        code, text = run(self.system.root, self.profiles)
+        self.assertEqual(code, 2, text)
+        self.assertIn("desktop+laptop", text)
+
+    def test_missing_combination_names_it_unknown_or_rejected(self) -> None:
+        self.system.write("proc/cmdline", "root=UUID=1 athanor.role=mesh\n")
+        code, text = run(self.system.root, self.profiles)
+        self.assertEqual(code, 2, text)
+        self.assertIn("no profile", text)
+        self.assertIn("unknown or rejected", text)
+
+    def test_kinds_match_the_generator(self) -> None:
+        sys.path.insert(0, str(PACKAGE))
+        import kernel_profile as kp
+
+        self.assertEqual(check.KINDS, kp.KINDS)
 
 
 if __name__ == "__main__":
