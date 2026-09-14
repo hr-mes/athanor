@@ -801,9 +801,9 @@ git -C /var/home/hr-mes/athanor commit -m "feat(kernel-profile): declare the set
 **Interfaces:**
 - Consumes: the JSON document format of Task 1 (`settings.kconfig|sysctl|runtime.<name>.value`) and `base.json` of Task 2.
 - Produces:
-  - **Command:** `athanor-profile-check [--root DIR] [--profiles DIR] [--quiet]`. Exit status 0 when every setting holds, 1 on drift, 2 when the profile cannot be read.
+  - **Command:** `athanor-profile-check [--root DIR] [--profiles DIR] [--quiet]`. Exit status 0 when every setting holds, 1 on drift, 2 when the profile cannot be read or validated (unknown schema, empty or malformed `settings`, an unreadable `/proc/config.gz`) or an `athanor.role=` value on `/proc/cmdline` is malformed or the reserved name `base`.
   - **Output without `--quiet`:** one `DRIFT <kind>.<name>: expected <repr>, found <repr>` line per drift, then `athanor-profile-check: <combination>: <held>/<total> settings hold`.
-  - **Module functions** (the tests load the file as a module): `main(argv) -> int`, `active_roles(root) -> list[str]`, `compare(root, settings) -> list[tuple[str, object, object]]`.
+  - **Module functions** (the tests load the file as a module): `main(argv) -> int`, `active_roles(root) -> list[str]`, `validate(document) -> dict`, `compare(root, settings) -> list[tuple[str, object, object]]`. Module constants `SCHEMA = 1` and `KINDS = ("kconfig", "sysctl", "runtime")`, the latter asserted equal to `kernel_profile.KINDS` by a CI guard test.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -992,14 +992,44 @@ import argparse
 import gzip
 import json
 import pathlib
+import re
 import sys
+import zlib
 
 PROFILES = pathlib.Path("/usr/share/athanor/kernel-profile")
+SCHEMA = 1
+KINDS = ("kconfig", "sysctl", "runtime")
+ROLE_PATTERN = re.compile(r"^[a-z0-9-]+$")
 
 
 def active_roles(root: pathlib.Path) -> list:
+    """The athanor.role= values on /proc/cmdline, validated: a role name is lowercase
+    letters, digits and hyphens, and never the reserved combination name "base"."""
     arguments = (root / "proc" / "cmdline").read_text().split()
-    return sorted({arg.split("=", 1)[1] for arg in arguments if arg.startswith("athanor.role=")})
+    roles = sorted({arg.split("=", 1)[1] for arg in arguments if arg.startswith("athanor.role=")})
+    for role in roles:
+        if role == "base" or not ROLE_PATTERN.match(role):
+            raise ValueError(f"invalid role {role!r} on /proc/cmdline")
+    return roles
+
+
+def validate(document) -> dict:
+    """The settings table of a loaded profile document, or raise ValueError: a setting
+    the checker cannot read must never be silently skipped and counted as holding."""
+    if not isinstance(document, dict) or document.get("schema") != SCHEMA:
+        raise ValueError(f"schema must be {SCHEMA}")
+    settings = document.get("settings")
+    if not isinstance(settings, dict) or not settings:
+        raise ValueError("settings must be a non-empty object")
+    for kind, table in settings.items():
+        if kind not in KINDS:
+            raise ValueError(f"unknown setting kind {kind!r}, expected one of {', '.join(KINDS)}")
+        if not isinstance(table, dict):
+            raise ValueError(f"settings.{kind} must be an object")
+        for name, entry in table.items():
+            if not isinstance(entry, dict) or "value" not in entry:
+                raise ValueError(f"settings.{kind}.{name} must be an object with a value")
+    return settings
 
 
 def combination_name(roles: list) -> str:
@@ -1084,13 +1114,16 @@ def main(argv: list | None = None) -> int:
 
     try:
         name = combination_name(active_roles(args.root))
-        settings = json.loads((args.profiles / f"{name}.json").read_text())["settings"]
+        path = args.profiles / f"{name}.json"
+        if not path.is_file():
+            raise ValueError(f"role combination {name!r} has no profile (it is unknown or rejected)")
+        settings = validate(json.loads(path.read_text()))
         drift = compare(args.root, settings)
-    except (OSError, ValueError, KeyError) as error:
+        total = sum(len(entries) for entries in settings.values())
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, EOFError, zlib.error) as error:
         print(f"athanor-profile-check: cannot check the profile: {error}", file=sys.stderr)
         return 2
 
-    total = sum(len(entries) for entries in settings.values())
     if not args.quiet:
         for key, expected, found in drift:
             print(f"DRIFT {key}: expected {expected!r}, found {found!r}")
@@ -1310,13 +1343,13 @@ mesh.json
 **Files:**
 - Modify: `forge/test/iso/console.py`, in three places: the `MARKERS` tuple, a new `PROFILE_PROBE` constant after `GREETER_PROBE_WAIT`, and `ask_about_the_greeter`.
 - Modify: `forge/test/iso/verdict.py`, in three places: the module docstring, a new `PROFILE_SIGNALS` constant, and `main`.
-- Modify: `forge/test/iso/test_verdict.py`, in four places: `test_pass`, a new `test_profile_drift_fails`, `test_console_logs_in_opens_settings_and_stops`, and the `main` list.
+- Modify: `forge/test/iso/test_verdict.py`, in five places: `test_pass`, a new `test_profile_drift_fails`, a new `test_profile_unreadable_fails`, `test_console_logs_in_opens_settings_and_stops`, and the `main` list.
 - Modify: `NEXT.md`, adding a new section before `## Dopo`.
 
 **Interfaces:**
 - Consumes: `athanor-profile-check --quiet` on the installed guest (Task 4 and Task 5).
 - Produces:
-  - Guest markers `PROFILE_OK` and `PROFILE_DRIFT`, recorded as phases `profile-ok` and `profile-drift`.
+  - Guest markers `PROFILE_OK`, `PROFILE_DRIFT` and `PROFILE_UNREADABLE`, recorded as phases `profile-ok`, `profile-drift` and `profile-unreadable` — the checker's own exit codes 0, 1 and 2 (docs/architecture/doc_kernel_profile.md, section 12 item 3).
   - A new phase `profile-asked`.
   - A verdict that fails without `profile-ok`, with report line `- kernel profile holds: <phase or NO>`.
 
@@ -1330,7 +1363,7 @@ First, in `test_pass`, add `("profile-ok", 390),` to the phase list after `("kic
     assert "kernel profile holds: profile-ok" in report, report
 ```
 
-Second, add this test after `test_session_without_settings_fails`:
+Second, add these two tests after `test_session_without_settings_fails`:
 
 ```python
 def test_profile_drift_fails(tmp: pathlib.Path) -> None:
@@ -1348,6 +1381,25 @@ def test_profile_drift_fails(tmp: pathlib.Path) -> None:
         ],
     )
     assert code != 0, "a run whose kernel profile drifted passed"
+    assert "**FAIL**" in report, report
+    assert "kernel profile holds: NO" in report, report
+
+
+def test_profile_unreadable_fails(tmp: pathlib.Path) -> None:
+    """A desktop that works when the kernel profile itself could not be read is not a
+    pass either: an unreadable profile proves nothing about the installed system."""
+    code, report = verdict(
+        tmp,
+        [
+            ("installed", 100),
+            ("kickstart-done", 110),
+            ("profile-unreadable", 390),
+            ("greeter-alive", 400),
+            ("session-alive", 460),
+            ("settings-alive", 500),
+        ],
+    )
+    assert code != 0, "a run whose kernel profile could not be read passed"
     assert "**FAIL**" in report, report
     assert "kernel profile holds: NO" in report, report
 ```
@@ -1371,21 +1423,23 @@ with:
 
 In the same test, add `"profile-ok",` as the first entry of the `for expected in (` tuple.
 
-Fourth, in `main`, add `test_profile_drift_fails,` after `test_session_without_settings_fails,`.
+Fourth, in `main`, add `test_profile_drift_fails,` and `test_profile_unreadable_fails,` after `test_session_without_settings_fails,`.
 
 Run: `python3 -B forge/test/iso/test_verdict.py`
 
-Expected: FAIL with `AssertionError`, raised either on `kernel profile holds: profile-ok` in `test_pass` or, when run in list order, on `test_profile_drift_fails` passing a drifted run.
+Expected: FAIL with `AssertionError`, raised either on `kernel profile holds: profile-ok` in `test_pass` or, when run in list order, on `test_profile_drift_fails` or `test_profile_unreadable_fails` passing a run that should not.
 
 - [ ] **Step 2: Add the probe to console.py**
 
-In `forge/test/iso/console.py`, insert these two entries into `MARKERS` right after `(b"Started greetd.service", "greeter-unit"),`:
+In `forge/test/iso/console.py`, insert these three entries into `MARKERS` right after `(b"Started greetd.service", "greeter-unit"),`:
 
 ```python
     # The guest's own answer to PROFILE_PROBE below: athanor-profile-check found the
-    # installed system's kernel profile holding, or reported what drifted.
+    # installed system's kernel profile holding, reported what drifted, or could not
+    # read or validate the profile at all.
     (b"PROFILE_OK", "profile-ok"),
     (b"PROFILE_DRIFT", "profile-drift"),
+    (b"PROFILE_UNREADABLE", "profile-unreadable"),
 ```
 
 Insert this after the line `GREETER_PROBE_WAIT = 50.0`:
@@ -1393,16 +1447,19 @@ Insert this after the line `GREETER_PROBE_WAIT = 50.0`:
 ```python
 
 # Ask the guest whether its kernel profile holds (docs/architecture/doc_kernel_profile.md,
-# section 12 item 3). athanor-profile-check compares the running kernel configuration,
-# sysctls and runtime state with the profile of the machine's role combination. On drift
-# it runs a second time without --quiet, so its report lands in the console log next to
-# the answer. As with the other probes, printf assembles the marker, so the echo of the
-# typed line cannot pass for the answer.
+# section 12 item 3). athanor-profile-check's own exit status tells the three cases apart:
+# 0 the profile holds, 1 drift, anything else the profile itself could not be read or
+# validated. On drift or on an unreadable profile it runs a second time without --quiet,
+# so its report lands in the console log next to the answer. As with the other probes,
+# printf assembles the marker, so the echo of the typed line cannot pass for the answer.
 PROFILE_PROBE = (
-    b"if athanor-profile-check --quiet; then printf 'PROFILE_%s\\n' OK;"
-    b" else printf 'PROFILE_%s\\n' DRIFT; athanor-profile-check; fi"
+    b"athanor-profile-check --quiet; case $? in"
+    b" 0) printf 'PROFILE_%s\\n' OK;;"
+    b" 1) printf 'PROFILE_%s\\n' DRIFT; athanor-profile-check;;"
+    b" *) printf 'PROFILE_%s\\n' UNREADABLE; athanor-profile-check;;"
+    b" esac"
 )
-# A handful of file reads, and a margin for the report on drift.
+# A handful of file reads, and a margin for the report on drift or on an unreadable profile.
 PROFILE_PROBE_WAIT = 10.0
 ```
 
@@ -1430,6 +1487,7 @@ In `forge/test/iso/verdict.py`, replace `Five things have to be true for a pass,
 
 ```text
   profile          athanor-profile-check reports the installed system's kernel profile holds
+                   (fails on drift, and fails if the profile itself could not be read)
 ```
 
 After the `SETTINGS_SIGNALS = ("settings-alive",)` line, insert:
@@ -1459,7 +1517,7 @@ Finally, in the `ok = (` expression, add `and profile is not None` after `and ki
 
 Run: `python3 -B forge/test/iso/test_verdict.py`
 
-Expected: every test prints `ok`, including `ok  test_profile_drift_fails` and `ok  test_console_logs_in_opens_settings_and_stops`, followed by `all checks passed`.
+Expected: every test prints `ok`, including `ok  test_profile_drift_fails`, `ok  test_profile_unreadable_fails` and `ok  test_console_logs_in_opens_settings_and_stops`, followed by `all checks passed`.
 
 - [ ] **Step 5: Record block group P in NEXT.md**
 
