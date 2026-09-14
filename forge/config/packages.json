@@ -11,6 +11,7 @@
     "nix-support",
     "system-config",
     "system-tweaks",
+    "kernel-profile",
     "matugen",
     "bibata",
     "dart-sass",
@@ -66,6 +67,7 @@
     "cliphist",
     "ide-bootstrap",
     "system-tweaks",
+    "kernel-profile",
     "scudo",
     "ripgrep-native"
   ],
