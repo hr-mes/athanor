@@ -257,7 +257,10 @@ patchano i Makefile per forzarlo.
   Secret `SECUREBOOT_SIGNING_KEY`, certificato
   `keys/secureboot/athanor-secureboot.pem` (`.der` per `mokutil --import`). Non
   essendo una CA, anche arruolata resta fuori dal keyring machine
-  (`INTEGRITY_CA_MACHINE_KEYRING_MAX`): non può autorizzare un modulo.
+  (`INTEGRITY_CA_MACHINE_KEYRING_MAX`) e finisce nel keyring platform. La patch
+  Red Hat verificherebbe i moduli anche con quel keyring (ripiego su `-ENOKEY`):
+  `patches/0002-module-verify-signatures-with-trusted-keyrings-only.patch` lo
+  toglie, quindi non può autorizzare un modulo.
 - **Revoca**: `keys/revoked/` sono i certificati ritirati, compilati nella
   blacklist del kernel (`CONFIG_SYSTEM_REVOCATION_KEYS`): un modulo firmato con
   uno di loro è rifiutato anche dove quella MOK fosse ancora arruolata. Il primo

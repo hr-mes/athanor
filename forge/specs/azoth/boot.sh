@@ -105,8 +105,8 @@ ukify build --linux "$VMLINUZ" --initrd "$WORK/initramfs.img" --uname "$KVER" \
 sbverify --cert "$OUT/mok.pem" "$WORK/uki.efi" >> "$OUT/ukify.log"
 OVMF_CODE=/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd
 # MokList: the ephemeral MOK of the UKI and those of --mok. shim copies it to MokListRT;
-# none of them is a CA, so the kernel keeps them out of the machine keyring and they
-# verify boot artefacts, never modules.
+# none of them is a CA, so the kernel puts them in the platform keyring, which
+# patches/0002 keeps out of module verification: they verify boot artefacts, never modules.
 ADD_MOK=()
 for cert in "$OUT/mok.pem" "${MOKS[@]}"; do ADD_MOK+=(--add-mok "$(< /proc/sys/kernel/random/uuid)" "$cert"); done
 virt-fw-vars -i /usr/share/edk2/ovmf/OVMF_VARS.secboot.fd -o "$WORK/vars.fd" "${ADD_MOK[@]}" > "$OUT/varstore.log"
