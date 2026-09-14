@@ -227,6 +227,11 @@ class Generation(unittest.TestCase):
             self.assertEqual(code, 1, text)
             self.assertIn("desktop.json", text)
 
+    def test_repository_manifest_is_valid_and_generated(self) -> None:
+        code, text = run_tool("check")
+        self.assertEqual(code, 0, text)
+        self.assertIn("rejected combination desktop+mesh", text)
+
 
 if __name__ == "__main__":
     unittest.main()
