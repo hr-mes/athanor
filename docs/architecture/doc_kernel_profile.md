@@ -1,10 +1,11 @@
 # Athanor OS: Kernel and Platform Profile
 
-Status: **draft for maintainer review, revision 5 (2026-09-14).** Revision 2 folded in a
-second full audit of the platform; revisions 3 to 5 fold in approval-gate verification
+Status: **draft for maintainer review, revision 6 (2026-09-14).** Revision 2 folded in a
+second full audit of the platform; revisions 3 to 6 fold in approval-gate verification
 loops that check every statement against kernel v7.2, systemd v258–v262, shim, bootc, the
 Fedora targeted SELinux policy and the running system. The maintainer approved the policy
-decisions introduced by the verifications on 2026-09-14; D48 awaits a maintainer decision.
+decisions introduced by the verifications on 2026-09-14 and chose the firmware policy of
+D48 on the same day.
 
 This document is the definitive profile of the Athanor kernel and of the platform layer
 that makes its guarantees real: what the kernel is, how it boots, how its integrity is
@@ -68,7 +69,7 @@ States: **final**; **provisional** (a default, closed by the benchmarks of secti
 **open** (closed by the named spike, block or maintainer decision); **after 1.0** (kept as
 the target, outside the release 1.0 scope of D36); **revised** (amended by the named
 decision); **superseded** (replaced by the named decision). A final decision may name the
-release or block that delivers it.
+release or block that delivers it, or the S1 outcome it depends on.
 
 | ID | Decision | Rationale | State |
 | --- | --- | --- | --- |
@@ -88,38 +89,38 @@ release or block that delivers it.
 | D14 | Kernel built for the x86-64 baseline (`X86_64_VERSION=1`, an option of the CachyOS base); x86-64-v3 is enforced by the installer and by `athanor-cpu-check` in the initramfs, which stops the boot with a clear message on an unsupported CPU. `athanor-cpu-check` is built for the x86-64 baseline, overriding the v3 `%_optflags` and `%rustflags` of the Forge build, and runs before any other Athanor-built binary and before the passphrase prompt | the kernel is compiled with `-mno-sse -mno-avx` (`arch/x86/Makefile`), so a v3 build gains only integer extensions, while a v1 kernel and a v1 checker can still explain why the machine is unsupported instead of crashing | final |
 | D15 | Swap on zram (zstd), zswap off; writeback of idle or incompressible pages to an encrypted block device evaluated for machines with 8 GiB or less | no double compression; swap on LUKS is encrypted, so disk-backed writeback is excluded only on wear and latency grounds, which P7 measures; zram writeback requires a block device, not a file | provisional (swappiness and writeback in P7) |
 | D16 | IOMMU in lazy mode by default; external ports are forced into strict DMA domains with bounce buffering by the kernel when firmware marks them untrusted, and `athanor-profile-check` reports that marking; `iommu.strict=1` is available per role | the kernel already isolates untrusted devices; global strict only costs throughput on internal NVMe and NICs | provisional |
-| D17 | Minimal generic initramfs (never host-only): storage (`nvme`, `vmd`, `sdhci_pci`, `sdhci_acpi` and `mmc_block`, `virtio_scsi`, `hv_storvsc`, `vmw_pvscsi`, `xen_blkfront`; AHCI and `virtio_blk` are built in), `dm_crypt`, input for the LUKS passphrase (`i2c_hid_acpi` with the Intel `pinctrl_*` drivers, `intel_quicki2c`, `intel_quickspi`, `applespi` with `spi_pxa2xx_platform`, `surface_hid`, `hyperv_keyboard`; USB HID, i8042, AMD pinctrl and DesignWare I2C are built in), `thunderbolt` for keyboards behind docks; no GPU driver, so the passphrase prompt uses the firmware framebuffer (`simpledrm`). ESP of 2 GiB when Athanor owns the disk; otherwise an XBOOTLDR partition (VFAT, 2 GiB) next to the existing ESP, which then holds only shim, systemd-boot and MokManager | today's UKI carries 102 MB of initramfs; dual boot with a preinstalled Windows ESP of 100–260 MB must work; a missing storage or keyboard driver makes a machine unbootable | final |
+| D17 | Minimal generic initramfs (never host-only): storage (`nvme`, `vmd`, `sdhci_pci`, `sdhci_acpi` and `mmc_block`, `ufshcd_pci`, `usb_storage` and `uas`, `ahci_platform`, `mpt3sas`, `megaraid_sas`, `virtio_scsi`, `hv_storvsc`, `pci_hyperv`, `vmw_pvscsi`, `xen_blkfront`; AHCI and `virtio_blk` are built in), `dm_crypt`, input for the LUKS passphrase (`i2c_hid_acpi` with the Intel `pinctrl_*` drivers, `intel_quicki2c`, `intel_quickspi`, `applespi` with `spi_pxa2xx_platform`, `surface_aggregator_registry` with `surface_hid`, `hyperv_keyboard`; USB HID, i8042, AMD pinctrl and DesignWare I2C are built in), `thunderbolt`, which keeps the tunnels the firmware created for docks (docks that need user authorisation rely on the firmware pre-boot option, recorded in the hardware matrix); no GPU driver, so the passphrase prompt uses the firmware framebuffer (`simpledrm`). ESP of 2 GiB when Athanor owns the disk; otherwise an XBOOTLDR partition (VFAT, 2 GiB) next to the existing ESP, which then holds only shim, systemd-boot and MokManager | today's initramfs is 102 MB; dual boot with a preinstalled Windows ESP of 100–260 MB must work; a missing storage or keyboard driver makes a machine unbootable | final |
 | D18 | Laptop is an autonomous role; desktop and laptop share an `interactive` fragment of the manifest | a laptop without the desktop role keeps 32-bit, gaming and interactive settings, without duplicated definitions | final |
 | D19 | `PANIC_ON_OOPS` stays off in the build; `kernel.panic_on_oops=1` and `kernel.warn_limit=100` on mesh-only hosts; `kernel.panic_on_oops=0` with `kernel.oops_limit=100` and `kernel.warn_limit=0` on interactive roles. Crash evidence comes from EFI pstore, enabled in the build and emptied by `systemd-pstore` | with `PANIC_ON_OOPS=y` the first oops panics before `oops_limit` is consulted, so a desktop would reboot and lose work at the first driver oops; Fedora disables EFI pstore by default, and without a backend a panic leaves no record | final |
 | D20 | SELinux `DEVELOP` and `BOOTPARAM` are switched off only after zero AVC denials in Athanor domains in acceptance; denials from Fedora packages are triaged and documented, and none may affect boot, login or security. Recovery from a denial that breaks the system after boot is the previous image in the boot menu, not `enforcing=0` | a gate that does not depend on upstream policy bugs, and a recovery path that survives the switch | final |
-| D21 | Role addons are built and signed in CI, shipped inside the image, and installed per UKI in `<uki>.efi.extra.d/` on the partition that holds the UKI, before the UKI itself | the stub reads global addons only from the volume of the loaded UKI, and a global addon without `.uname` would be used by every UKI, so a fallback boot would run the previous image with the new image's parameters; no second distribution channel | final |
+| D21 | Role addons are built and signed in CI, shipped inside the image and published with it in the same signed source, and installed per UKI in `<uki>.efi.extra.d/` on the partition that holds the UKI, before the UKI itself | the stub reads global addons only from the volume of the loaded UKI, and a global addon without `.uname` would be used by every UKI, so a fallback boot would run the previous image with the new image's parameters; no second distribution channel | final |
 | D22 | Hosting of the delta chunk store | chosen from measured delta sizes, chunk counts and expected traffic | after 1.0 |
 | D23 | Desktop class: no `noexec` on user-writable locations; code in the home runs and is measured by IMA. Protection against downloaded executables is a quarantine prompt in the launcher and file manager, based on the `user.xdg.origin.url` attribute, specified in the desktop specification after 1.0 | `noexec` on `/tmp`, removable media or `~/Downloads` is bypassed by passing the file to an interpreter and breaks `go test`, Java native libraries, PyInstaller and .NET single-file apps, Steam libraries on external drives and AppImages; a prompt outside the kernel is bypassable from a terminal, which is a stated residual risk | final |
-| D24 | SELinux denies `execmem` to system and Athanor service domains except those declared; user applications stay in `unconfined_t` as in Fedora. For a Fedora policy module that grants `execmem`, the module is patched or disabled, recorded per module | restricting user domains would break Electron, Java, .NET, Python ctypes and emulators, not only browsers; a local CIL `deny` rule could remove Fedora's grants but would tie Athanor to Fedora's internal type names | final |
+| D24 | SELinux denies `execmem` to system domains and to Athanor services, each of which runs in its own declared domain and never in `unconfined_service_t`; exceptions are declared; user applications stay in `unconfined_t` as in Fedora. For a Fedora policy module that grants `execmem`, the module is patched or disabled, recorded per module | restricting user domains would break Electron, Java, .NET, Python ctypes and emulators, not only browsers; a local CIL `deny` rule could remove Fedora's grants but would tie Athanor to Fedora's internal type names | final |
 | D25 | The Fedora 45 rebase starts on the beta as soon as P3 is green; the image that reinstalls the maintainer's desktop is built only on the final release (target 2026-10-20); any block that needs a systemd 262 feature waits for systemd 262 final in Fedora 45 updates | problems surface early, production waits for supported releases | final |
-| D26 | The mesh is personal: its members are the devices of one owner. It provides a private network between them, synchronisation and backup, compute sharing and remote applications; it is not an update channel | the purposes the maintainer set; updates keep one signed source and one verification path | final purpose; delivery after 1.0 (D38) |
+| D26 | The mesh is personal: its members are the devices of one owner. It provides a private network between them, synchronisation and backup, compute sharing and remote applications; it is not an update channel | the purposes the maintainer set; updates keep one signed source and one verification path | final; delivery after 1.0 (D38) |
 | D27 | The mesh subsystem has its own specification, a rewrite of `doc_cloud_mesh.md`; this profile holds only its kernel and platform requirements | protocol, identity, discovery and scheduling are not kernel decisions | final |
 | D28 | Compute sharing by capability tiers: CPU workloads in MicroVMs; GPU inference through a signed host service; a GPU inside a guest with SR-IOV, a second GPU in its own IOMMU group, or virtio-gpu Venus for Linux guests | works on any machine; extra hardware unlocks more. Today SR-IOV exists on consumer hardware only for some Intel GPUs, and Venus only with QEMU, crosvm or libkrun | after 1.0; the GPU-in-guest tiers need hardware evidence before they are promised |
-| D29 | Remote applications from interactive hosts, by tiers: a session on a virtual output with hardware encoding, applications of a Windows VM forwarded one by one, a 3D-accelerated VM where the hardware allows; the local session is never closed | usable across GPU vendors; the owner keeps working locally | after 1.0; blocked until the session compositor provides virtual outputs (COSMIC does not today) |
+| D29 | Remote applications from interactive mesh hosts, by tiers: a session on a virtual output with hardware encoding, applications of a Windows VM forwarded one by one, a 3D-accelerated VM where the hardware allows; the local session is never closed | usable across GPU vendors; the owner keeps working locally | after 1.0; blocked until the session compositor provides virtual outputs (COSMIC does not today) |
 | D30 | Updates ship as a base image plus signed layers that apply without a reboot | most changes could apply without rebooting | after 1.0; redesign required (section 8) |
 | D31 | Update classes: A applications, no interruption; B service layers, applied by restarting only their services; C the desktop layer, at the end of the session or at a soft reboot the user chooses; D the base, at a full reboot the user chooses and never forced; mesh-only hosts reboot in a maintenance window set by the owner | no forced reboots; each change costs only the interruption it needs | final; classes A and D in 1.0, B and C after 1.0 |
 | D32 | A layer is trusted only when the kernel verifies its signature: the UKI command line sets `systemd.allow_userspace_verity=0`, and image policies are passed with `--image-policy=` and `ExtensionImagePolicy=` from units shipped in `/usr` | systemd's default extension image policy accepts unprotected images, userspace verity trusts certificates in `/etc/verity.d`, and IPE sees `dmverity_signature=TRUE` only for signatures the kernel verified | after 1.0 |
 | D33 | Channels stable and beta; a release is promoted from beta to stable as the same signed artefacts | stable runs, bit for bit, what beta tested | after 1.0 |
 | D34 | Gradual rollout without telemetry: each machine derives its rollout day locally, a signed stop manifest halts a release, security releases skip the window; the download server's log retention is set by the update specification after 1.0 | nothing leaves the machine by design; the server still sees requests | after 1.0 |
 | D35 | Rollback returns the base and every layer to the versions that belong together | a failure returns to a known pair, never to a mix; layers are selected by the booted base, not by the newest version | after 1.0 |
-| D36 | Release 1.0 scope: verified A/B image (D6), boot counting and automatic fallback, full-image system updates that take effect only after the user confirms, applications through Flatpak. With the dm-verity option, IPE enforces the boot policy and the desktop class, whose `EXECUTE` table defaults to allow and whose `KMODULE` and `FIRMWARE` tables default to deny (D48); with bootc, module and firmware integrity rely on module signatures and the measures S1 decides. The mesh IPE class policy is built and tested in P6, but the mesh role is not offered before the mesh delivery. Deltas, layers, classes B and C, channels and gradual rollout follow in releases 1.1 and 1.2, the mesh after them | the smallest release that is robust for everyone; the audit found the layer and rollout design unsafe as written | final |
-| D37 | Kernel series: the stable channel, with a mandatory bump when the pinned series reaches end of life on kernel.org; the bump bot fails while it does, and `KERNEL_CHANNEL=lts` is the maintainer's fallback when no stable pair exists | a series without fixes must never stay pinned in silence, as 7.1 did after 2026-09-02 | final |
-| D38 | The mesh has two tiers: attested mesh hosts (backup, compute, remote sessions) and non-attested clients (phones, other operating systems, degraded machines) with limited keys. It composes upstream components (kernel WireGuard with an existing coordination server, Syncthing-class sync, btrfs send and receive) rather than new protocol code. An interactive mesh host enforces the desktop class, so its attestation proves the boot state, not runtime code integrity. On desktops and laptops no mesh component runs in a MicroVM. No mesh code with placeholder cryptography or attestation ships | mandatory attestation for every device excludes phones and most ordinary machines; the existing mesh and hypervisor crates contain placeholder PQC keys and file-existence attestation | final; delivery after 1.0 |
+| D36 | Release 1.0 scope: verified A/B image (D6), boot counting and automatic fallback, full-image system updates that take effect only after the user confirms, applications through Flatpak. With the dm-verity option, IPE enforces the boot policy and the desktop class, whose `EXECUTE` table defaults to allow and whose `KMODULE` and `FIRMWARE` tables default to deny (D48); with bootc, module and firmware integrity rely on module signatures and the measures S1 decides. The mesh IPE class policy is built and tested in P6, but the mesh role is not offered before the mesh delivery. Deltas, layers, classes B and C, channels and gradual rollout follow in releases 1.1 and 1.2, the mesh after them | the smallest release that is robust for everyone; the second platform audit (revision 2) found the layer and rollout design unsafe as written | final |
+| D37 | Kernel series: the stable channel, with a mandatory bump when the pinned series reaches end of life on kernel.org; the bump bot fails while the pinned series is end of life, and `KERNEL_CHANNEL=lts` is the maintainer's fallback when no stable pair exists | a series without fixes must never stay pinned in silence, as 7.1 did after 2026-09-02 | final |
+| D38 | The mesh has two tiers: attested mesh hosts (backup, compute, remote sessions) and non-attested clients (phones, other operating systems, degraded machines) with limited keys. It composes upstream components (kernel WireGuard with an existing coordination server, Syncthing-class sync, btrfs send and receive) rather than new protocol code. An interactive mesh host enforces the desktop class, so its attestation proves the boot state, not runtime code integrity. On desktops and laptops the mesh services run on the host, never in a MicroVM (D11 superseded); only workloads received from other devices run in MicroVMs (D28). No mesh code with placeholder cryptography or attestation ships | mandatory attestation for every device excludes phones and most ordinary machines; the existing mesh and hypervisor crates contain placeholder PQC keys and file-existence attestation | final; delivery after 1.0 |
 | D39 | `/etc` is part of the update design. S1 compares factory defaults in `/usr` with `/etc` as a local overlay (`tmpfiles` from `/usr/share/factory`), a per-slot `/etc`, and bootc's per-deployment `/etc` with a three-way merge, judged on user and group databases, `machine-id`, NetworkManager connections and the SELinux policy store | with A/B `/usr` and a shared `/etc`, a rollback would keep the newer configuration and SELinux policy | open (spike S1) |
 | D40 | Keyrings: dm-verity root hashes, IPE policies and signed BPF programs are trusted only from the builtin keyring; modules from the builtin and secondary keyrings; `SECONDARY_TRUSTED_KEYRING_SIGNED_BY_BUILTIN=y`. Attested mode requires that `.machine` and `.secondary_trusted_keys` hold exactly the expected certificates. A user who needs modules outside the image enrols a CA certificate (CA=true, keyCertSign, no digitalSignature) in MokList with physical presence, signs the modules directly with that CA key, and selects the `user-modules` IPE variant with its signed addon, which is measured into PCR 12 and takes effect at the next boot; the machine is then reported as not attested, `mokutil --untrust-mok` closes the path, and the boot matrix proves the path (section 12 item 2) | the platform keyring (UEFI db, non-CA MOKs) must not authorise code or policy; with `CA_MACHINE_KEYRING_MAX` only such CAs reach the secondary keyring, leaf certificates they issue cannot be added under `SIGNED_BY_BUILTIN`, and `sign-file` embeds no chain | final |
 | D41 | Anti-rollback: every system update is described by a manifest signed with the integrity key (image digest, expiry, minimum version), checked before the update mechanism installs anything. Boot-time downgrade is limited by revoking UKIs older than the fallback version through MokListX hashes, which the owner confirms in MokManager and which require a pcrlock update for PCR 14, or by rotating the Secure Boot key; until then a validly signed older UKI remains bootable, a stated residual risk. A revoked integrity certificate is enforced only by kernels built after the revocation. systemd-boot carries an SBAT section because shim loads it directly; UKIs and addons carry one so that shim checks it where present | with Fedora's shim only shim publishes SBAT levels; MokListX can only be written through MokManager at the console; an older UKI with a valid signature boots its own kernel, which still trusts old images, and a signed PCR policy never expires | final |
-| D42 | LUKS: TPM-only unlock only in attested mode, offered and never applied automatically; a degraded machine uses TPM plus PIN, or a passphrase. PCR 7 and PCR 14 are bound through a `systemd-pcrlock` policy built with `--strict=yes`, in which PCR 14 uses Athanor-generated `lock-raw` components for MokList, MokListX and MokSBState (pcrlock ships none for shim); the policy is updated before known firmware, db, dbx, shim (SbatLevel, signing authority), MokList and MokListX changes; an unforeseen change falls back to the recovery key with a guided reseal that keeps the unlock method the user chose. The PCR 11 policy is signed with the PCR policy key for the initrd phase only (systemd 262) and covers UKI profile 0 only (D45); rotating that key invalidates every TPM slot, and re-enrolment is guided in the initrd with the recovery key or passphrase. The installer checks that the firmware db accepts a certificate authority that signs the shipped shim | without Secure Boot the command line is measured only into PCR 12, which the policy excludes, so TPM-only unlock would release the key to a modified boot; a dbx update from Windows Update on a dual-boot machine can land before Athanor runs | final |
+| D42 | LUKS: TPM-only unlock only in attested mode, offered and never applied automatically; a degraded machine uses TPM plus PIN, or a passphrase. PCR 7 and PCR 14 are bound through a policy built with `systemd-pcrlock make-policy --pcr=7 --pcr=14 --strict=yes` and enrolled on the machine itself (a slot combining it with the signed PCR 11 policy is two TPM shards and cannot be calculated offline); PCR 14 uses Athanor-generated `lock-raw` components built from the data shim mirrors and measures (`MokListRT`, `MokListXRT` and `MokSBStateRT` under `/sys/firmware/efi/mok-variables/`), because pcrlock ships none for shim; the policy is updated before known firmware, db, dbx, shim (SbatLevel, signing authority, built-in vendor certificate and denylist), MokList and MokListX changes; an unforeseen change falls back to the recovery key with a guided reseal that keeps the unlock method the user chose. The PCR 11 policy is signed with the PCR policy key through `ukify --sign-initrd-pcrs`, and the TPM slot is enrolled with `--tpm2-public-key-policyref=initrd` (both systemd 262), so only the initrd-phase signature unlocks it; it covers UKI profile 0 only (D45); rotating that key invalidates every TPM slot, and re-enrolment is guided in the initrd with the recovery key or passphrase. The installer checks that the firmware db accepts a certificate authority that signs the shipped shim | without Secure Boot the command line is measured only into PCR 12, which the policy excludes, so TPM-only unlock would release the key to a modified boot; a dbx update from Windows Update on a dual-boot machine can land before Athanor runs | final |
 | D43 | The Secure Boot, PCR policy, module signing, integrity and update keys are used only in sign-only CI jobs that receive built artefacts, never in a job that runs third-party actions or the image build, and share one custody: their own environment with required reviewers | a compromised build step must not be able to sign; any builtin key can sign modules, IPE policies and root hashes, and the Secure Boot and PCR policy keys decide which kernels boot and which boots unlock the disk, so the weakest custody would set the protection of all | final |
 | D44 | Root boundary: an Azoth patch, proposed upstream, makes IPE enforcement one-way once enforcing; class-ordered policy versions (D8) prevent activating a weaker signed policy. SELinux is not a boundary against an unconfined root under Fedora's targeted policy, which lets `unconfined_t` enter any domain and load policy: this is a stated residual risk | `CAP_MAC_ADMIN` can write `enforce=0` today; confining root would require `sysadm_u` and break the Fedora administration model | final; the patch is written in P6 |
 | D45 | Compatibility boot profile: the UKI carries a second profile whose command line repeats the base command line (including `usrhash=` and the verity options) and adds `efi=no_disable_early_pci_dma intel_iommu=off amd_iommu=off`; it is selectable from the boot menu, never selected automatically, and named in the installer's first-boot troubleshooting guidance. Only profile 0 carries signed PCR 11 measurements (`ukify --sign-profile=0`), so a boot of the compatibility profile is degraded and unlocks the disk with a passphrase or the recovery key | firmware that misbehaves with `EFI_DISABLE_PCI_DMA` or broken DMAR tables hangs before an addon could be installed; a profile's `.cmdline` replaces the base one; users cannot edit a signed command line | final |
-| D46 | IMA keys are vouched by the builtin keyring only (`IMA_KEYRINGS_PERMIT_SIGNED_BY_BUILTIN_OR_SECONDARY` off), and the IMA policy is loaded from `/usr` | with that option on, a CA enrolled by the user (D40) could vouch an IMA key; a policy file on writable `/etc` would be refused by IPE's `POLICY` table anyway | open (P4b fixes whether the policy file also carries a signature) |
-| D47 | Base hardening sysctls hold on every role and cannot be overridden by roles: `kernel.yama.ptrace_scope=1`, `kernel.kptr_restrict=2`, `kernel.dmesg_restrict=1`, `dev.tty.ldisc_autoload=0`, `fs.protected_fifos=2`, `fs.protected_regular=2`, `fs.suid_dumpable=0` | maintainer decision of 2026-09-13 for `ptrace_scope=1` everywhere; the rest are upstream hardening defaults with no role-specific need | final |
-| D48 | Firmware loaded without a file (EFI-embedded firmware through `firmware_request_platform`, used by the touchscreens of some x86 tablets) or placed outside the image: (a) the desktop class allows `FIRMWARE`, and only the mesh class enforces it; or (b) `FIRMWARE` is enforced on every class, the `user-modules` variant also admits `FIRMWARE`, and acceptance lists the affected hardware | IPE finds no property for a load without a file and denies it under a default-deny `FIRMWARE` table; (a) keeps every device working by default, (b) keeps firmware integrity on the desktop and gives the affected devices a visible opt-in | open (maintainer decision before P6) |
+| D46 | IMA keys are vouched by the builtin keyring only (`IMA_KEYRINGS_PERMIT_SIGNED_BY_BUILTIN_OR_SECONDARY` off). An Athanor unit writes the absolute path of an IMA policy in `/usr` to securityfs, and `/etc/ima/ima-policy` is masked. P4b either requires a signed policy (`appraise func=POLICY_CHECK appraise_type=imasig`, with `IMA_WRITE_POLICY` off) or records the remaining risk | with that option on, a CA enrolled by the user (D40) could vouch an IMA key; with it off, the Secure Boot architecture policy no longer requires a signed IMA policy; IPE's `POLICY` table governs only policies loaded by path, while rules written as text bypass it, systemd's `ima-setup` falls back to exactly that for `/etc/ima/ima-policy`, and `IMA_WRITE_POLICY` lets root append rules | open (P4b) |
+| D47 | Base hardening sysctls hold on every role and cannot be overridden by roles: `kernel.yama.ptrace_scope=1`, `kernel.kptr_restrict=2`, `kernel.dmesg_restrict=1`, `dev.tty.ldisc_autoload=0`, `fs.protected_fifos=2`, `fs.protected_regular=2`, `fs.suid_dumpable=0` | maintainer decision of 2026-09-13 for `ptrace_scope=1` everywhere; the rest are hardening recommendations stricter than the kernel and systemd defaults, with no role-specific need; `fs.suid_dumpable=0` overrides Fedora's `50-coredump.conf`, so crashes of processes that changed privileges are not collected | final; delivered in P3 |
+| D48 | Firmware loaded without a file (EFI-embedded firmware through `firmware_request_platform`, used by the touchscreens of some x86 tablets) or placed outside the image is refused on every class; the `user-modules` variant also admits `FIRMWARE`, and acceptance lists the affected hardware | IPE finds no property for a load without a file and denies it under a default-deny `FIRMWARE` table; enforcement keeps firmware integrity on the desktop, and the affected devices get a visible opt-in that marks the machine not attested. The alternative, allowing `FIRMWARE` on the desktop class, was rejected by the maintainer on 2026-09-14 | final |
 
 ## 3. Architecture overview
 
@@ -127,7 +128,7 @@ The chain below is the dm-verity option of D6; spike S1 compares it with bootc s
 composefs, which keeps the firmware, shim, UKI and kernel levels and replaces `/usr` on
 dm-verity with a composefs image verified by fs-verity.
 
-```
+```text
 firmware (UEFI db)
   └─ shim (Fedora, Microsoft-signed)    verifies with db, shim's built-in Fedora certificate, MokList
        └─ systemd-boot as shim's second stage   signed: Secure Boot key   boot counting (+3)
@@ -200,9 +201,10 @@ disabled option explicitly (`# CONFIG_X is not set`).
 
 **From the command line into the build:**
 `LOCK_DOWN_KERNEL_FORCE_INTEGRITY=y`, `INIT_ON_FREE_DEFAULT_ON=y`, `LEGACY_VSYSCALL_NONE=y`,
-`DEBUG_FS_ALLOW_NONE=y`, `PANIC_TIMEOUT=10`, `INTEL_IOMMU_DEFAULT_ON=y`,
-`EFI_DISABLE_PCI_DMA=y` (with the compatibility profile of D45),
-`EFI_VARS_PSTORE_DEFAULT_DISABLE` off (D19).
+`DEBUG_FS_ALLOW_NONE=y`, `PANIC_TIMEOUT=10`,
+`EFI_VARS_PSTORE_DEFAULT_DISABLE` off (D19); from P4b, together with the compatibility
+profile of D45 that disables them at boot, `INTEL_IOMMU_DEFAULT_ON=y` and
+`EFI_DISABLE_PCI_DMA=y`.
 
 **New hardening:** `KSTACK_ERASE=y`, `PAGE_TABLE_CHECK=y`, `PAGE_TABLE_CHECK_ENFORCED=y`,
 `DEBUG_VIRTUAL=y`, `DEBUG_SG=y`, `DEBUG_NOTIFIERS=y`, `ARCH_MMAP_RND_BITS=32`,
@@ -221,12 +223,13 @@ gVisor, rr and User-Mode Linux (with `KCMP=y` set explicitly, because Mesa and s
 `DM_VERITY_VERIFY_ROOTHASH_SIG_SECONDARY_KEYRING`, `DM_VERITY_VERIFY_ROOTHASH_SIG_PLATFORM_KEYRING`,
 `IPE_POLICY_SIG_SECONDARY_KEYRING` and `IPE_POLICY_SIG_PLATFORM_KEYRING` all off (Fedora
 enables all four), so root hashes and policies verify against the builtin keyring only.
-With its options on, the dm-verity signature code falls back to the secondary and platform
-keyrings on `-ENOKEY` and on `-EKEYREJECTED`, and finally to the `.dm-verity` keyring,
-which stays sealed and empty unless `dm_verity.keyring_unsealed=1`. Module verification
+With the secondary option on, dm-verity verification starts against the builtin and
+secondary keyrings; the platform option retries against the platform keyring on `-ENOKEY`
+and `-EKEYREJECTED`; in every configuration a final retry uses the `.dm-verity` keyring if
+it holds keys and has been restricted, which requires `dm_verity.keyring_unsealed=1`. Module verification
 uses the builtin and secondary keyrings; the Red Hat fallback to the platform keyring is
 removed by `patches/redhat/0001`. Signed BPF programs may name the builtin, secondary or
-platform keyring: any policy that grants trust to a signed BPF program requires the
+platform keyring, or a user keyring of the caller: any policy that grants trust to a signed BPF program requires the
 builtin keyring. `IMA_KEYRINGS_PERMIT_SIGNED_BY_BUILTIN_OR_SECONDARY` is off (D46).
 `SYSTEM_TRUSTED_KEYS` carries the module signing certificate and, from P4b, the integrity
 certificate; `SYSTEM_REVOCATION_KEYS` the retired ones. The kernel cannot restrict a
@@ -263,16 +266,18 @@ preemption `lazy` (D13).
 **Kernel command line.** Nearly empty: what installation knows (LUKS device, root),
 `page_alloc.shuffle=1` (page allocator randomisation is off by default even when built
 in), and from P4b with the dm-verity option `usrhash=`,
-`systemd.verity_usr_options=root-hash-signature=auto` and `dm_verity.require_signatures=1`
-from the image build: the kernel must verify the root hash signature, otherwise IPE's
-`dmverity_signature` is false and every module and firmware load from `/usr` is denied.
+`systemd.verity_usr_options=root-hash-signature=base64:<signature>` (written into both UKI
+profiles by the image build, because `auto` depends on udev data that exists only on the
+disk holding the ESP) and `dm_verity.require_signatures=1`: the kernel must verify the root
+hash signature, otherwise IPE's `dmverity_signature` is false and every module and
+firmware load from `/usr` is denied.
 The interactive roles add `rhgb quiet`. Removed from today's `kargs.d`, kickstart and
 `forge/specs/azoth/cmdline`:
 
 - already defaults: `slab_nomerge`, `randomize_kstack_offset`, `ima_hash`,
   `init_on_alloc`, `amd_pstate=active`, `mitigations=auto`;
 - moved into the build: `module.sig_enforce`, `lockdown`, `init_on_free`, `vsyscall`,
-  `debugfs`, `intel_iommu=on`, `efi=disable_early_pci_dma`;
+  `debugfs`, and from P4b `intel_iommu=on` and `efi=disable_early_pci_dma`;
 - moved into roles, or dropped: `oops`, `preempt=full` (the base becomes lazy, D13),
   `zswap.enabled=1` and `zswap.compressor=zstd` (D15), `splash` and `fastboot` (not used),
   `rootflags=noatime` (mount options live in the file system table);
@@ -304,7 +309,7 @@ declares it.
 
 **Power:** power-profiles-daemon is the only owner of EPP and platform profile. The CPU
 vendor's driver runs in active mode where the CPU supports it (`amd_pstate` with CPPC,
-`intel_pstate`); other machines and virtual machines keep the kernel's default cpufreq
+`intel_pstate` with HWP; Intel CPUs without HWP run `intel_pstate` in passive mode); other machines and virtual machines keep the kernel's default cpufreq
 driver, and power-profiles-daemon uses its placeholder driver.
 
 ## 7. Roles
@@ -365,7 +370,7 @@ combination.
 a private network over kernel WireGuard with an existing coordination server;
 synchronisation and backup between devices (Syncthing-class sync, btrfs send and
 receive); compute sharing by capability tier (D28); remote applications from interactive
-hosts (D29). Mesh hosts hold data and run workloads; clients (phones, other systems,
+mesh hosts (D29). Mesh hosts hold data and run workloads; clients (phones, other systems,
 degraded machines) connect with limited keys. The mesh never distributes updates.
 Protocol, identity, discovery and scheduling belong to the mesh specification (D27).
 
@@ -420,14 +425,17 @@ reported, never failed, so no machine is locked out of updates by its hardware.
 2. A system update is a full image, downloaded and verified in the background. The
    Athanor update service first checks the update manifest (D41): its signature with the
    integrity key, its expiry, the minimum version and the image digest. S1 then chooses
-   how the mechanism verifies and installs the image: `systemd-sysupdate` with a
-   `url-file` source and `Verify=yes`, with its OpenPGP keyring only in `/usr` and
-   `/etc/systemd/import-pubring.*` masked and checked by `athanor-profile-check`; or the
-   update service's own verification followed by a `regular-file` source, which performs
-   no verification itself, run in one root-only service over a staging directory so the
-   verified image cannot be replaced before it is written. With bootc,
-   `bootc upgrade --download-only` stages a deployment that is locked against being
-   applied.
+   the verification path. With `systemd-sysupdate`, it runs as
+   `systemd-sysupdate --definitions=/usr/lib/sysupdate.d update <version>` with the
+   version the manifest names, so definitions in `/etc/sysupdate.d` are ignored and
+   reported. Either a `url-file` source uses `Verify=yes`, with its OpenPGP keyring only in
+   `/usr` and `/etc/systemd/import-pubring.*` masked and reported; or the update service
+   verifies the image itself and passes it to a `regular-file` source, which performs no
+   verification, both steps running in one root-only service over a staging directory so
+   the verified image cannot be replaced before it is written. Role addons are published
+   with the image in the same signed source and are identical to the copies inside the
+   image (D21). With bootc, `bootc upgrade --download-only` stages a deployment that is
+   locked against being applied.
 3. The new version is installed but does not become the boot default until the user
    confirms. With systemd-boot: before anything new is written, `bootctl set-preferred`
    names the booted entry and is read back; the new UKI's addons are written into its
@@ -441,15 +449,16 @@ reported, never failed, so no machine is locked out of updates by its hardware.
    crash or a power loss before confirmation boots the running version. The previous
    version stays in the boot menu, and `LoaderEntryOneShot` selects it for one boot.
    Nothing reboots by itself (class D).
-4. If the new version fails `boot-complete.target`, `systemd-bless-boot` marks its entry
-   bad at once and the user is told that the next reboot, which the user chooses, returns
-   to the previous version; a hang or a panic uses the remaining tries. `loader.conf` sets
+4. If `athanor-profile-check` or a critical service required by `boot-complete.target`
+   fails, its `OnFailure=` unit runs `systemd-bless-boot bad`, which sets the entry's tries
+   left to zero, and the user is told that the next reboot, which the user chooses,
+   returns to the previous version; a hang or a panic uses the remaining tries. `loader.conf` sets
    no `default`, so selection follows the sorted entry list, where entries without tries
    left come last. With bootc, this step requires boot counting, which the composefs
    backend does not configure today: an S1 gate.
 
 **After 1.0: the target update model** (D7, D30–D35). Kept as the goal, redesigned before
-implementation because the audit found the first version unsafe:
+implementation because the second platform audit found the first version unsafe:
 
 - **Deltas** (D7, D22): content-defined chunks seeded from the running image, verified
   by the image signature; or, if S1 selects bootc, OCI layer pulls.
@@ -475,7 +484,9 @@ implementation because the audit found the first version unsafe:
 ("more breaking changes are forthcoming"), and `LoaderEntryPreferred` needs systemd 260;
 the dm-verity option of D6 depends on both, which S1 weighs on Fedora 45.
 `RestrictFileSystemAccess=` (systemd 261) allows execution only from signed dm-verity;
-systemd 262 extends this to overlayfs over verity on kernel 7.2 and later.
+systemd 262 extends this to overlayfs over verity on kernel 7.2 and later. Fedora 45 carries
+systemd 262 release candidates today, so blocks that need 262 features wait for its final
+release (D25).
 
 ## 9. Keys, measurements and attestation
 
@@ -524,36 +535,45 @@ Loading an IPE policy is controlled by its signature (D40), not by an operation.
 audit or enforce state is global, not per operation. Properties in one rule are combined
 with AND, so alternatives take separate rules.
 
-- **Boot policy** (compiled into the kernel from P4b, version 0.0.0): `EXECUTE` defaults
-  to allow; `FIRMWARE`, `KMODULE`, `KEXEC_*`, `POLICY` and `X509_CERT` default to deny,
+- **Boot policy** (compiled into the kernel from P4b, version 0.0.0): a global
+  `DEFAULT action=DENY`, as in every class policy, so an operation unknown to the policy
+  is never allowed; `EXECUTE` defaults to allow; `FIRMWARE`, `KMODULE`, `KEXEC_*`, `POLICY` and `X509_CERT` default to deny,
   with one rule admitting `boot_verified=TRUE` (the initramfs, including files the stub
   adds from the ESP) and one admitting `dmverity_signature=TRUE`. Firmware built into the
   kernel does not pass through IPE; firmware loaded without a file follows D48.
 - **Activation:** the class policy of the role set is loaded and activated at the end of
-  the initrd by a unit in the UKI's initramfs, after the initramfs has loaded its modules
-  and before switch-root, selected from the role set on the authenticated command line;
+  the initrd by a unit in the UKI's initramfs, ordered after `systemd-udev-trigger.service`
+  and `initrd-root-fs.target` and before switch-root (a module load refused between
+  activation and switch-root is retried by coldplug from `/usr`), selected from the role set on the authenticated command line;
   a failure stops the boot. `athanor-profile-check` reports the active policy name and
   version and fails `boot-complete.target` if the boot policy is still active; mesh host
   admission requires this report, because IPE activation is audited, not measured.
-- **Runtime class policies** do not use `boot_verified`, as IPE's documentation advises
-  after switch-root. Each policy has a version `class.release.0`, where the class is
-  `user-modules` 1, desktop 2 or mesh 3; a new release of a class replaces the previous
-  one through IPE's update operation, and a running machine can only activate an equal or
-  stronger class (D8).
-- **Mesh class:** `DEFAULT action=DENY` for every operation, allowing only
-  `dmverity_signature=TRUE`. Anonymous executable memory is denied as well, so no
+- **Runtime class policies** use `boot_verified` only where the initrd needs it after
+  activation: the mesh class carries `op=EXECUTE boot_verified=TRUE action=ALLOW`, because
+  the initrd keeps starting units from the initramfs until switch-root, which empties the
+  initramfs; no other operation of a runtime class admits `boot_verified`. Each policy has
+  a version `class.release.0`, where the class is `user-modules` 1, desktop 2 or mesh 3,
+  and a `policy_name` fixed per class and role combination across releases; a new release
+  replaces the previous one through IPE's update operation, a running machine can only
+  activate an equal or stronger class (D8), and policies sharing a version have identical
+  rules, because root can switch between them.
+- **Mesh class:** `DEFAULT action=DENY` for every operation, allowing
+  `dmverity_signature=TRUE` and, for `EXECUTE` in the initrd, `boot_verified=TRUE`. Anonymous executable memory is denied as well, so no
   user-space JIT runs on a mesh-only host; workloads of other devices run in virtual
   machines. The BPF JIT is a kernel component and stays on with `bpf_jit_harden=2`. The
   policy is built and tested in P6 and deployed with the mesh delivery (D36).
 - **Desktop class:** `EXECUTE` defaults to allow, because browsers, Mesa and development
   tools need it; code in the home runs and is measured by IMA (D23). `KMODULE`:
   `dmverity_signature=TRUE` allowed, then default deny, so modules outside the image are
-  refused even when signed. `FIRMWARE` per D48; `KEXEC_*`, `POLICY` and `X509_CERT` admit
-  only `dmverity_signature=TRUE`, so the IMA policy and certificate come from `/usr`
-  (D46). SELinux denies `execmem` to system and Athanor service domains except those
-  declared; user applications stay in `unconfined_t` as in Fedora (D24).
-- **`user-modules` variant** of the desktop class (D40): `KMODULE` defaults to allow, the
-  module signature is still enforced by lockdown against the builtin and secondary
+  refused even when signed. `FIRMWARE` admits only `dmverity_signature=TRUE`, so firmware loaded without a file or
+  from outside the image is refused (D48); `KEXEC_*`, `POLICY` and `X509_CERT` admit only
+  `dmverity_signature=TRUE`. This covers an IMA policy the kernel reads from a path; rules
+  written as text bypass IPE (D46). The IMA certificate is read before `/init`, from the
+  initramfs, under the boot policy. SELinux denies `execmem` to system domains and to Athanor services, which run in
+  their own declared domains and never in `unconfined_service_t` (D24); user applications
+  stay in `unconfined_t` as in Fedora.
+- **`user-modules` variant** of the desktop class (D40): `KMODULE` and `FIRMWARE` (D48) default to
+  allow, the module signature is still enforced by lockdown against the builtin and secondary
   keyrings, and the machine is reported as not attested. It is selected at boot by its
   signed addon (D40).
 - **Rollout:** release 1.0 enforces the boot policy and the desktop class (D36). Coverage
@@ -648,16 +668,18 @@ There is no kdump.
    the mesh platform requirements of section 7; the module chain: a module signed by the
    module key accepted, one signed by an enrolled non-CA MOK rejected (existing), one
    signed directly by an enrolled CA key accepted and one signed by a leaf certificate of
-   that CA rejected (D40). From P4b: the IPE boot policy is active, IPE audit shows
-   `dmverity_signature` true for `/usr`, modules and firmware load from `/usr`, and
+   that CA rejected (D40). From P4b: the IPE boot policy is active, with `ipe.success_audit=1` on
+   the test command line IPE audit shows `dmverity_signature` true for `/usr`, modules and firmware load from `/usr`, and
    `keyring_unsealed` reads `N` with an empty `.dm-verity` keyring. From P5, under Secure
    Boot, an unsigned addon is rejected.
 3. **ISO acceptance** (`forge/test/iso`): automated in KVM on every run (virtio, NVMe,
    OVMF with Secure Boot): a required `profile-ok` marker emitted by
    `athanor-profile-check`, whose failure report lists the drifting settings; the
    installer refuses a CPU without x86-64-v3 and a non-UEFI boot; the real initramfs
-   booted on a CPU model without x86-64-v2 stops with the `athanor-cpu-check` message; a
-   deliberate panic leaves a pstore record; zero AVC denials in Athanor domains, with
+   booted on a CPU model without x86-64-v2 and on `SandyBridge` (AVX without AVX2) stops
+   with the `athanor-cpu-check` message, which tests CPUID leaves 1, 7 and 0x80000001 and
+   the YMM state enabled in XGETBV; a deliberate panic leaves a pstore record; a binary
+   executed from the home appears in the IMA measurement log (D23); zero AVC denials in Athanor domains, with
    Fedora denials triaged (D20). A hardware matrix is run by the maintainer before each
    release gate (VMD, AMD and Intel eMMC, a laptop with an I2C or THC keyboard, an Apple
    SPI keyboard, a Thunderbolt dock, Hyper-V, VMware and Xen guests; D17); hardware not
@@ -667,10 +689,10 @@ There is no kdump.
 4. **On the machine:** `athanor-profile-check` gates `boot-complete.target` on
    image-attributable drift only and reports the rest: `/proc/config.gz`,
    `/proc/cmdline` (including build options overridden by a boot parameter), sysctls,
-   `scx_loader` state, integrity mode, the active IPE policy (the boot policy still active
-   fails the gate), the contents of `.machine` and `.secondary_trusted_keys`, external
-   PCIe ports marked untrusted (D16), the absence of `/etc/systemd/import-pubring.*` where
-   applicable, and, when a TPM is present, that the roles applied under `/run` match the
+   `scx_loader` state, integrity mode, with the dm-verity option the active IPE policy (the
+   boot policy still active fails the gate), the contents of `.machine` and `.secondary_trusted_keys`, external
+   PCIe ports marked untrusted (D16), the absence of `/etc/systemd/import-pubring.*` and of `/etc/sysupdate.d` definitions
+   where applicable, and, when a TPM is present, that the roles applied under `/run` match the
    role addons in the PCR 12 event log.
 5. **Release 1.0 updates** (P4b, in a VM with Secure Boot and swtpm): an update with an
    invalid manifest signature, an expired manifest, a version below the minimum or a
@@ -678,24 +700,28 @@ There is no kdump.
    user confirms; the preferred entry is set and read back before anything new is
    written; a reboot, a crash and a power loss during installation or before confirmation
    boot the running version; the booted version is never removed; the previous version
-   boots once from the menu; a failing health check marks the entry bad and the next
-   reboot returns to the previous version; the new default entry finds the addons of the
+   boots once from the menu; a failing health check marks the entry bad through `OnFailure=` and the
+   next reboot returns to the previous version, never to the compatibility profile; the new default entry finds the addons of the
    active roles (from P5); TPM-only unlock is refused in degraded mode and when booting
-   the compatibility profile; the pcrlock policy contains both PCR 7 and PCR 14 and
+   the compatibility profile, and the TPM slot cannot be unsealed on the running system
+   after `leave-initrd`; the pcrlock policy contains both PCR 7 and PCR 14 and
    survives an announced shim, MokList and dbx change; an unannounced PCR 7 change falls
    back to the recovery key and the guided reseal keeps the chosen unlock method; a PCR
    policy key rotation re-enrols the TPM slot through the guided flow; an IMA key vouched
-   only by an enrolled CA is refused (D46); the installer refuses firmware whose db does
-   not accept the shim's certificate authority.
+   only by an enrolled CA is refused (D46); a UKI revoked through MokListX does not boot;
+   the installer refuses firmware whose db does not accept the shim's certificate
+   authority.
 6. **Execution integrity** (P6; the IPE items with the dm-verity option, otherwise the
    measures S1 decides): a module outside the image and an unsigned module are refused on
-   the desktop class; firmware follows D48 and its test; `enforce=0` is refused once
+   the desktop class; a firmware file outside the image and firmware loaded without a file are refused, and
+   admitted with the `user-modules` variant (D48); `enforce=0` is refused once
    enforcing; activating a signed policy of a lower class is refused, including the
    `user-modules` variant on a desktop-class machine, and so is an older release of the
    same class; the boot policy is no longer active at `boot-complete.target`; a system
    domain calling `mprotect(PROT_EXEC)` on anonymous memory is denied (D24); an XDP
    program of a delegated service cannot attach to a host interface; with the mesh class
-   policy, execution outside the image and anonymous executable memory are denied.
+   policy, execution outside the image and anonymous executable memory are denied, while
+   the initrd still reaches switch-root after activation.
 7. **Attestation** of mesh hosts (restricted area, after 1.0).
 
 ## 13. Benchmarks and provisional decisions
@@ -742,16 +768,18 @@ Found on the running system and in the repository (2026-09-14):
   `lockdown=` and `preempt=full`: all aligned to section 6 (P3; the boot matrix command
   line in P2).
 - **Sysctl and memory** (P3): `99-bore.conf` forces BBRv1 and CFS tunables that fail
-  under EEVDF; `99-azoth-sysfs.conf` enables KSM; the machine has no swap at all.
+  under EEVDF; `99-azoth-sysfs.conf` enables KSM; the machine has no swap at all;
+  `kernel.yama.ptrace_scope` is 0, and `oops=panic` sets `kernel.panic_on_oops=1` on the
+  desktop (D47, D19).
 - **Image content** (P3): `kernel-devel` and `kernel-headers` 6.18 from another vendor,
   `kernel-uki-virt` with addons unused by the boot path, `bcachefs-tools`, and
   `athanor-tetragon` are in the image.
 - **Units** (P3): `athanor-journal-seal.service` fails on every boot because Fedora's
   systemd lacks forward-secure sealing: the unit, `Seal=yes` in `99-immutable.conf` and
-  its preset line leave the image. `Containerfile` enables `tetragon` and `tpm-luks-seal`,
+  its preset line leave the image. `system/Containerfile` enables `tetragon` and `tpm-luks-seal`,
   and `preset-all` disables them again. Shipped disabled and reviewed in a dedicated
   session before P6: `athanor-gatekeeper-rs`, `athanor-daemon`, `athanor-secure-boot`,
-  `store-rs`, `lvfs-rs`, `backup`, `recovery`, the TPM rollback units and
+  `athanor-store-rs`, `athanor-lvfs-rs`, `athanor-backup`, `athanor-recovery`, the TPM rollback units and
   `tpm-luks-seal`; the Gatekeeper and attestation are restricted areas.
 - **Snapshots** (P3): `athanor-timewarp` targets bcachefs, which left mainline in Linux
   6.18, and misdetects `/var/home` as tmpfs; `athanor-backup-hourly` fails because
@@ -763,7 +791,7 @@ Found on the running system and in the repository (2026-09-14):
 - **Desktop** (P3): `cosmic-panel.service`, shipped by `athanor-system-services`, sets
   `MemoryHigh=1G` and `MemoryMax=1536M`, which kill the panel under normal use; the limits
   are removed in that package.
-- **Placeholder security code** (before any of these crates re-enters the package DAG):
+- **Placeholder security code** (before any of these crates re-enters the package DAG, and before the mesh delivery):
   `athanor-mesh-sync`, `athanor-cluster-mesh` and `athanor-mesh-bus` are workspace
   members excluded from the package DAG (`experimental/EXEMPT`); `athanor-mesh-sync`
   returns all-zero Kyber and Dilithium public keys while logging post-quantum key
@@ -794,13 +822,13 @@ previous gate is green.
 
 | Block | Content | Gate |
 | --- | --- | --- |
-| P0 | this specification | maintainer approval, with D48 decided |
-| S1 | spike, no time box, on Fedora 45 (beta, systemd 262): bootc sealed composefs with UKI against dm-verity with `systemd-sysupdate`, built and exercised in a VM with Secure Boot and swtpm; covers `/etc` (D39), boot counting, the confirmation of section 8, fallback, update and rollback, the manifest and the verification path, IPE coverage, signing and maintenance cost | a written comparison with measurements; D6 and D39 closed by the maintainer. Runs alongside P1–P4a; P4b waits for it |
+| P0 | this specification | maintainer approval |
+| S1 | spike, no time box, on Fedora 45 (beta, systemd 262 release candidate): bootc sealed composefs with UKI against dm-verity with `systemd-sysupdate`, built and exercised in a VM with Secure Boot and swtpm; covers `/etc` (D39), boot counting, the confirmation of section 8, fallback, update and rollback, the manifest and the verification path, IPE coverage, signing and maintenance cost | a written comparison with measurements; D6 and D39 closed by the maintainer. Runs alongside P1–P4a; P4b waits for it |
 | P1 | `profile.toml`, validator, `athanor-profile-check` covering settings already in force; later blocks extend it | acceptance with `profile-ok` |
 | P2 | kernel build profile (section 5) without the items marked P4b, P5 or P6; the boot matrix of section 12 item 2 without its P4b and P5 parts, with its command line aligned to section 6 | Kernel gate green |
-| P3 | `athanor-kernel-profile` base package, removal of old `kargs.d`, `99-bore.conf` and the kickstart command line, zram, NVIDIA configuration by detection, the clean-ups of section 14 marked P3 | acceptance `profile-ok` on the base profile |
+| P3 | `athanor-kernel-profile` base package, removal of old `kargs.d`, `99-bore.conf` and the kickstart command line, zram, the base sysctls of D47, NVIDIA configuration by detection, the clean-ups of section 14 marked P3 | acceptance `profile-ok` on the base profile |
 | P4a | rebase on Fedora 45, starting on the beta as soon as P3 is green (D25) | full DAG, image and acceptance green; the reinstall image waits for the final release |
-| P4b | the release 1.0 update chain on the mechanism chosen by S1: shim and systemd-boot installation and updates, UKIs with both profiles, verified images with the root hash signature verified by the kernel, boot counting, update manifests, full-image updates with confirmation before the new default, `/etc` per D39, generic minimal initramfs with `athanor-cpu-check`, installer checks (x86-64-v3, UEFI, shim authority), ESP or XBOOTLDR, integrity, PCR policy and update keys (generated offline by the maintainer), `DM_VERITY=y`, the IPE boot policy and its activation unit if dm-verity is chosen, LUKS per D42, IMA per D46 | section 12 item 5 green in a VM with Secure Boot and swtpm, without its P5 part |
+| P4b | the release 1.0 update chain on the mechanism chosen by S1: shim and systemd-boot installation and updates, UKIs with both profiles, verified images with the root hash signature verified by the kernel, boot counting, update manifests, full-image updates with confirmation before the new default, `/etc` per D39, generic minimal initramfs with `athanor-cpu-check`, installer checks (x86-64-v3, UEFI, shim authority), ESP or XBOOTLDR, integrity, PCR policy and update keys (generated offline by the maintainer), `DM_VERITY=y`, the IPE boot policy and its activation unit if dm-verity is chosen, LUKS per D42, IMA per D46 | section 12 item 2 parts marked P4b, the installer and `athanor-cpu-check` checks of item 3, and item 5 without its P5 part, green in a VM with Secure Boot and swtpm; waits for systemd 262 final in Fedora 45 updates (D25) |
 | P5 | roles and their addons per UKI, generator, composition and precedence, `athanor-role`, `IA32_EMULATION_DEFAULT_DISABLED` with the interactive addons | validator over every combination; section 12 items 2 and 5 parts marked P5; acceptance desktop and laptop |
 | P6 | with the dm-verity option: IPE desktop class enforced, the `user-modules` variant, firmware per D48, class-ordered policy versions, the one-way `enforce` patch (D44), the mesh class policy built and tested; with bootc: the module and firmware measures S1 decides. For both: the D20 gate and SELinux `DEVELOP`/`BOOTPARAM` off; SELinux `execmem` restrictions (D24); BPF token delegation, io_uring group, `athanor-sandbox` crate | section 12 items 3 (AVC) and 6 green, item 6 in the variant of the mechanism chosen by S1 |
 | P7 | benchmarks, AutoFDO, closing the provisional decisions | no decision left provisional; report |
@@ -811,7 +839,7 @@ and C, channels and gradual rollout (releases 1.1 and 1.2, section 8); the mesh
 specification (D27), then the mesh network, sync and backup with the two tiers of D38;
 later compute sharing and remote applications once their prerequisites (D28, D29) hold.
 
-After P5 is green in a VM: backup of `/var/home` and reinstallation of the maintainer's
+After P5 is green in a VM and the image is built on the Fedora 45 final release (D25): backup of `/var/home` and reinstallation of the maintainer's
 desktop on the new image.
 
 ## 16. Sources
