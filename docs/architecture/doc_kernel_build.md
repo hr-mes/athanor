@@ -587,5 +587,12 @@ l'implementazione scopre che un gancio Fedora non è come descritto.
    Primo caso: la patch BORE della serie 7.2 su `include/linux/sched.h` di
    cachyos-7.2.5-1, che ha aggiunto `struct task_ipi_mask` davanti a `struct
    task_struct`.
+6. (2026-09-14) Cache kmalloc partizionate in modalità casuale
+   (`KMALLOC_PARTITION_RANDOM`, la protezione di `RANDOM_KMALLOC_CACHES` in 7.1). Fedora
+   7.2 sceglie la modalità per tipo (`KMALLOC_PARTITION_TYPED`), più forte, che richiede i
+   token di allocazione del compilatore (`-falloc-token-max`); il clang di Fedora 43 non li
+   ha. `kernel-local` fissa la modalità casuale e `build.sh` si ferma quando il config
+   generato riporta `CC_HAS_ALLOC_TOKEN=y`, per passare alla modalità per tipo invece di
+   restare in silenzio sulla protezione più debole.
 
 | `bump.py`                | il bot di bump (sezione 8): pin nuovi da Bodhi, CachyOS, NVIDIA e registro; riscrive `pins.env`, i `FROM` e `KERNEL.md` |
