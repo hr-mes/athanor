@@ -46,13 +46,21 @@ Provisional decisions carry a default and are closed by the benchmark phase (sec
 | D8 | IPE is the single in-kernel enforcer for code integrity | upstream, compiled into the kernel, signed policies; a custom BPF LSM cannot see fs-verity through overlayfs on 7.1 | final |
 | D9 | Role content ships inside the signed image; the active role set is a signed UKI addon per role | confext passed through the stub is unmerged at switch-root; addons are verified by shim and measured into PCR 12 | final |
 | D10 | Composition follows NixOS semantics: type-based merge, conflict is a build error resolved only by explicit priority | explicit, no silent resolution, proven model | final |
-| D11 | On a desktop, the mesh node role runs inside a MicroVM; mesh-only machines apply the mesh policy on the host | IPE allows one active policy; mesh default-deny excludes JIT and user code | final |
+| D11 | On a desktop or laptop, the mesh node role runs inside a MicroVM; mesh-only machines apply the mesh policy on the host | IPE allows one active policy; mesh default-deny excludes JIT and user code | final |
 | D12 | The mesh node role requires attested mode | a node that keeps its key but runs altered code must not stay a node | final |
 | D13 | Preemption `full` | desktop latency | provisional |
 | D14 | `X86_64_VERSION=3` for the kernel | aligned with the baseline | provisional |
 | D15 | Swap on zram (zstd), zswap off | no double compression, no disk swap on LUKS | final; swappiness provisional |
 | D16 | IOMMU strict by default | DMA attacks through Thunderbolt/USB4 | provisional (throughput cost) |
 | D17 | Minimal initramfs, ESP of 2 GiB | today's UKI carries 102 MB of initramfs, mostly modules only needed after boot | final |
+| D18 | Laptop is an autonomous role; desktop and laptop share an `interactive` fragment of the manifest | a laptop without the desktop role keeps 32-bit, gaming and interactive settings, without duplicated definitions | final |
+| D19 | `kernel.warn_limit=100` on mesh nodes only, off on interactive roles; `kernel.oops_limit=100` everywhere | a noisy driver must not power off a desktop; a mesh node emitting repeated warnings must stop | final |
+| D20 | SELinux becomes non-disableable after zero AVC denials in Athanor domains; denials from Fedora packages are triaged and documented, and none may affect boot, login or security | a gate that does not depend on upstream policy bugs | final |
+| D21 | Role addons are built and signed in CI and shipped inside the image; every update reinstalls the addons of the active roles from the new image in the same sysupdate transaction as the UKI | roles and image can never diverge; no second distribution channel | final |
+| D22 | Hosting of the delta chunk store | chosen in P4b from measured delta sizes, chunk counts and expected traffic | open |
+| D23 | Desktop class: execution allowed in the home and measured by IMA; `noexec` on `/tmp`, `/var/tmp`, `/dev/shm`, `/run/user`, removable media and a dedicated btrfs subvolume bound to each user's `~/Downloads` | blocks the common attack paths (downloaded or temporary payloads) without breaking development tools, Claude Code or build outputs in the home | final |
+| D24 | SELinux denies `execmem` to system and Athanor service domains except those declared; user applications stay in `unconfined_t` as in Fedora | restricting user domains would break Electron, Java, .NET, Python ctypes and emulators, not only browsers | final |
+| D25 | The Fedora 45 rebase starts on the beta as soon as P3 is green; the image that reinstalls the maintainer's desktop is built only on the final release (target 2026-10-20) | problems surface early, production waits for a supported release | final |
 
 ## 3. Architecture overview
 
@@ -93,6 +101,13 @@ Four layers, one source of truth each:
   a command line from the boot loader and the UKI itself is not verified by firmware, so
   an attacker with physical access can replace them. `athanor-profile-check` reports the
   mode and the reasons; the mesh node role is refused.
+- In degraded mode the role addons are not verified either: shim verifies them only
+  under Secure Boot, so someone with physical access can add a forged addon such as
+  `athanor.role=mesh`. Roles are therefore *declared*, not *proven*, on a degraded
+  machine: `athanor-profile-check` reports them as declared, `athanor-role` never grants
+  anything on the strength of the command line alone, and no trust decision (mesh
+  admission, attestation, IPE policy class stronger than the one the machine actually
+  enforces) may rest on a role that is not backed by attested mode.
 - First boot starts degraded. A guided step imports the Secure Boot certificate
   (`mokutil --import`); the confirmation in MokManager is a human action by design. The
   next boot with Secure Boot on is attested.
@@ -111,8 +126,9 @@ build configuration, not on the command line.
 `DEBUG_VIRTUAL=y`, `DEBUG_SG=y`, `DEBUG_NOTIFIERS=y`, `ARCH_MMAP_RND_BITS=32`,
 `ARCH_MMAP_RND_COMPAT_BITS=16`, `PROC_MEM_FORCE_PTRACE=y`,
 `IOMMU_DEFAULT_DMA_STRICT=y` (D16), `IA32_EMULATION_DEFAULT_DISABLED=y` (the desktop
-role re-enables it), `SECURITY_SELINUX_DEVELOP` and `SECURITY_SELINUX_BOOTPARAM` off
-(gate: zero AVC denials in acceptance before they are switched off).
+and laptop roles re-enable it), `SECURITY_SELINUX_DEVELOP` and `SECURITY_SELINUX_BOOTPARAM`
+off (D20: zero AVC denials in Athanor domains in acceptance before they are switched off;
+denials from Fedora packages triaged and documented, none affecting boot, login or security).
 
 **Integrity:** `DM_VERITY=y` (built in, not a module), `SECURITY_IPE=y`,
 `IPE_BOOT_POLICY` set to the compiled boot policy (section 10),
@@ -154,7 +170,7 @@ measures code executed from the writable areas only.
 **sysctl (base, locked):** `kernel.yama.ptrace_scope=1`, `kernel.kptr_restrict=2`,
 `kernel.dmesg_restrict=1`, `dev.tty.ldisc_autoload=0`, `fs.protected_fifos=2`,
 `fs.protected_regular=2`, `fs.suid_dumpable=0`, `kernel.oops_limit=100`,
-`kernel.warn_limit=100`, `kernel.io_uring_disabled=1` with `kernel.io_uring_group` set to
+`kernel.io_uring_disabled=1` with `kernel.io_uring_group` set to
 the `athanor-io-uring` group, `net.core.default_qdisc=fq`. The TCP congestion control is
 not set, so the kernel default BBRv3 applies. `athanor-system-tweaks/.../99-bore.conf`
 is removed with its CFS tunables that no longer exist under EEVDF.
@@ -179,7 +195,11 @@ It is protected by dm-verity like the rest of `/usr` and updated atomically with
 `/loader/addons/athanor-role-<role>.addon.efi` exists. The addon carries
 `athanor.role=<role>` and the role's kernel parameters, has no `.uname` section so it
 survives kernel updates, is verified through shim, and is measured into PCR 12 together
-with the other command line fragments.
+with the other command line fragments. Addons are built and signed in CI and shipped
+inside the image as `/usr/lib/athanor/roles/<role>/athanor-role-<role>.addon.efi`,
+protected by dm-verity like the role content; `athanor-role` copies the addons of the
+chosen roles to the ESP, and every update reinstalls them from the new image (D21), so
+a role can never run with parameters from another image version.
 
 **Application.** The `athanor-roles` systemd generator reads `/proc/cmdline`
 (authenticated under Secure Boot) and links the role files into
@@ -194,17 +214,22 @@ definition carries an explicit higher priority; numeric sysctls may declare an o
 (`max`, `min`) when the direction is obvious. Base settings marked locked cannot be
 overridden. The validator evaluates every role combination and fails on any unresolved
 conflict. The effective profile of each combination is the input of the drift checker.
+Shared definitions live in manifest fragments that are not roles and cannot be
+activated alone: desktop and laptop both include the `interactive` fragment (32-bit
+emulation, autogroup, MGLRU `min_ttl_ms`, `ntsync`, `vm.max_map_count`,
+`split_lock_mitigate=0`, `kernel.warn_limit=0`), so the laptop stands alone without
+duplicating the desktop (D18).
 
 **Roles:**
 
 | Setting | Desktop | Laptop | Mesh node |
 | --- | --- | --- | --- |
-| addon parameters | `rhgb`, `ia32_emulation=1` | `rhgb` | KVM parameters for SEV-SNP/TDX hosts |
+| addon parameters | `rhgb`, `ia32_emulation=1` (interactive) | `rhgb`, `ia32_emulation=1` (interactive) | KVM parameters for SEV-SNP/TDX hosts |
 | scheduler | BORE; `scx_lavd` Gaming only on demand (`scxctl`) | `scx_lavd` PowerSave (provisional) | BORE |
 | autogroup | on | on | off (interactive roles take priority) |
 | power profile | `balanced` | `balanced` on AC, `power-saver` on battery | `performance` (priority over laptop) |
-| memory and sleep | MGLRU `min_ttl_ms=1000`, `vm.max_map_count` high, `ntsync` | MGLRU `min_ttl_ms=1000`, `MemorySleepMode=`, ASPM `powersupersave` via tmpfiles | network buffers, `netdev_max_backlog`, busy polling (provisional) |
-| other | `split_lock_mitigate=0`, SysRq emergency subset | Wi-Fi power saving | `sysrq=0`, `bpf_jit_harden=2`, attested mode required |
+| memory and sleep | MGLRU `min_ttl_ms=1000`, `vm.max_map_count` high, `ntsync` (interactive) | interactive settings, `MemorySleepMode=`, ASPM `powersupersave` via tmpfiles | network buffers, `netdev_max_backlog`, busy polling (provisional) |
+| other | `split_lock_mitigate=0`, `warn_limit=0` (interactive), SysRq emergency subset | interactive settings, Wi-Fi power saving | `sysrq=0`, `bpf_jit_harden=2`, `warn_limit=100` (D19), attested mode required |
 | IPE policy class | desktop (section 10) | desktop | mesh |
 
 **Mesh node on a desktop** (D11). The host keeps the desktop role; `athanor-role add mesh`
@@ -245,14 +270,18 @@ back to the previous UKI and slot.
 Transport with deltas (D7):
 
 1. The build publishes, per release, the `/usr` image chunked by `desync make` into an
-   HTTPS chunk store (a static object store; the choice is made with the P4b measurements),
+   HTTPS chunk store (its hosting is decision D22, taken in P4b from the measured delta sizes, chunk counts
+   and expected traffic),
    the index `.caibx`, and a manifest signed with the integrity key.
 2. `athanor-update-fetch` verifies manifest and index signatures, runs `desync extract`
    seeded from the running `/usr` slot and earlier downloads, and verifies the assembled
    image twice: SHA-256 against the signed manifest and `veritysetup verify` with the
    root hash signature.
 3. Only then `systemd-sysupdate` installs it from a local `regular-file` source (which
-   by itself performs no verification, hence step 2) into the inactive slot, with its UKI.
+   by itself performs no verification, hence step 2) into the inactive slot, with its UKI and the addons of the active roles taken from the
+   new image (D21). Verification and installation run in the same service over a staging
+   directory accessible only to root, so the verified image cannot be replaced before it
+   is written.
 4. If the chunk store is unreachable, `systemd-sysupdate` downloads the full image from
    its `url-file` source, authenticated by `SHA256SUMS.gpg`.
 
@@ -299,10 +328,12 @@ role policy fails to load stays under the boot policy and fails its health check
   `POLICY`; allowed only `dmverity_signature=TRUE` and `boot_verified=TRUE`. Containers run
   from signed dm-verity volumes. No JIT.
 - **Desktop class:** enforcement on `KMODULE`, `FIRMWARE`, `KEXEC_*`, `POLICY`;
-  `EXECUTE` allowed, because browsers and Mesa need JIT. Path restriction comes from
-  `noexec` mounts on every writable area except declared btrfs subvolumes (development,
-  Flatpak, `/nix`); `noexec` also blocks executable `mmap`. SELinux grants `execmem` only
-  to JIT domains (browsers, Mesa llvmpipe) with `auditallow`.
+  `EXECUTE` allowed, because browsers and Mesa need JIT. Code in the home runs
+  and is measured by IMA (D23). `noexec` covers the places where nothing legitimate is
+  executed: `/tmp`, `/var/tmp`, `/dev/shm`, `/run/user`, removable media, and a dedicated
+  btrfs subvolume bound to each user's `~/Downloads`; `noexec` also blocks executable
+  `mmap` there. SELinux denies `execmem` to system and Athanor service domains except those
+  declared; user applications stay in `unconfined_t` as in Fedora (D24).
 - **Rollout:** every policy runs in audit mode in acceptance and on the maintainer's
   machine before enforcement; enforcement is gated (P6).
 
@@ -379,11 +410,29 @@ hashes. A setting that costs too much is recorded as a decision, never silently 
   they are fixed with the reinstallation while COSMIC remains the temporary desktop.
 - `athanor-ebpf-sched` (contains an AI model contradicting `doc_kernel_layer.md`) is
   retired as a scheduler; `athanor-tetragon` leaves the image.
+- `ermete-base-config`, the package from before the rename, is still installed next to
+  `athanor-base-config` and duplicates files such as the `scx_loader` drop-in:
+  `athanor-base-config` declares `Obsoletes: ermete-base-config` (P3).
+- `athanor-journal-seal.service` fails on every boot because Fedora's systemd is built
+  without forward-secure sealing: the unit leaves the image (P3); tamper evidence for logs
+  is a separate decision.
+- `athanor-tpm-luks-seal.sh` has a syntax error (`|| {` after `fi`) and binds LUKS to
+  PCRs this profile rejects: it is replaced by the LUKS policy of section 9 (P4b).
+- `system/athanor-install.ks` still appends the obsolete kernel command line
+  (`iommu=pt`, `pti=on`, `zswap.enabled=1`, ...): it is removed with the command line
+  cleanup (P3).
+- The zero-trust services shipped disabled (`athanor-gatekeeper-rs`, `athanor-daemon`,
+  `athanor-secure-boot`, the TPM rollback units) are reviewed in a dedicated session;
+  the Gatekeeper and attestation are restricted areas.
+- The userland build flags in `forge/config/rpmmacros` include `-mlam=u48`, an
+  Intel-only feature, on an AMD-first baseline: reviewed with the Forge pipeline.
+- `MOK_PRIVATE_KEY` is deleted from the `signing` environment once a deployed system
+  loads `nvidia` signed by the module signing key (signing key rotation plan, task 9).
 
 ## 15. Implementation blocks
 
 A new "BLOCCO P" in `NEXT.md`; no block starts before the previous gate is green. Pull
-request #24 (signing key rotation) is merged before P2.
+request #24 (signing key rotation) was merged on 2026-09-14, which unblocks P2.
 
 | Block | Content | Gate |
 | --- | --- | --- |
@@ -391,10 +440,10 @@ request #24 (signing key rotation) is merged before P2.
 | P1 | `profile.toml`, validator, `athanor-profile-check` covering settings already in force; later blocks extend it | acceptance with `profile-ok` |
 | P2 | kernel build profile (section 5), boot matrix on Haswell with new assertions | Kernel gate green |
 | P3 | `athanor-kernel-profile` base package, removal of old `kargs.d` and `99-bore.conf`, zram, BORE defaults, retirements of section 14 | acceptance `profile-ok`, desktop role |
-| P4a | rebase on Fedora 45 (systemd 262) | full DAG, image and acceptance green |
+| P4a | rebase on Fedora 45 (systemd 262), starting on the beta as soon as P3 is green (D25) | full DAG, image and acceptance green; the reinstall image waits for the final release |
 | P4b | spike in a VM, then dm-verity images, systemd-boot, boot counting, sysupdate with desync deltas, integrity key (generated offline by the maintainer), minimal initramfs, ESP 2 GiB | in a VM with Secure Boot and swtpm: attested mode, fallback proven with a deliberately failing health check, update applied as a delta and verified, delta size measured on two consecutive images |
 | P5 | roles, addons, generator, composition and precedence, `athanor-role`, mesh in MicroVM on desktops | validator over every combination; acceptance desktop and desktop+mesh |
-| P6 | IPE policies in audit then enforce, `noexec` layout, SELinux JIT domains, BPF token delegation, io_uring group, `athanor-sandbox` crate | negative tests: unverified execution denied in the mesh class, module outside dm-verity refused |
+| P6 | IPE policies in audit then enforce, `noexec` layout (D23), SELinux `execmem` restrictions on system and Athanor domains (D24), BPF token delegation, io_uring group, `athanor-sandbox` crate | negative tests: unverified execution denied in the mesh class, execution from `/tmp` and `~/Downloads` denied in the desktop class, module outside dm-verity refused |
 | P7 | benchmarks, AutoFDO and Propeller, closing the provisional decisions | decision record closed, report |
 
 After P5 is green in a VM: backup of `/var/home` and reinstallation of the maintainer's
