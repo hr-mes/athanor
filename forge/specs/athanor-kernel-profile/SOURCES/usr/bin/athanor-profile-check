@@ -1,0 +1,125 @@
+#!/usr/bin/python3
+"""Checks the running system against the kernel profile of its role combination.
+
+Usage: athanor-profile-check [--root DIR] [--profiles DIR] [--quiet]
+
+The role combination comes from the athanor.role= parameters on /proc/cmdline; its
+effective profile is /usr/share/athanor/kernel-profile/<combination>.json, generated from
+profile.toml (docs/architecture/doc_kernel_profile.md, sections 3, 7 and 12). Block P1
+checks the kernel configuration (/proc/config.gz), sysctls (/proc/sys) and the runtime
+state under /sys/kernel/security. Exit status: 0 when every setting holds, 1 on drift, 2
+when the profile cannot be read.
+"""
+
+import argparse
+import gzip
+import json
+import pathlib
+import sys
+
+PROFILES = pathlib.Path("/usr/share/athanor/kernel-profile")
+
+
+def active_roles(root: pathlib.Path) -> list:
+    arguments = (root / "proc" / "cmdline").read_text().split()
+    return sorted({arg.split("=", 1)[1] for arg in arguments if arg.startswith("athanor.role=")})
+
+
+def combination_name(roles: list) -> str:
+    return "+".join(roles) if roles else "base"
+
+
+def kernel_config(root: pathlib.Path) -> dict:
+    """{CONFIG_X: value} from /proc/config.gz; an option that is not set reads as n."""
+    values = {}
+    with gzip.open(root / "proc" / "config.gz", "rt") as handle:
+        for line in handle:
+            line = line.strip()
+            if line.startswith("CONFIG_") and "=" in line:
+                name, value = line.split("=", 1)
+                values[name] = value
+            elif line.startswith("# CONFIG_") and line.endswith(" is not set"):
+                values[line[2 : -len(" is not set")]] = "n"
+    return values
+
+
+def sysctl(root: pathlib.Path, name: str):
+    path = root / "proc" / "sys" / name.replace(".", "/")
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return None
+
+
+def lockdown(root: pathlib.Path):
+    text = (root / "sys" / "kernel" / "security" / "lockdown").read_text()
+    for word in text.split():
+        if word.startswith("[") and word.endswith("]"):
+            return word[1:-1]
+    return None
+
+
+def lsm(root: pathlib.Path) -> list:
+    return (root / "sys" / "kernel" / "security" / "lsm").read_text().strip().split(",")
+
+
+RUNTIME = {"lockdown": lockdown, "lsm": lsm}
+
+
+def compare(root: pathlib.Path, settings: dict) -> list:
+    """[(key, expected, found)] for every setting that does not hold."""
+    drift = []
+    config = kernel_config(root) if settings.get("kconfig") else {}
+    for name, setting in sorted(settings.get("kconfig", {}).items()):
+        found = config.get(name, "n")
+        if found != setting["value"]:
+            drift.append((f"kconfig.{name}", setting["value"], found))
+    for name, setting in sorted(settings.get("sysctl", {}).items()):
+        found = sysctl(root, name)
+        if found != str(setting["value"]):
+            drift.append((f"sysctl.{name}", setting["value"], found))
+    for name, setting in sorted(settings.get("runtime", {}).items()):
+        expected = setting["value"]
+        reader = RUNTIME.get(name)
+        if reader is None:
+            drift.append((f"runtime.{name}", expected, "no reader for this setting"))
+            continue
+        try:
+            found = reader(root)
+        except OSError as error:
+            drift.append((f"runtime.{name}", expected, f"unreadable: {error.strerror}"))
+            continue
+        if isinstance(expected, list):
+            holds = isinstance(found, list) and set(expected) <= set(found)
+        else:
+            holds = found == expected
+        if not holds:
+            drift.append((f"runtime.{name}", expected, found))
+    return drift
+
+
+def main(argv: list | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--root", type=pathlib.Path, default=pathlib.Path("/"))
+    parser.add_argument("--profiles", type=pathlib.Path, default=PROFILES)
+    parser.add_argument("--quiet", action="store_true")
+    args = parser.parse_args(argv)
+
+    try:
+        name = combination_name(active_roles(args.root))
+        settings = json.loads((args.profiles / f"{name}.json").read_text())["settings"]
+        drift = compare(args.root, settings)
+    except (OSError, ValueError, KeyError) as error:
+        print(f"athanor-profile-check: cannot check the profile: {error}", file=sys.stderr)
+        return 2
+
+    total = sum(len(entries) for entries in settings.values())
+    if not args.quiet:
+        for key, expected, found in drift:
+            print(f"DRIFT {key}: expected {expected!r}, found {found!r}")
+        print(f"athanor-profile-check: {name}: {total - len(drift)}/{total} settings hold")
+    return 1 if drift else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
