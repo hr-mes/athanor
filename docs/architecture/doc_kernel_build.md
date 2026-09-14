@@ -33,7 +33,9 @@ Decisioni già prese con il maintainer:
 3. **Le ottimizzazioni sono opzioni di prima classe.** Ogni scelta è un'opzione
    Kconfig o una patch che upstream o CachyOS mantengono. Niente `sed` sui
    Makefile, niente `-Wno-error`, objtool acceso. Una patch che non si applica
-   fa fallire la build (`git apply` è senza fuzz), non viene "saltata".
+   fa fallire la build (`git apply` è senza fuzz), non viene "saltata". Una patch
+   di terzi che smette di entrare si rinfresca una volta, con revisione umana, e
+   la copia rinfrescata entra anch'essa senza fuzz (sezione 8).
 4. **I gate falliscono forte.** Config non onorato, patch non applicata, boot
    fallito, kmod NVIDIA che non compila: ognuno è un fallimento della PR di
    bump, con il messaggio esatto. Nessun `|| true`.
@@ -51,6 +53,7 @@ Directory `forge/specs/azoth/` dopo il blocco:
 | `SOURCES/sources.sha256` | hash del SRPM, del tarball CachyOS, delle patch singole; lo scrive `build.sh --stage manifest`                                                                                                                             |
 | `kernel-local`           | frammento di config, una riga di motivazione per opzione                                                                                                                            |
 | `patches.list`           | patch di `CachyOS/kernel-patches` da accodare dopo la base, in ordine                                                                                                               |
+| `patches/refreshed/`     | copie rinfrescate delle patch di `patches.list` che non entrano più senza fuzz, stesso percorso relativo; il preambolo registra commit e SHA-256 del file upstream da cui derivano (sezione 8) |
 | `patches/`               | patch di Athanor in formato git, applicate dopo `patches.list` in ordine di nome; il messaggio spiega il perché, e ogni patch è candidata all'upstream                            |
 | `patches/redhat/`        | patch di Athanor al codice che aggiunge solo la patch Red Hat: vanno soltanto sull'indice Fedora, non sull'albero CachyOS della derivazione del config, e non toccano Kconfig |
 | `fedora-wins.list`       | percorsi in cui un conflitto del merge tra base CachyOS e patch Red Hat si risolve con l'albero Fedora; ogni altro conflitto ferma la build                                        |
@@ -125,13 +128,16 @@ identica in locale. Passi, tutti senza rete tranne i download verificati:
    PGP del tarball CachyOS e di quello vanilla contro le chiavi vendorizzate,
    firma RPM del SRPM ricucito;
 2. scrive `~/.rpmmacros` con `%_topdir` e `%buildid .azoth`; `rpm -i` del SRPM;
-   `dnf builddep -y SPECS/kernel.spec` con gli stessi bcond di rpmbuild, subito,
-   perché la derivazione del config deve vedere la toolchain vera (rust-src,
-   bindgen, pahole: `RUST_IS_AVAILABLE` e le opzioni che ne dipendono);
+   `dnf builddep -y SPECS/kernel.spec` con gli stessi bcond di rpmbuild, dopo le
+   patch (passo 3) e prima della derivazione del config, che deve vedere la
+   toolchain vera (rust-src, bindgen, pahole: `RUST_IS_AVAILABLE` e le opzioni che
+   ne dipendono): una patch che non entra ferma prep in pochi secondi;
 3. genera `linux-kernel-test.patch`: repo git temporaneo con tre commit (vanilla,
    CachyOS, vanilla + patch Red Hat), `git merge-tree --write-tree` dei due rami
    sopra il vanilla, `patches.list`, `patches/` e `patches/redhat/` applicate
-   sull'indice, diff dal commit Fedora al risultato. `patches.list` e `patches/`
+   sull'indice (per ogni voce di `patches.list` la copia in `patches/refreshed/`
+   se esiste, rifiutata se registra un altro file upstream o se il file upstream
+   entra di nuovo senza fuzz), diff dal commit Fedora al risultato. `patches.list` e `patches/`
    vanno anche sull'albero CachyOS estratto, che serve al passo 4; `patches/redhat/`
    no, perché quell'albero non contiene il codice Red Hat;
 4. genera il `kernel-local` completo: il delta Athanor committato, più le opzioni
@@ -392,7 +398,7 @@ default; a mano con `workflow_dispatch` su qualunque branch), in tre job:
    è un prep rosso, mai un'accettazione silenziosa), patch applicate,
    derivazione del config e gate di `kernel-local`. L'esito e le opzioni
    derivate (`listnewconfig` con i valori CachyOS) vanno nel corpo della PR,
-   verde o rosso.
+   verde o rosso. Se prep si ferma con `refresh needed`, l'esito è `REFRESH`.
 3. **pr** (runner GitHub-hosted, con il PAT `KERNEL_BUMP_TOKEN`: le PR aperte
    con il `GITHUB_TOKEN` non fanno partire i check): branch `bump/kernel-<data>`,
    un commit con `pins.env`, i manifesti, i Containerfile e `KERNEL.md`, PR
@@ -407,6 +413,25 @@ in cui serve una persona, e sa già dove guardare. Al merge il push fa partire
 Kernel Build, che pubblica il kernel e alla fine avvia `nvidia-kmod.yml` per
 firma, boot e pubblicazione dei moduli. Il cambio di release Fedora della rootfs
 (43→44) e il cambio di `KERNEL_CHANNEL` restano PR umane.
+
+**Patch da rinfrescare** (decisione del maintainer, 2026-09-14). Una patch di
+`patches.list` che non entra più senza fuzz non si applica con tolleranza: la
+tolleranza indovina il punto e un bot che unisce da solo la porterebbe nel kernel
+senza che nessuno la guardi. Con esito `REFRESH` la PR ha il titolo che finisce con
+`(patch refresh needed)` e **non** ha l'auto-merge. Sul branch della PR, nel
+builder, `build.sh --stage refresh --out DIR` ricostruisce l'albero unito vero,
+applica ogni patch che non entra con GNU `patch --fuzz=2` come proposta, verifica
+che la copia proposta entri senza fuzz in entrambi gli alberi (indice Fedora e
+albero CachyOS) e la scrive in `DIR/refreshed/` con il resoconto di GNU patch. Una
+persona legge ogni hunk applicato con fuzz, copia il file in
+`forge/specs/azoth/patches/refreshed/` con lo stesso percorso di `patches.list`, fa
+il commit sul branch e, con il `Kernel gate` verde, fa il merge a mano. Il
+preambolo della copia registra il commit di `CachyOS/kernel-patches`, lo SHA-256
+del file upstream e i pin su cui è stata rinfrescata. La build rifiuta una copia
+che registra un altro file upstream (CachyOS ha cambiato la patch: si rinfresca di
+nuovo) e una copia diventata inutile (il file upstream entra di nuovo senza fuzz:
+si cancella). Se GNU patch non riesce nemmeno con fuzz, o se i due alberi
+richiedono copie diverse, `refresh` si ferma e la patch si rinfresca a mano.
 
 ## 9. Kernel guest per le MicroVM
 
@@ -555,5 +580,12 @@ l'implementazione scopre che un gancio Fedora non è come descritto.
    di Fedora e di CachyOS: il delta più corto da mantenere. ThinLTO tornerà quando
    upstream toglierà il vincolo; `RANDSTRUCT` resta escluso per costruzione.
 4. Debuginfo pubblicato come OCI separato, retention di due versioni.
+5. (2026-09-14) Patch di terzi: niente fuzz nella build, mai. Quando una patch di
+   `patches.list` smette di entrare si rinfresca una volta con `build.sh --stage
+   refresh`, una persona rivede gli hunk applicati con fuzz e la copia va in
+   `patches/refreshed/`; la PR di bump in quel caso non ha l'auto-merge (sezione 8).
+   Primo caso: la patch BORE della serie 7.2 su `include/linux/sched.h` di
+   cachyos-7.2.5-1, che ha aggiunto `struct task_ipi_mask` davanti a `struct
+   task_struct`.
 
 | `bump.py`                | il bot di bump (sezione 8): pin nuovi da Bodhi, CachyOS, NVIDIA e registro; riscrive `pins.env`, i `FROM` e `KERNEL.md` |
