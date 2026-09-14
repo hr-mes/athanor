@@ -23,7 +23,12 @@ re-verified at every kernel bump; it is not frozen.
   every gate fails loudly, the system maintains itself.
 - Hardware baseline: x86-64-v3 CPUs (the userland is already built for v3). The integrity
   chain (UEFI Secure Boot, TPM 2.0) is optional per machine, with a declared degraded mode.
-- Roles: desktop, laptop, mesh node; a machine may hold several.
+- Roles: desktop, laptop, mesh node; a machine may hold several. The mesh is personal:
+  it joins the devices of one owner (section 7).
+- Updates never force a reboot: only a change of the base image needs one, and the user
+  chooses when (section 8).
+- Designed for any x86-64-v3 machine: features are defined by capability tiers detected
+  at runtime, never by one hardware configuration.
 - Areas that require explicit maintainer approval before any code change remain so:
   the Gatekeeper (`forge/specs/athanor-gatekeeper-rs`), attestation
   (`system/confidential_computing/athanor-attestation`) and
@@ -61,6 +66,16 @@ Provisional decisions carry a default and are closed by the benchmark phase (sec
 | D23 | Desktop class: execution allowed in the home and measured by IMA; `noexec` on `/tmp`, `/var/tmp`, `/dev/shm`, `/run/user`, removable media and a dedicated btrfs subvolume bound to each user's `~/Downloads` | blocks the common attack paths (downloaded or temporary payloads) without breaking development tools, Claude Code or build outputs in the home | final |
 | D24 | SELinux denies `execmem` to system and Athanor service domains except those declared; user applications stay in `unconfined_t` as in Fedora | restricting user domains would break Electron, Java, .NET, Python ctypes and emulators, not only browsers | final |
 | D25 | The Fedora 45 rebase starts on the beta as soon as P3 is green; the image that reinstalls the maintainer's desktop is built only on the final release (target 2026-10-20) | problems surface early, production waits for a supported release | final |
+| D26 | The mesh is personal: its nodes are the devices of one owner. It provides a private network between them, synchronisation and backup, compute sharing and remote applications; it is not an update channel | the purposes the maintainer set; updates keep one signed source and one verification path | final |
+| D27 | The mesh subsystem has its own specification, a rewrite of `doc_cloud_mesh.md`; this profile holds only its kernel and platform requirements | protocol, identity, discovery and scheduling are not kernel decisions | final |
+| D28 | Compute sharing by capability tiers: CPU workloads in MicroVMs on every node; GPU inference through a signed host service; a GPU inside a guest only with SR-IOV, a second GPU in its own IOMMU group, or virtio-gpu Venus for Linux guests | works on any machine; extra hardware unlocks more without a different design | final |
+| D29 | Remote applications are a capability of interactive hosts, by tiers: a session on a virtual output with hardware encoding as the base, applications of a Windows VM forwarded one by one, a 3D-accelerated VM only where the hardware allows; the local session is never closed | usable across GPU vendors; the owner keeps working locally while another device connects | final |
+| D30 | Updates ship as a base A/B image plus signed system extension layers; only a base change needs a reboot | most changes land in a layer and apply without rebooting | final |
+| D31 | Update classes: A applications, applied with no interruption; B service layers, applied by stopping, refreshing and restarting their units; C the desktop layer, applied at the end of the session or at a soft reboot the user chooses; D the base, applied at a full reboot the user chooses and never forced; mesh-only nodes reboot in a maintenance window set by the owner | no forced reboots; each change costs only the interruption it needs | final |
+| D32 | A layer is trusted only when the kernel verifies its signature: explicit image policy `root=signed+absent:usr=signed+absent`, `systemd.allow_userspace_verity=0`, no directory extensions | systemd's default image policy accepts unsigned images, and IPE sees `dmverity_signature=TRUE` only for signatures the kernel verified | final |
+| D33 | Channels stable and beta; a release is promoted from beta to stable as the same signed artefacts | stable runs, bit for bit, what beta tested | final |
+| D34 | Gradual rollout without telemetry: each machine derives its rollout day locally, a signed stop manifest halts a release, security releases skip the window | nothing leaves the machine, and a bad release can still be stopped | final |
+| D35 | Rollback keeps the previous base slot and the previous version of every layer | a failure returns to a known base and layer pair, never to a mix | final |
 
 ## 3. Architecture overview
 
@@ -73,6 +88,7 @@ firmware (Microsoft UEFI CA)
                  ├─ /loader/addons/athanor-role-<r>.addon.efi   signed: Secure Boot key → PCR 12
                  └─ kernel (Azoth, IPE boot policy, integrity certificate compiled in)
                       └─ /usr: dm-verity, root hash signed with the integrity key
+                           ├─ /var/lib/extensions/<layer>.raw  system extension layers, verity signed with the integrity key
                            ├─ /usr/lib/athanor/roles/<r>/     role content
                            └─ athanor-roles generator → /run/{sysctl.d,modprobe.d,tmpfiles.d,systemd}
 / , /var, /home: btrfs on LUKS (TPM: PCR 7 + signed PCR 11 + PCR 14; passphrase otherwise)
@@ -232,6 +248,29 @@ duplicating the desktop (D18).
 | other | `split_lock_mitigate=0`, `warn_limit=0` (interactive), SysRq emergency subset | interactive settings, Wi-Fi power saving | `sysrq=0`, `bpf_jit_harden=2`, `warn_limit=100` (D19), attested mode required |
 | IPE policy class | desktop (section 10) | desktop | mesh |
 
+**Purpose of the mesh** (D26). The mesh joins the devices of one owner and provides:
+
+- a private network between them over WireGuard, admitting only attested nodes (D12);
+- synchronisation and backup of the owner's data between nodes;
+- compute sharing by capability tier (D28): any node runs CPU workloads of another in a
+  MicroVM; a node with a suitable GPU offers inference through a signed host service; a
+  GPU is given to a guest only with SR-IOV, a second GPU in its own IOMMU group, or
+  virtio-gpu Venus for Linux guests;
+- remote applications from interactive hosts (D29): the host exports a session on a
+  virtual output encoded by the GPU, applications of a Windows VM are forwarded one by
+  one, and a 3D-accelerated VM is offered only where the hardware allows. The local
+  session stays open. The compositor must provide virtual outputs and zero-copy hardware
+  encoding.
+
+Tiers are detected at runtime and reported by each node. The mesh never distributes
+updates (section 8). Protocol, identity, discovery and scheduling belong to the mesh
+specification (D27).
+
+**Platform requirements of the mesh**, enabled in the kernel today and asserted by the
+boot matrix from P2: WireGuard, KVM (AMD and Intel), vhost-vsock, virtio-fs,
+virtio-gpu with `udmabuf`, VFIO for the optional GPU tier, and the TPM and attestation
+chain of section 9.
+
 **Mesh node on a desktop** (D11). The host keeps the desktop role; `athanor-role add mesh`
 on a machine that also holds desktop or laptop provisions a MicroVM running the Azoth
 guest kernel (`forge/specs/azoth/microvm`) with the mesh policy. On hosts with SEV-SNP or
@@ -285,9 +324,47 @@ Transport with deltas (D7):
 4. If the chunk store is unreachable, `systemd-sysupdate` downloads the full image from
    its `url-file` source, authenticated by `SHA256SUMS.gpg`.
 
-**Prerequisite.** systemd ≥ 261 (`systemd-sysupdate` out of experimental,
-`RestrictFileSystemAccess=`): Fedora 45 ships systemd 262. Rebasing from Fedora 43 is
-block P4a.
+**Layers** (D30, D32). Next to the base, each release publishes system extension images
+(DDIs whose verity signature partition is signed with the integrity key): service layers,
+which group Athanor daemons with the units they declare, and the desktop layer.
+`systemd-sysupdate` installs them into `/var/lib/extensions` over the same delta
+transport. The host image policy is explicit, `root=signed+absent:usr=signed+absent`;
+the base command line carries `systemd.allow_userspace_verity=0`, so only signatures
+verified by the kernel count; directory extensions are refused. The base `os-release`
+carries `SYSEXT_LEVEL`, every layer declares the level it was built for, and
+`athanor-profile-check` reports a layer skipped for a mismatch, which systemd itself
+skips silently. Layers are measured into a verity NvPCR and enter attestation.
+
+**Applying an update** (D31). Download and verification run in the background; applying
+depends on the class:
+
+| Class | Content | Applied |
+| --- | --- | --- |
+| A | applications (Flatpak) | by Flatpak, with no interruption |
+| B | service layers | `athanor-layer-apply` stops the units listed in the layer's `EXTENSION_RESTART_UNITS=`, runs `systemd-sysext refresh`, then starts them: the refresh is not atomic, so no unit of the layer runs across it |
+| C | desktop layer | at the end of the user session, or at a soft reboot the user chooses |
+| D | base image, kernel, UKI, role addons | at a full reboot the user chooses, never forced; mesh-only nodes reboot in a maintenance window set by the owner |
+
+A soft reboot cannot switch the `/usr` slot (the running `usrhash=` and PCR 11 would be
+stale), so class D is always a full reboot. The update interface talks to
+`systemd-sysupdated` over Varlink and shows, for every pending update, its class and
+whether it needs a reboot.
+
+**Channels and rollout** (D33, D34). Two channels, stable and beta, each a signed
+manifest of base and layer versions. A release enters beta and is promoted to stable as
+the same signed artefacts. On stable, each machine computes its rollout day from an
+application-specific identifier derived from `machine-id` and the release version,
+within the rollout window; nothing is reported to a server. A signed stop manifest halts
+a release on the machines that have not installed it; releases marked as security fixes
+skip the window.
+
+**Rollback** (D35). The inactive slot keeps the previous base and sysupdate keeps the
+previous version of every layer (`InstancesMax=2`). A fallback boot activates the layer
+versions that belong to the base it boots, never the newer layers.
+
+**Prerequisite.** systemd ≥ 262: `systemd-sysupdate` out of experimental and
+`RestrictFileSystemAccess=` (261), `EXTENSION_RESTART_UNITS=` and the verity NvPCR (262).
+Fedora 45 ships systemd 262. Rebasing from Fedora 43 is block P4a.
 
 ## 9. Keys, measurements and attestation
 
@@ -295,7 +372,7 @@ block P4a.
 | --- | --- | --- |
 | Secure Boot (`SECUREBOOT_SIGNING_KEY`) | systemd-boot, UKIs, role addons, PCR 11 policy | shim via MokList |
 | Module signing (`MODULE_SIGNING_KEY`) | external kernel modules (NVIDIA) | kernel, compiled-in certificate |
-| Integrity (new) | `/usr` verity root hashes, IPE policies, update manifests and indices | kernel, compiled-in certificate |
+| Integrity (new) | `/usr` verity root hashes, system extension layers, IPE policies, update manifests and indices, channel and stop manifests | kernel, compiled-in certificate |
 
 The integrity key signs both root hashes and IPE policies because both decide which code
 may run. Revocation: the SBAT generation in UKIs and addons (`athanor,N`,
@@ -304,7 +381,8 @@ compiled-in certificates; MokListX covers the Secure Boot key.
 
 **Measurements:** PCR 7 (Secure Boot state and certificates), PCR 11 (UKI sections,
 including `usrhash=`), PCR 12 (command line and role addons), PCR 14 (shim MOK state),
-PCR 15 (machine identity, LUKS), IMA log (code executed from writable areas).
+PCR 15 (machine identity, LUKS), the verity NvPCR (system extension layers), IMA log
+(code executed from writable areas).
 
 **LUKS:** TPM 2.0 policy on PCR 7, the signed PCR 11 policy and PCR 14; never PCR 12, so
 role changes do not require resealing. A recovery key is always enrolled; without a TPM,
@@ -325,8 +403,9 @@ early in boot, before any unit that executes code from a writable area; a machin
 role policy fails to load stays under the boot policy and fails its health check.
 
 - **Mesh class:** `DEFAULT action=DENY` for `EXECUTE`, `KMODULE`, `FIRMWARE`, `KEXEC_*`,
-  `POLICY`; allowed only `dmverity_signature=TRUE` and `boot_verified=TRUE`. Containers run
-  from signed dm-verity volumes. No JIT.
+  `POLICY`; allowed only `dmverity_signature=TRUE` and `boot_verified=TRUE`. Workloads of
+  other nodes run in MicroVMs (D28); host services run from signed dm-verity volumes.
+  No JIT.
 - **Desktop class:** enforcement on `KMODULE`, `FIRMWARE`, `KEXEC_*`, `POLICY`;
   `EXECUTE` allowed, because browsers and Mesa need JIT. Code in the home runs
   and is measured by IMA (D23). `noexec` covers the places where nothing legitimate is
@@ -389,7 +468,12 @@ comes from pstore archived by `systemd-pstore`, the persistent journal and
 4. **On the machine:** `athanor-profile-check` gates `boot-complete.target` and checks
    `/proc/config.gz`, `/proc/cmdline`, sysctls, `scx_loader` state, integrity mode, and
    that the roles applied under `/run` match the role addons in the PCR 12 event log.
-5. **Attestation** of mesh nodes (restricted area).
+5. **Updates** (P4c, in a VM with Secure Boot and swtpm): an unsigned layer and a layer
+   verified only in userspace are refused; a layer with a mismatching `SYSEXT_LEVEL` is
+   reported; class B applies without a reboot and restarts only the units it declares;
+   class D never reboots by itself; a stop manifest halts the rollout; a fallback boot
+   returns base and layers to the previous pair.
+6. **Attestation** of mesh nodes (restricted area).
 
 ## 13. Benchmarks and provisional decisions
 
@@ -442,9 +526,12 @@ request #24 (signing key rotation) was merged on 2026-09-14, which unblocks P2.
 | P3 | `athanor-kernel-profile` base package, removal of old `kargs.d` and `99-bore.conf`, zram, BORE defaults, retirements of section 14 | acceptance `profile-ok`, desktop role |
 | P4a | rebase on Fedora 45 (systemd 262), starting on the beta as soon as P3 is green (D25) | full DAG, image and acceptance green; the reinstall image waits for the final release |
 | P4b | spike in a VM, then dm-verity images, systemd-boot, boot counting, sysupdate with desync deltas, integrity key (generated offline by the maintainer), minimal initramfs, ESP 2 GiB | in a VM with Secure Boot and swtpm: attested mode, fallback proven with a deliberately failing health check, update applied as a delta and verified, delta size measured on two consecutive images |
+| P4c | system extension layers, update classes and `athanor-layer-apply`, channels, rollout and stop manifest, update interface on Varlink | the update tests of section 12, item 5 |
 | P5 | roles, addons, generator, composition and precedence, `athanor-role`, mesh in MicroVM on desktops | validator over every combination; acceptance desktop and desktop+mesh |
 | P6 | IPE policies in audit then enforce, `noexec` layout (D23), SELinux `execmem` restrictions on system and Athanor domains (D24), BPF token delegation, io_uring group, `athanor-sandbox` crate | negative tests: unverified execution denied in the mesh class, execution from `/tmp` and `~/Downloads` denied in the desktop class, module outside dm-verity refused |
 | P7 | benchmarks, AutoFDO and Propeller, closing the provisional decisions | decision record closed, report |
+
+The mesh specification (D27) is written and approved before the mesh part of P5.
 
 After P5 is green in a VM: backup of `/var/home` and reinstallation of the maintainer's
 desktop on the new image.
