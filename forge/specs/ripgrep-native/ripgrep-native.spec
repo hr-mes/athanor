@@ -1,12 +1,12 @@
 %global debug_package %{nil}
 
 Name:           ripgrep-native
-Version:        14.1.1
+Version:        15.2.0
 Release:        1%{?dist}
 Summary:        Assimilated Fast Line-Oriented Search Tool built natively from source for Ermete OS
 License:        Unlicense OR MIT
 URL:            https://github.com/BurntSushi/ripgrep
-Source0:        ripgrep-14.1.1.tar.gz
+Source0:        ripgrep-15.2.0.tar.gz
 
 
 Provides:       ripgrep = %{version}-%{release}

@@ -1,11 +1,11 @@
 Name:           sccache
-Version:        0.9.1
+Version:        0.18.0
 Release:        1%{?dist}
 Summary:        Ermete OS Core Component - sccache
 
 License:        GPLv3
-URL:            https://github.com/hr-mes/ermete-os
-Source0:        sccache-0.9.1.tar.gz
+URL:            https://github.com/mozilla/sccache
+Source0:        sccache-0.18.0.tar.gz
 
 %description
 Core component implementation for sccache.
