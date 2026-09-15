@@ -7,14 +7,14 @@
 
 # schbench is not in the Fedora repos: from source at the pinned commit, in a separate
 # stage so that gcc stays out of the image.
-FROM registry.fedoraproject.org/fedora:43@sha256:9e11dca4f23cf69e420f0b006f4f65507ed7e3061f4f214bb8a9611b230ae4d7 AS schbench
+FROM registry.fedoraproject.org/fedora:43@sha256:bd5576db3197e265cdfb278db6d7de53c250ba9edde7be61c6088ce235cd6cce AS schbench
 ARG SCHBENCH_COMMIT=24e32b8ef67cbafb0761aed68747d90a291767ae
 RUN dnf -y install gcc make tar \
     && curl -fsSL "https://github.com/masoncl/schbench/archive/${SCHBENCH_COMMIT}.tar.gz" | tar -xz -C /tmp --no-same-owner \
     && make -C "/tmp/schbench-${SCHBENCH_COMMIT}" \
     && install -m 755 "/tmp/schbench-${SCHBENCH_COMMIT}/schbench" /usr/local/bin/schbench
 
-FROM registry.fedoraproject.org/fedora:43@sha256:9e11dca4f23cf69e420f0b006f4f65507ed7e3061f4f214bb8a9611b230ae4d7
+FROM registry.fedoraproject.org/fedora:43@sha256:bd5576db3197e265cdfb278db6d7de53c250ba9edde7be61c6088ce235cd6cce
 
 RUN printf 'install_weak_deps=False\nkeepcache=False\n' >> /etc/dnf/dnf.conf
 
