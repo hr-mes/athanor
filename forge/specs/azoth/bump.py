@@ -11,7 +11,7 @@ on both sides. KERNEL_CHANNEL=stable takes the newest common series, lts the lon
 one. Without a pair the kernel stays where it is and a note says so. With the pair, the
 head commit of CachyOS/kernel-patches for the series and the commit of
 linux-cachyos/config in force at the date of the CachyOS release move as well.
-Outside the kernel: the NVIDIA tags (open on GitHub, legacy from the download index)
+Outside the kernel: the NVIDIA versions (open from the GitHub tags, legacy from RPM Fusion)
 within the pinned branch, and the digest of the base image of the Containerfiles. The
 hash manifests are not here: `build.sh --stage manifest` and `nvidia.sh manifest` write
 them. Standard library only: it runs on the GitHub runner without installing anything.
@@ -33,12 +33,12 @@ PINS = HERE / "pins.env"
 CONTAINERFILES = [HERE / d / "Containerfile" for d in ("builder", "boot", "nvidia")] + [HERE.parents[2] / "system" / "Containerfile"]
 NVIDIA_LOCK = HERE.parents[2] / "system" / "nvidia" / "lock.py"
 LOCK_NOT_PUBLISHED = 3  # lock.py's exit code for a version the repository does not publish
+LOCK_STALE = 4  # lock.py verify: the repository publishes the version with other files or checksums
 KERNEL_MD = HERE / "KERNEL.md"
 FEDORA_RELEASES = ("F43", "F44")  # in order of preference for the same patch level
 LTS_SERIES = "6.18"  # KERNEL_CHANNEL=lts: the longterm Fedora and CachyOS maintain
 KERNEL_RELEASES = "https://www.kernel.org/releases.json"
 BODHI = "https://bodhi.fedoraproject.org/updates/"
-NVIDIA_INDEX = "https://download.nvidia.com/XFree86/Linux-x86_64/"
 NVR_RE = re.compile(r"^kernel-(\d+\.\d+\.\d+)-(\d+)\.fc(\d+)$")
 CACHY_TAG_RE = re.compile(r"^cachyos-(\d+\.\d+\.\d+)-(\d+)$")
 FROM_RE = re.compile(r"^FROM (\S+?):(\S+?)@(sha256:[0-9a-f]{64})(?: AS \S+)?$", re.M)
@@ -198,10 +198,9 @@ def nvidia_open(current):
 
 
 def nvidia_legacy(current):
-    """The highest version of the pinned branch in NVIDIA's download index."""
-    major = current.split(".")[0]
-    index = http(NVIDIA_INDEX)[1].decode()
-    return max(re.findall(rf"href='({major}\.\d+(?:\.\d+)?)/'", index), key=vtuple)
+    """The highest version of the pinned (major) branch that RPM Fusion publishes: the image
+    installs its packages, so NVIDIA's download index is not the source."""
+    return lock_py("latest", "legacy", "--major", current.split(".")[0]).stdout.strip()
 
 
 def lock_py(*args, allowed=(0,)):
@@ -217,12 +216,37 @@ def lock_check(branch, version):
     return lock_py("check", branch, "--version", version, allowed=(0, LOCK_NOT_PUBLISHED)).returncode == 0
 
 
+def lock_verify(branch, version):
+    """"ok", "stale" (the repository publishes version with other files or checksums) or "gone"."""
+    code = lock_py("verify", branch, "--version", version, allowed=(0, LOCK_NOT_PUBLISHED, LOCK_STALE)).returncode
+    return {0: "ok", LOCK_NOT_PUBLISHED: "gone", LOCK_STALE: "stale"}[code]
+
+
 def packaged_or_current(branch, candidate, current, notes, check=lock_check):
     """The candidate NVIDIA version if its driver packages exist (doc_system_image.md, S7), else the current pin."""
     if candidate == current or check(branch, candidate):
         return candidate
     notes.append(f"NVIDIA {branch} {candidate} is tagged upstream but its driver packages are not published yet: the pin stays at {current}")
     return current
+
+
+def nvidia_version(branch, candidate, current, notes, check=lock_check, verify=lock_verify):
+    """(version, regenerate the lock) for one NVIDIA branch (doc_system_image.md, S7).
+
+    A newer candidate the repository packages moves the pin. Otherwise the current lock is
+    verified against the repository metadata on every run: a new release or new checksums
+    of the same version regenerate it, and a version the repository dropped with nothing
+    newer to move to stops the bot, because every image build would fail on that lock."""
+    if vtuple(candidate) > vtuple(current):
+        version = packaged_or_current(branch, candidate, current, notes, check)
+        if version != current:
+            return version, True
+    state = verify(branch, current)
+    if state == "gone":
+        sys.exit(f"NVIDIA {branch} {current}: the repository no longer publishes it and has no newer packaged version (candidate {candidate})")
+    if state == "stale":
+        notes.append(f"NVIDIA {branch} {current}: the repository republished the locked packages, the lock is regenerated")
+    return current, state == "stale"
 
 
 def image_digest(image, tag):
@@ -253,7 +277,7 @@ def base_images():
 
 def compute():
     pins = read_pins()
-    new, notes = {}, []
+    new, notes, locks = {}, [], {}
     pair = kernel_pair(pins, notes)
     if pair:
         version, nvr, tag, published = pair
@@ -279,26 +303,28 @@ def compute():
             f"moves off it (maintained: {', '.join(sorted(maintained, key=vtuple))}; "
             f"{'; '.join(notes) or 'no notes'})"
         )
-    open_version, open_commit = nvidia_open(pins["NVIDIA_OPEN_VERSION"])
-    open_version = packaged_or_current("open", open_version, pins["NVIDIA_OPEN_VERSION"], notes)
+    open_tag, open_commit = nvidia_open(pins["NVIDIA_OPEN_VERSION"])
+    open_version, regenerate = nvidia_version("open", open_tag, pins["NVIDIA_OPEN_VERSION"], notes)
     if open_version != pins["NVIDIA_OPEN_VERSION"]:
-        new["NVIDIA_OPEN_VERSION"], new["NVIDIA_OPEN_COMMIT"] = (
-            open_version,
-            open_commit,
-        )
-    legacy_version = packaged_or_current("legacy", nvidia_legacy(pins["NVIDIA_LEGACY_VERSION"]), pins["NVIDIA_LEGACY_VERSION"], notes)
+        new["NVIDIA_OPEN_VERSION"], new["NVIDIA_OPEN_COMMIT"] = open_version, open_commit
+    if regenerate:
+        locks["open"] = open_version
+    legacy_version, regenerate = nvidia_version("legacy", nvidia_legacy(pins["NVIDIA_LEGACY_VERSION"]), pins["NVIDIA_LEGACY_VERSION"], notes)
     if legacy_version != pins["NVIDIA_LEGACY_VERSION"]:
         new["NVIDIA_LEGACY_VERSION"] = legacy_version
+    if regenerate:
+        locks["legacy"] = legacy_version
     images = {}
     for ref, pinned in base_images().items():
         digest = image_digest(*ref.rsplit(":", 1))
         if digest != pinned:
             images[ref] = {"old": pinned, "new": digest}
     return {
-        "changed": bool(new or images),
+        "changed": bool(new or images or locks),
         "pins": pins,
         "new": new,
         "images": images,
+        "locks": locks,
         "notes": notes,
     }
 
@@ -322,11 +348,8 @@ def apply(result):
                 f"FROM {ref}@{change['old']}", f"FROM {ref}@{change['new']}"
             )
         cf.write_text(content, newline="\n")
-    for key, branch in (("NVIDIA_OPEN_VERSION", "open"), ("NVIDIA_LEGACY_VERSION", "legacy")):
-        if key in result["new"]:
-            done = subprocess.run([sys.executable, "-B", str(NVIDIA_LOCK), "generate", branch, "--version", result["new"][key]])
-            if done.returncode != 0:
-                sys.exit(f"lock.py generate {branch} {result['new'][key]} failed")
+    for branch, version in result["locks"].items():
+        lock_py("generate", branch, "--version", version)
     md, n = re.subn(
         r"<!-- pins:begin.*?<!-- pins:end -->",
         lambda _: pins_table(read_pins()),
@@ -346,6 +369,10 @@ def body(result):
     lines += [
         f"| `{ref}` | `{c['old'][7:19]}` | `{c['new'][7:19]}` |"
         for ref, c in result["images"].items()
+    ]
+    lines += [
+        f"| `system/nvidia/locks/{branch}.lock` | | regenerated at `{version}` |"
+        for branch, version in result["locks"].items()
     ]
     if result["notes"]:
         lines += ["", "## Notes", ""] + [f"- {n}" for n in result["notes"]]

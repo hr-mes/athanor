@@ -354,5 +354,87 @@ class Repomd(unittest.TestCase):
         self.assertIn("connection reset", err.getvalue())
 
 
+LEGACY = lock.BRANCHES["legacy"]["baseurl"]
+REPOMD = b'<repomd xmlns="http://linux.duke.edu/metadata/repo"><data type="primary"><location href="repodata/p.xml.gz"/></data></repomd>'
+
+
+def legacy_repo(*packages):
+    """A download function serving RPM Fusion metadata that lists `packages`."""
+    files = {LEGACY + "repodata/repomd.xml": REPOMD, LEGACY + "repodata/p.xml.gz": gzip.compress(primary(*packages))}
+    return lambda url: files[url]
+
+
+def legacy_family(version, release, sha):
+    return [package(n, 3, version, f"{release}.fc43", "x86_64", f"x/{n}-{version}-{release}.rpm", sha) for n in lock.BRANCHES["legacy"]["packages"]]
+
+
+def run(argv, download):
+    err = io.StringIO()
+    out = io.StringIO()
+    with redirect_stderr(err), redirect_stdout(out):
+        code = lock.main(argv, download=download)
+    return code, out.getvalue(), err.getvalue()
+
+
+class Latest(unittest.TestCase):
+    def test_newest_version_of_the_primary_package_in_the_major(self):
+        download = legacy_repo(
+            *legacy_family("580.178.04", 1, "a" * 64),
+            package("xorg-x11-drv-nvidia", 3, "580.190.01", "1.fc43", "x86_64", "x/new.rpm", "b" * 64),
+            package("xorg-x11-drv-nvidia", 3, "590.44.01", "1.fc43", "x86_64", "x/next.rpm", "c" * 64),
+            package("nvidia-settings", 3, "580.200.01", "1.fc43", "x86_64", "x/other.rpm", "d" * 64),
+        )
+        code, out, _ = run(["latest", "legacy", "--major", "580"], download)
+        self.assertEqual((code, out), (0, "580.190.01\n"))
+
+    def test_no_version_in_the_major_is_not_published(self):
+        download = legacy_repo(package("xorg-x11-drv-nvidia", 3, "590.44.01", "1.fc43", "x86_64", "x/next.rpm", "c" * 64))
+        code, _, err = run(["latest", "legacy", "--major", "580"], download)
+        self.assertEqual(code, lock.NOT_PUBLISHED)
+        self.assertIn("580", err)
+
+    def test_latest_needs_major(self):
+        code, _, err = run(["latest", "legacy"], legacy_repo())
+        self.assertEqual(code, 1)
+        self.assertIn("--major", err)
+
+
+class Verify(unittest.TestCase):
+    def verify(self, download, version="580.178.04"):
+        with tempfile.TemporaryDirectory() as d:
+            entries = [(e["sha256"], LEGACY + e["href"]) for e in lock.select(primary(*legacy_family("580.178.04", 1, "a" * 64)), lock.BRANCHES["legacy"]["packages"], "580.178.04")]
+            lock.write_lock(pathlib.Path(d) / "legacy.lock", "legacy", "580.178.04", LEGACY, entries)
+            return run(["verify", "legacy", "--version", version, "--locks", d], download)
+
+    def test_lock_matching_the_metadata(self):
+        code, _, _ = self.verify(legacy_repo(*legacy_family("580.178.04", 1, "a" * 64)))
+        self.assertEqual(code, 0)
+
+    def test_new_release_of_the_same_version_is_stale(self):
+        code, _, err = self.verify(legacy_repo(*legacy_family("580.178.04", 2, "a" * 64)))
+        self.assertEqual(code, lock.STALE)
+        self.assertEqual(lock.STALE, 4)
+        self.assertIn("580.178.04-2", err)
+
+    def test_new_checksum_is_stale(self):
+        code, _, _ = self.verify(legacy_repo(*legacy_family("580.178.04", 1, "e" * 64)))
+        self.assertEqual(code, lock.STALE)
+
+    def test_version_gone_is_not_published(self):
+        code, _, _ = self.verify(legacy_repo(*legacy_family("580.190.01", 1, "a" * 64)))
+        self.assertEqual(code, lock.NOT_PUBLISHED)
+
+    def test_lock_at_another_version_than_requested_is_an_error(self):
+        code, _, err = self.verify(legacy_repo(*legacy_family("580.178.04", 1, "a" * 64)), version="580.190.01")
+        self.assertEqual(code, 1)
+        self.assertIn("580.190.01", err)
+
+    def test_network_error_is_an_error(self):
+        def download(url):
+            raise OSError("connection reset")
+        code, _, _ = self.verify(download)
+        self.assertEqual(code, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
