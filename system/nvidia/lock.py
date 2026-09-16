@@ -14,6 +14,7 @@ covers what the unsigned repository metadata of negativo17 cannot.
 """
 
 import argparse
+import functools
 import gzip
 import hashlib
 import pathlib
@@ -34,6 +35,8 @@ BRANCHES = {
             "nvidia-driver", "nvidia-driver-common", "nvidia-driver-cuda", "nvidia-driver-cuda-libs",
             "nvidia-driver-libs", "nvidia-kmod-common", "nvidia-modprobe", "nvidia-persistenced",
         ],
+        # nvidia-kmod-common requires (nvidia-driver-selinux if selinux-policy-targeted).
+        "companions": ["nvidia-driver-selinux"],
     },
     "legacy": {
         "baseurl": "https://download1.rpmfusion.org/nonfree/fedora/updates/43/x86_64/",
@@ -42,6 +45,7 @@ BRANCHES = {
             "xorg-x11-drv-nvidia-cuda", "xorg-x11-drv-nvidia-cuda-libs", "xorg-x11-drv-nvidia-libs",
             "xorg-x11-drv-nvidia-power",
         ],
+        "companions": [],
     },
 }
 
@@ -113,28 +117,102 @@ def primary_href(repomd):
     raise LockError("repomd.xml has no primary metadata")
 
 
-def select(primary_xml, names, version):
-    """One entry per name at exactly `version`, for x86_64 or noarch."""
+def rpmvercmp(a, b):
+    """rpm's rpmvercmp: alphanumeric segments, numbers above letters, '~' sorts before
+    anything (even the end of the string), '^' after the end but before any segment."""
+    i = j = 0
+    while i < len(a) or j < len(b):
+        while i < len(a) and not (a[i].isascii() and a[i].isalnum()) and a[i] not in "~^":
+            i += 1
+        while j < len(b) and not (b[j].isascii() and b[j].isalnum()) and b[j] not in "~^":
+            j += 1
+        x, y = a[i:i + 1], b[j:j + 1]
+        if "~" in (x, y):
+            if x != y:
+                return -1 if x == "~" else 1
+            i, j = i + 1, j + 1
+            continue
+        if "^" in (x, y):
+            if not x:
+                return -1
+            if not y:
+                return 1
+            if x != y:
+                return 1 if y == "^" else -1
+            i, j = i + 1, j + 1
+            continue
+        if not (x and y):
+            break
+        digits = x.isdigit()
+        kind = str.isdigit if digits else str.isalpha
+        si, sj = i, j
+        while i < len(a) and a[i].isascii() and kind(a[i]):
+            i += 1
+        while j < len(b) and b[j].isascii() and kind(b[j]):
+            j += 1
+        one, two = a[si:i], b[sj:j]
+        if not two:
+            return 1 if digits else -1
+        if digits:
+            one, two = one.lstrip("0"), two.lstrip("0")
+            if len(one) != len(two):
+                return -1 if len(one) < len(two) else 1
+        if one != two:
+            return -1 if one < two else 1
+    if i >= len(a) and j >= len(b):
+        return 0
+    return -1 if i >= len(a) else 1
+
+
+def evr_compare(one, two):
+    """Order of two (epoch, version, release) tuples as rpm sorts them; epochs are integers."""
+    if one[0] != two[0]:
+        return -1 if one[0] < two[0] else 1
+    return rpmvercmp(one[1], two[1]) or rpmvercmp(one[2], two[2])
+
+
+def select(primary_xml, names, version, companions=()):
+    """One entry per name at exactly `version`, for x86_64 or noarch, and one per companion
+    (a package whose version does not follow the driver's) at its newest published release."""
     found = {name: [] for name in names}
+    published = {name: [] for name in companions}
     for pkg in parse_xml(primary_xml).iter(f"{COMMON}package"):
         name = pkg.findtext(f"{COMMON}name")
-        if name not in found:
+        if name not in found and name not in published:
             continue
-        if attribute(pkg, f"{COMMON}version", "ver", name) != version or pkg.findtext(f"{COMMON}arch") not in ARCHES:
+        ver = attribute(pkg, f"{COMMON}version", "ver", name)
+        if pkg.findtext(f"{COMMON}arch") not in ARCHES or (name in found and ver != version):
             continue
         if attribute(pkg, f"{COMMON}checksum", "type", name) != "sha256":
             raise LockError(f"{name}: checksum type {pkg.find(f'{COMMON}checksum').get('type')}, sha256 required")
         sha = pkg.findtext(f"{COMMON}checksum")
         if not sha:
             raise LockError(f"{name}: empty checksum in the repository metadata")
-        found[name].append({"name": name, "href": attribute(pkg, f"{COMMON}location", "href", name), "sha256": sha})
+        entry = {"name": name, "href": attribute(pkg, f"{COMMON}location", "href", name), "sha256": sha}
+        if name in found:
+            found[name].append(entry)
+        else:
+            epoch = pkg.find(f"{COMMON}version").get("epoch") or "0"
+            if not epoch.isascii() or not epoch.isdigit():
+                raise LockError(f"{name}: epoch {epoch!r} in the repository metadata is not a number")
+            evr = (int(epoch), ver, attribute(pkg, f"{COMMON}version", "rel", name))
+            published[name].append((evr, entry))
     missing = sorted(n for n, entries in found.items() if not entries)
     if missing:
         raise LockError(f"not published at {version}: {', '.join(missing)}")
     ambiguous = sorted(n for n, entries in found.items() if len(entries) > 1)
     if ambiguous:
         raise LockError(f"ambiguous at {version} (several releases or arches): {', '.join(ambiguous)}")
-    return [found[n][0] for n in sorted(names)]
+    missing = sorted(n for n, releases in published.items() if not releases)
+    if missing:
+        raise LockError(f"not published: {', '.join(missing)}")
+    for name, releases in published.items():
+        newest = max((evr for evr, _ in releases), key=functools.cmp_to_key(evr_compare))
+        top = [entry for evr, entry in releases if evr_compare(evr, newest) == 0]
+        if len(top) > 1:
+            raise LockError(f"ambiguous at its newest release: {name}")
+        found[name] = top
+    return [found[n][0] for n in sorted(found)]
 
 
 def write_lock(path, branch, version, baseurl, entries):
@@ -167,7 +245,8 @@ def read_lock(path):
 def resolve(branch, version, download):
     base = BRANCHES[branch]["baseurl"]
     href = primary_href(download(base + "repodata/repomd.xml"))
-    return select(gzip.decompress(download(base + href)), BRANCHES[branch]["packages"], version)
+    return select(gzip.decompress(download(base + href)), BRANCHES[branch]["packages"], version,
+                  BRANCHES[branch]["companions"])
 
 
 def main(argv=None, download=http_get):

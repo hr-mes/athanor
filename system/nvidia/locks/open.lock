@@ -6,6 +6,7 @@
 04d7d14bd25c95bf548069ca1f0dc0fcced3cece45663e3fba44871402635c39  https://negativo17.org/repos/nvidia/fedora-43/x86_64/nvidia-driver-cuda-610.57.04-1.fc43.x86_64.rpm
 e0ddc5ccf3e8281c5f481dc73bc6255eaa16ba87ff6d79b081495f9695130306  https://negativo17.org/repos/nvidia/fedora-43/x86_64/nvidia-driver-cuda-libs-610.57.04-1.fc43.x86_64.rpm
 b33f2c214967e27ea4999db3bf21caae9eb4b0fa3f5be3b4c9283247785f86b4  https://negativo17.org/repos/nvidia/fedora-43/x86_64/nvidia-driver-libs-610.57.04-1.fc43.x86_64.rpm
+28e5e8972a58448ec50621d1aee69b0ed796ab998901ca6655ba7392aa135d14  https://negativo17.org/repos/nvidia/fedora-43/x86_64/nvidia-driver-selinux-0.1-2.fc43.noarch.rpm
 62a4e53aace7a75f181432f4b8fbd085760c422a686a78f4264d746e39660914  https://negativo17.org/repos/nvidia/fedora-43/x86_64/nvidia-kmod-common-610.57.04-1.fc43.noarch.rpm
 dc3dbd069ba42843cd656341fc7411d2bd8d393455ce9293d04020c409f2dbc4  https://negativo17.org/repos/nvidia/fedora-43/x86_64/nvidia-modprobe-610.57.04-1.fc43.x86_64.rpm
 864210d1c9f3f4197d05f08d79487dea8ab0c39f51d3cab4f214dd25d0e3118c  https://negativo17.org/repos/nvidia/fedora-43/x86_64/nvidia-persistenced-610.57.04-1.fc43.x86_64.rpm
