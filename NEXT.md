@@ -67,6 +67,10 @@ skopeo inspect --no-tags docker://ghcr.io/hr-mes/ermete-base-nvidia:latest | hea
 # oppure: gh api /user/packages/container/ermete-base-nvidia/versions
 ```
 
+> Obsolete since 2026-09-16: the system image is built on Fedora's
+> `quay.io/fedora-ostree-desktops/base-atomic:43` (docs/architecture/doc_system_image.md, S1),
+> so the `ermete-base-nvidia` commands above no longer apply. Kept as history.
+
 Se risponde, vai avanti. Se NON esiste: fermati e dillo a claude-7f — è un blocco
 diverso (ricostruire la base o passare a quay.io/fedora/fedora-bootc:43 per la v0).
 
