@@ -1,0 +1,42 @@
+name: System Image Check
+
+# Pull requests that change the system images build all three unsigned on the self-hosted
+# runner, without pushing, and report the package delta of the default image against the
+# published athanor-system (docs/architecture/doc_system_image.md, S2, S8, section 4). The
+# gates of system/nvidia/gate.sh run inside the builds.
+
+on:
+  pull_request:
+    paths:
+      - system/**
+      - forge/config/packages.json
+      - forge/specs/athanor-base-config/**
+      - .github/workflows/system-image-check.yml
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: system-image-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # The self-hosted runner executes only code of this repository: a pull request from a
+    # fork never reaches it.
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: self-hosted
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Build the three images (unsigned)
+        run: |
+          set -euo pipefail
+          for gpu in none nvidia nvidia-legacy; do
+            bash system/build-image.sh --gpu "$gpu" --registry localhost --tag check
+          done
+
+      - name: Package delta of the default image
+        run: bash system/package-delta.sh ghcr.io/hr-mes/athanor-system:latest localhost/athanor-system:check >> "$GITHUB_STEP_SUMMARY"
