@@ -487,8 +487,11 @@ kernel:
 | `nvidia-open`   | Turing 2018+                     | moduli aperti 610.x compilati nel container Fedora contro `kernel-devel`, clang e kCFI coerenti, firmati con la chiave dei moduli                                                       |
 | `nvidia-legacy` | Maxwell, Pascal, Volta 2014–2018 | ramo 580, stesso meccanismo; la parte RM è il blob gcc di NVIDIA, senza kCFI né return thunk: rischio noto, verificabile solo su hardware                         |
 
-Pubblicazione `azoth-nvidia:<kernel-nvr>-<driver>`; le varianti
-dell'immagine (`-nvidia`, `-nvidia-legacy`) le consumano. Le versioni del driver
+Pubblicazione `azoth-nvidia:<kernel-nvr>-<driver>`; le immagini
+`athanor-system-nvidia` e `athanor-system-nvidia-legacy` le consumano insieme al firmware e
+allo userspace NVIDIA della stessa versione, bloccati per hash in
+`system/nvidia/locks/` (docs/architecture/doc_system_image.md, S4-S7). L'immagine
+predefinita `athanor-system` non porta moduli NVIDIA. Le versioni del driver
 sono pin in `pins.env` (`NVIDIA_OPEN_VERSION` e il commit del tag, che è
 annotato e può muoversi; `NVIDIA_LEGACY_VERSION`, con l'hash del `.run` in
 `nvidia/sources.sha256`, separato dal manifest del kernel che `build.sh`
@@ -604,5 +607,10 @@ l'implementazione scopre che un gancio Fedora non è come descritto.
    ha. `kernel-local` fissa la modalità casuale e `build.sh` si ferma quando il config
    generato riporta `CC_HAS_ALLOC_TOKEN=y`, per togliere il pin e tornare alla modalità per
    tipo scelta da Fedora, invece di restare in silenzio sulla protezione più debole.
+7. (2026-09-16) Immagini di sistema: base `base-atomic:43` di Fedora al posto di
+   `ermete-base-nvidia`, immagine predefinita con `nouveau` e NVK, varianti
+   `athanor-system-nvidia` (pacchetti negativo17) e `athanor-system-nvidia-legacy` (RPM
+   Fusion) alla versione esatta dei moduli firmati, con gate e lock per hash
+   (docs/architecture/doc_system_image.md).
 
 | `bump.py`                | il bot di bump (sezione 8): pin nuovi da Bodhi, CachyOS, NVIDIA e registro; riscrive `pins.env`, i `FROM` e `KERNEL.md` |
