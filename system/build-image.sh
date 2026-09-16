@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
 # Builds one Athanor system image (docs/architecture/doc_system_image.md, S2, S8) from
 # system/Containerfile, in CI and locally.
-# Usage: build-image.sh --gpu none|nvidia|nvidia-legacy --registry REG --tag TAG [--tag TAG]... [--push]
-# SECUREBOOT_SIGNING_KEY in the environment signs the UKI (release); without it the UKI is
-# unsigned (pull-request check, local rehearsal).
+# Usage: build-image.sh --gpu none|nvidia|nvidia-legacy --registry REG --tag TAG [--tag TAG]... [--push|--push-only]
+#   --push       build, then push every tag
+#   --push-only  push every tag of an image built earlier, without building
+# SECUREBOOT_SIGNING_KEY in the environment signs the UKI with the project key (release).
+# Without it the UKI is signed with a throwaway key generated for this build (pull-request
+# check, local rehearsal): such an image carries the label below and is never pushed.
 set -euo pipefail
 
-usage() { echo "usage: ${0##*/} --gpu none|nvidia|nvidia-legacy --registry REG --tag TAG [--tag TAG]... [--push]" >&2; exit 2; }
-GPU='' REGISTRY='' PUSH=false TAGS=()
+usage() { echo "usage: ${0##*/} --gpu none|nvidia|nvidia-legacy --registry REG --tag TAG [--tag TAG]... [--push|--push-only]" >&2; exit 2; }
+GPU='' REGISTRY='' MODE=build TAGS=()
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --gpu) GPU=${2:?}; shift 2 ;;
-    --registry) REGISTRY=${2:?}; shift 2 ;;
-    --tag) TAGS+=("${2:?}"); shift 2 ;;
-    --push) PUSH=true; shift ;;
+    --gpu | --registry | --tag)
+      [[ $# -ge 2 && -n $2 && $2 != --* ]] || usage
+      case $1 in --gpu) GPU=$2 ;; --registry) REGISTRY=$2 ;; --tag) TAGS+=("$2") ;; esac
+      shift 2 ;;
+    --push) MODE=push; shift ;;
+    --push-only) MODE=push-only; shift ;;
     *) usage ;;
   esac
 done
@@ -26,16 +31,47 @@ esac
 [[ -n $REGISTRY && ${#TAGS[@]} -gt 0 ]] || usage
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-args=(--layers --format docker --build-arg "AZOTH_NVR=$(bash "$ROOT/forge/specs/azoth/nvr.sh")" --build-arg "GPU=$GPU")
+IMAGE="$REGISTRY/$NAME"
+THROWAWAY_LABEL=io.athanor.uki-signing-key
+
+push() {
+  local key
+  key=$(podman image inspect --format "{{ index .Labels \"$THROWAWAY_LABEL\" }}" "$IMAGE:${TAGS[0]}")
+  if [[ $key == throwaway ]]; then
+    echo "${0##*/}: $IMAGE:${TAGS[0]} is signed with a throwaway key and must not be published" >&2
+    exit 2
+  fi
+  for tag in "${TAGS[@]}"; do bash "$ROOT/forge/scripts/retry.sh" podman push "$IMAGE:$tag"; done
+}
+
+if [[ $MODE == push && -z ${SECUREBOOT_SIGNING_KEY:-} ]]; then
+  echo "${0##*/}: --push requires SECUREBOOT_SIGNING_KEY: an image signed with a throwaway key must not be published" >&2
+  exit 2
+fi
+if [[ $MODE == push-only ]]; then
+  push
+  exit 0
+fi
+
+args=(--layers --pull=newer --format docker --build-arg "AZOTH_NVR=$(bash "$ROOT/forge/specs/azoth/nvr.sh")" --build-arg "GPU=$GPU")
 if [[ -n ${SECUREBOOT_SIGNING_KEY:-} ]]; then
   # The Secure Boot key and its certificate reach assemble_uki.sh as build secrets: never a layer.
   args+=(--secret "id=uki_key,env=SECUREBOOT_SIGNING_KEY" --secret "id=uki_cert,src=$ROOT/forge/specs/azoth/keys/secureboot/athanor-secureboot.pem")
+else
+  # assemble_uki.sh refuses to generate a key of its own; a throwaway pair with the
+  # parameters of the project certificate (RSA 4096, digitalSignature, codeSigning) is
+  # created here instead, outside the image, and deleted when the build ends.
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
+  openssl req -quiet -new -x509 -newkey rsa:4096 -sha256 -nodes -days 1 -subj "/CN=Athanor throwaway UKI key" \
+    -addext basicConstraints=critical,CA:FALSE -addext keyUsage=digitalSignature -addext extendedKeyUsage=codeSigning \
+    -keyout "$tmp/uki.key" -out "$tmp/uki.pem"
+  args+=(--secret "id=uki_key,src=$tmp/uki.key" --secret "id=uki_cert,src=$tmp/uki.pem" --label "$THROWAWAY_LABEL=throwaway")
+  echo "${0##*/}: SECUREBOOT_SIGNING_KEY is not set: the UKI of $IMAGE is signed with a throwaway key and the image must not be published"
 fi
-for tag in "${TAGS[@]}"; do args+=(-t "$REGISTRY/$NAME:$tag"); done
+for tag in "${TAGS[@]}"; do args+=(-t "$IMAGE:$tag"); done
 # docker format: the OCI format has no SHELL instruction and podman would drop the
 # bash -o pipefail the Containerfile sets for every RUN.
 podman build "${args[@]}" -f "$ROOT/system/Containerfile" "$ROOT"
-if [[ $PUSH == true ]]; then
-  for tag in "${TAGS[@]}"; do bash "$ROOT/forge/scripts/retry.sh" podman push "$REGISTRY/$NAME:$tag"; done
-fi
-echo "image: $REGISTRY/$NAME:${TAGS[0]}"
+[[ $MODE != push ]] || push
+echo "image: $IMAGE:${TAGS[0]}"

@@ -250,8 +250,8 @@ jobs:
       - name: ⚙️ Prepare environment
         run: |
           set -euo pipefail
-          echo "IMAGE_REGISTRY=ghcr.io/hr-mes" >> ${GITHUB_ENV}
-          echo "DEFAULT_TAG=latest" >> ${GITHUB_ENV}
+          echo "IMAGE_REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "${GITHUB_ENV}"
+          echo "DEFAULT_TAG=latest" >> "${GITHUB_ENV}"
       - name: 📥 Checkout Repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: ❄️ Install Nix (Bedrock Cache & Security Tools)
@@ -267,13 +267,13 @@ jobs:
         run: |
           set -euo pipefail
           echo "${GITHUB_TOKEN}" | podman login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-      - name: 🐳 Build OS Image
+      - name: 🐳 Build OS Images
         # The Containerfile pulls its base and the tier repository images and installs
         # Fedora packages with dnf5, so the build needs the network; the build context
-        # is the repository root, where its COPY sources live. build-image.sh builds
-        # and pushes the default, NVIDIA and NVIDIA-legacy images in turn, all three
-        # signed with the same Secure Boot key, so one job and one approval covers
-        # the whole cycle (S8).
+        # is the repository root, where its COPY sources live. build-image.sh builds the
+        # default, NVIDIA and NVIDIA-legacy images in turn, all three signed with the same
+        # Secure Boot key, so one job and one approval covers the whole cycle (S8). Nothing
+        # is pushed until all three have built.
         env:
           RUN_ID: ${{ github.run_id }}
           SECUREBOOT_SIGNING_KEY: ${{ secrets.SECUREBOOT_SIGNING_KEY }}
@@ -281,7 +281,17 @@ jobs:
           set -euo pipefail
           [[ -n ${SECUREBOOT_SIGNING_KEY:-} ]] || { echo "SECUREBOOT_SIGNING_KEY is not available to this job: check the signing environment" >&2; exit 1; }
           for gpu in none nvidia nvidia-legacy; do
-            bash system/build-image.sh --gpu "$gpu" --registry "${IMAGE_REGISTRY}" --tag "${RUN_ID}" --tag "${DEFAULT_TAG}" --push
+            bash system/build-image.sh --gpu "$gpu" --registry "${IMAGE_REGISTRY}" --tag "${RUN_ID}" --tag "${DEFAULT_TAG}"
+          done
+          df -h
+
+      - name: 📤 Push OS Images
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          for gpu in none nvidia nvidia-legacy; do
+            bash system/build-image.sh --gpu "$gpu" --registry "${IMAGE_REGISTRY}" --tag "${RUN_ID}" --tag "${DEFAULT_TAG}" --push-only
           done
 
       - name: 🔐 Sign & Attest OS Image (Zero-Trust Keyless Sigstore)
@@ -302,6 +312,17 @@ jobs:
             nix shell nixpkgs#syft -c bash forge/scripts/sbom_rootfs.sh "${image}" "${name}-sbom.spdx.json"
             nix shell nixpkgs#cosign -c bash forge/scripts/sign_attest.sh "${image}" "${name}-sbom.spdx.json"
           done
+
+      - name: 🧹 Free the NVIDIA images before the ISO
+        # The ISO embeds only the default image; the two variants are published and signed.
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          for name in athanor-system-nvidia athanor-system-nvidia-legacy; do
+            podman rmi "${IMAGE_REGISTRY}/${name}:${RUN_ID}" "${IMAGE_REGISTRY}/${name}:${DEFAULT_TAG}"
+          done
+          df -h
 
       - name: 💿 Build ISO (osbuild)
         # Not osbuild/bootc-image-builder-action: the builder needs our own installer
