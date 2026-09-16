@@ -26,10 +26,23 @@ jobs:
     # The self-hosted runner executes only code of this repository: a pull request from a
     # fork never reaches it.
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    # An ephemeral KVM guest, created per job and destroyed afterwards: local images do
+    # not accumulate across runs, so no prune step is needed here.
     runs-on: self-hosted
     timeout-minutes: 300
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Login to GHCR
+        # system/Containerfile binds ghcr.io/hr-mes/athanor-forge-tier{0..3}-repo:latest
+        # and pulls ghcr.io/hr-mes/azoth-nvidia:<nvr>-{open,legacy}: the build needs a
+        # registry session before it starts, not only the delta step at the end.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          echo "${GITHUB_TOKEN}" | podman login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
 
       - name: Build the three images (unsigned)
         run: |
