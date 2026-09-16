@@ -323,8 +323,7 @@ section 14 and `forge/specs/azoth/cmdline` change as follows:
   `arm64.mte=on` (not x86 parameters);
 - capability-specific, never global: `mem_encrypt=on`, `kvm_amd.sev=1`, `kvm_intel.tdx=1`.
 
-NVIDIA parameters and dracut configuration move out of the base: they apply only where an
-NVIDIA GPU is detected. `ima_policy=tcb` is removed in P4b, when the policy of D46 replaces it; IMA measurement follows D23 with the
+NVIDIA parameters and dracut configuration move out of the base: they apply only in the NVIDIA image variants (doc_system_image.md, S4 and S5). `ima_policy=tcb` is removed in P4b, when the policy of D46 replaces it; IMA measurement follows D23 with the
 key and policy rules of D46.
 
 **sysctl (base, locked):** the hardening of D47, `kernel.oops_limit=100`,
@@ -919,8 +918,7 @@ Found on the running system and in the repository (2026-09-14):
   `10-ermete-hw-groups.conf`, `kargs.d/01-nvidia.toml` and a `bootc-fetch-apply-updates`
   override, and ships masks for `akmods@` and `dkms`;
   `athanor-base-config` does not obsolete it yet, and P3 adds
-  `Obsoletes: ermete-base-config`. `athanor-base-config` also ships NVIDIA dracut and
-  kargs configuration to every machine (section 6), and overrides
+  `Obsoletes: ermete-base-config`. the NVIDIA dracut and kargs configuration moved to `athanor-nvidia-config`, installed only by the NVIDIA image variants (doc_system_image.md, S4), and overrides
   `bootc-fetch-apply-updates` to stage updates automatically, which conflicts with the
   confirmation of section 8 once enabled (inactive today only because `99-Athanor.preset` names the non-existent
   `bootc-fetch-apply.timer`).
