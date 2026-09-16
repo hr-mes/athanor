@@ -241,7 +241,7 @@ jobs:
     # The signing environment holds SECUREBOOT_SIGNING_KEY, the Secure Boot key that
     # signs the UKI and its PCR policy (forge/specs/azoth/KERNEL.md).
     environment: signing
-    timeout-minutes: 60
+    timeout-minutes: 180
     permissions:
       contents: write
       packages: write
@@ -251,7 +251,6 @@ jobs:
         run: |
           set -euo pipefail
           echo "IMAGE_REGISTRY=ghcr.io/hr-mes" >> ${GITHUB_ENV}
-          echo "IMAGE_NAME=athanor-system" >> ${GITHUB_ENV}
           echo "DEFAULT_TAG=latest" >> ${GITHUB_ENV}
       - name: 📥 Checkout Repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -271,29 +270,19 @@ jobs:
       - name: 🐳 Build OS Image
         # The Containerfile pulls its base and the tier repository images and installs
         # Fedora packages with dnf5, so the build needs the network; the build context
-        # is the repository root, where its COPY sources live.
+        # is the repository root, where its COPY sources live. build-image.sh builds
+        # and pushes the default, NVIDIA and NVIDIA-legacy images in turn, all three
+        # signed with the same Secure Boot key, so one job and one approval covers
+        # the whole cycle (S8).
         env:
           RUN_ID: ${{ github.run_id }}
           SECUREBOOT_SIGNING_KEY: ${{ secrets.SECUREBOOT_SIGNING_KEY }}
         run: |
           set -euo pipefail
-          image="${IMAGE_REGISTRY}/${IMAGE_NAME}"
           [[ -n ${SECUREBOOT_SIGNING_KEY:-} ]] || { echo "SECUREBOOT_SIGNING_KEY is not available to this job: check the signing environment" >&2; exit 1; }
-          # The Secure Boot private key and its certificate reach assemble_uki.sh as build
-          # secrets (/run/secrets/uki_key and /run/secrets/uki_cert): they never enter a layer.
-          # AZOTH_NVR selects azoth-nvidia:<nvr>-open, the signed NVIDIA modules of the
-          # kernel the tier 0 repository carries: both derive from the pins (nvr.sh).
-          # docker format: the OCI format has no SHELL instruction and podman would
-          # drop the bash -o pipefail the Containerfile sets for every RUN.
-          podman build --layers --format docker \
-            --build-arg "AZOTH_NVR=$(bash forge/specs/azoth/nvr.sh)" \
-            --secret "id=uki_key,env=SECUREBOOT_SIGNING_KEY" \
-            --secret "id=uki_cert,src=forge/specs/azoth/keys/secureboot/athanor-secureboot.pem" \
-            -t "${image}:${RUN_ID}" \
-            -t "${image}:${DEFAULT_TAG}" \
-            -f system/Containerfile .
-          podman push "${image}:${RUN_ID}"
-          podman push "${image}:${DEFAULT_TAG}"
+          for gpu in none nvidia nvidia-legacy; do
+            bash system/build-image.sh --gpu "$gpu" --registry "${IMAGE_REGISTRY}" --tag "${RUN_ID}" --tag "${DEFAULT_TAG}" --push
+          done
 
       - name: 🔐 Sign & Attest OS Image (Zero-Trust Keyless Sigstore)
         # One signature and one SBOM attestation per image digest: the :latest tag
@@ -304,13 +293,15 @@ jobs:
           RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          image="${IMAGE_REGISTRY}/${IMAGE_NAME}:${RUN_ID}"
           nix run nixpkgs#cosign -- login ghcr.io -u "${GITHUB_ACTOR}" -p "${GITHUB_TOKEN}"
-          # The SBOM comes from the mounted root filesystem of the local image, not from
-          # syft's image source: with about 120 layers and 270k files that source needs
-          # more than 20 GiB and took the runner down (sbom_rootfs.sh).
-          nix shell nixpkgs#syft -c bash forge/scripts/sbom_rootfs.sh "${image}" system-sbom.spdx.json
-          nix shell nixpkgs#cosign -c bash forge/scripts/sign_attest.sh "${image}" system-sbom.spdx.json
+          for name in athanor-system athanor-system-nvidia athanor-system-nvidia-legacy; do
+            image="${IMAGE_REGISTRY}/${name}:${RUN_ID}"
+            # The SBOM comes from the mounted root filesystem of the local image, not from
+            # syft's image source: with about 120 layers and 270k files that source needs
+            # more than 20 GiB and took the runner down (sbom_rootfs.sh).
+            nix shell nixpkgs#syft -c bash forge/scripts/sbom_rootfs.sh "${image}" "${name}-sbom.spdx.json"
+            nix shell nixpkgs#cosign -c bash forge/scripts/sign_attest.sh "${image}" "${name}-sbom.spdx.json"
+          done
 
       - name: 💿 Build ISO (osbuild)
         # Not osbuild/bootc-image-builder-action: the builder needs our own installer
@@ -320,7 +311,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          bash forge/scripts/build_iso.sh "${IMAGE_REGISTRY}/${IMAGE_NAME}:${RUN_ID}" ./output
+          bash forge/scripts/build_iso.sh "${IMAGE_REGISTRY}/athanor-system:${RUN_ID}" ./output
           ls -laR ./output
 
       - name: 📀 Publish the ISO
