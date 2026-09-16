@@ -264,12 +264,20 @@ def image_digest(image, tag):
 
 
 def base_images():
-    """{"image:tag": pinned digest} from the FROM lines of the Containerfiles."""
+    """{"image:tag": pinned digest} from the FROM lines of the Containerfiles. One ref pinned
+    at two digests is an error: apply rewrites only the old digest it knows about."""
     found = {}
     for cf in CONTAINERFILES:
         for m in FROM_RE.finditer(cf.read_text()):
-            found[f"{m.group(1)}:{m.group(2)}"] = m.group(3)
-    return found
+            found.setdefault(f"{m.group(1)}:{m.group(2)}", {}).setdefault(m.group(3), []).append(str(cf))
+    conflicts = [
+        ref + " at " + ", ".join(f"{digest} ({' '.join(files)})" for digest, files in digests.items())
+        for ref, digests in found.items()
+        if len(digests) > 1
+    ]
+    if conflicts:
+        sys.exit(f"base images pinned at more than one digest: {'; '.join(conflicts)}")
+    return {ref: next(iter(digests)) for ref, digests in found.items()}
 
 
 # --- check / apply ---------------------------------------------------------------------

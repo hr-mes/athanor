@@ -3,6 +3,7 @@
 import pathlib
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -85,6 +86,27 @@ class NvidiaAvailability(unittest.TestCase):
 
     def test_system_containerfile_is_tracked(self):
         self.assertIn(AZOTH.parents[2] / "system" / "Containerfile", bump.CONTAINERFILES)
+
+
+class BaseImages(unittest.TestCase):
+    def containerfiles(self, d, *digests):
+        files = []
+        for n, digest in enumerate(digests):
+            cf = pathlib.Path(d) / f"Containerfile{n}"
+            cf.write_text(f"FROM quay.io/fedora/base:43@sha256:{digest * 64}\n")
+            files.append(cf)
+        return files
+
+    def test_same_ref_at_one_digest(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(bump, "CONTAINERFILES", self.containerfiles(d, "a", "a")):
+            self.assertEqual(bump.base_images(), {"quay.io/fedora/base:43": "sha256:" + "a" * 64})
+
+    def test_same_ref_at_two_digests_names_the_files(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(bump, "CONTAINERFILES", self.containerfiles(d, "a", "b")):
+            with self.assertRaises(SystemExit) as raised:
+                bump.base_images()
+        self.assertIn("Containerfile0", str(raised.exception.code))
+        self.assertIn("Containerfile1", str(raised.exception.code))
 
 
 if __name__ == "__main__":
