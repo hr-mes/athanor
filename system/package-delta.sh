@@ -6,7 +6,13 @@ OLD=${1:?usage: package-delta.sh OLD_IMAGE NEW_IMAGE}
 NEW=${2:?usage: package-delta.sh OLD_IMAGE NEW_IMAGE}
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-names() { podman run --rm --network none --entrypoint /usr/bin/rpm "$1" -qa --qf '%{NAME}\n' | sort -u; }
+# The runner's image storage persists across jobs: refresh a remote image before reading it,
+# or the delta is taken against whatever an earlier job left behind. A localhost/ image is
+# the one this job built.
+for image in "$OLD" "$NEW"; do
+  [[ $image == localhost/* ]] || bash "$(dirname "${BASH_SOURCE[0]}")/../forge/scripts/retry.sh" podman pull "$image" > /dev/null
+done
+names() { podman run --rm --pull=never --network none --entrypoint /usr/bin/rpm "$1" -qa --qf '%{NAME}\n' | sort -u; }
 names "$OLD" > "$work/old.names"
 names "$NEW" > "$work/new.names"
 lost=$(comm -23 "$work/old.names" "$work/new.names")
