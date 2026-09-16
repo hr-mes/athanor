@@ -40,7 +40,7 @@ RUN --mount=type=bind,from=ghcr.io/hr-mes/athanor-forge-tier0-repo:latest,source
     BASE_CONFIG=$(find /mnt/tier0-repo -name "athanor-base-config*.rpm" | head -n 1) && \
     if [ -n "$BASE_CONFIG" ]; then \
         echo "Tier 0: Installing core Athanor Forge base configuration..." && \
-        rpm -e --nodeps fedora-logos || true && \
+        if rpm -q fedora-logos >/dev/null; then rpm -e --nodeps fedora-logos; fi && \
         rpm -Uvh --replacefiles --replacepkgs --nodeps "$BASE_CONFIG"; \
     fi && \
     RPM_LIST=$(find /mnt/tier0-repo -name "*.rpm" 2>/dev/null | awk '!/systemd-standalone-|.*-free-.*\.rpm|glibc32|kernel-debug|rpm-.*\.rpm|fedora-release-|selinux-policy|athanor-base-config|-doc-|debuginfo|debugsource/ && (!/-devel-/ || /kernel-devel/)') && \
@@ -49,6 +49,14 @@ RUN --mount=type=bind,from=ghcr.io/hr-mes/athanor-forge-tier0-repo:latest,source
         dnf5 install -y --allowerasing --setopt=install_weak_deps=False --setopt=tsflags=nodocs $RPM_LIST; \
     fi && \
     rm -rf /usr/lib/firmware/{mellanox,qlogic,netronome,liquidio,cxgb4,bnx2x,cavium,dpaa2}
+
+# fedora-workstation-repositories ships third-party repository definitions (RPM Fusion's
+# NVIDIA driver, Google Chrome, Steam, a PyCharm copr): the default image carries no NVIDIA
+# driver repository and packages come only from the configured origins (doc_system_image.md,
+# S1, S3).
+RUN if rpm -q fedora-workstation-repositories >/dev/null; then \
+        dnf5 remove -y --no-autoremove fedora-workstation-repositories; \
+    fi
 
 # The Azoth kernel of the pins is the one tier 0 installed.
 ARG AZOTH_NVR
@@ -143,19 +151,25 @@ RUN authselect enable-feature with-systemd-homed && \
 # only makes sense with the NVIDIA driver.
 FROM system AS gpu-none
 
+# The modules must land in the directory of the pinned kernel: hardening deletes every other
+# modules directory, so a mismatch fails here rather than silently later.
 FROM system AS gpu-nvidia
+ARG AZOTH_NVR
 COPY --from=nvidia-modules-open /lib/modules/ /usr/lib/modules/
-COPY --from=nvidia-rpms /out/open/ /tmp/nvidia-rpms/
-RUN --mount=type=cache,dst=/var/cache --mount=type=cache,dst=/var/cache/libdnf5 \
+RUN test -f "/usr/lib/modules/${AZOTH_NVR}.x86_64/extra/nvidia/nvidia.ko"
+RUN --mount=type=bind,from=nvidia-rpms,source=/out/open,target=/tmp/nvidia-rpms \
+    --mount=type=cache,dst=/var/cache --mount=type=cache,dst=/var/cache/libdnf5 \
     dnf5 install -y --setopt=install_weak_deps=False --setopt=tsflags=nodocs /tmp/nvidia-rpms/*.rpm libva-nvidia-driver && \
-    rm -rf /tmp/nvidia-rpms && systemctl preset-all
+    systemctl preset-all
 
 FROM system AS gpu-nvidia-legacy
+ARG AZOTH_NVR
 COPY --from=nvidia-modules-legacy /lib/modules/ /usr/lib/modules/
-COPY --from=nvidia-rpms /out/legacy/ /tmp/nvidia-rpms/
-RUN --mount=type=cache,dst=/var/cache --mount=type=cache,dst=/var/cache/libdnf5 \
+RUN test -f "/usr/lib/modules/${AZOTH_NVR}.x86_64/extra/nvidia/nvidia.ko"
+RUN --mount=type=bind,from=nvidia-rpms,source=/out/legacy,target=/tmp/nvidia-rpms \
+    --mount=type=cache,dst=/var/cache --mount=type=cache,dst=/var/cache/libdnf5 \
     dnf5 install -y --setopt=install_weak_deps=False --setopt=tsflags=nodocs /tmp/nvidia-rpms/*.rpm libva-nvidia-driver && \
-    rm -rf /tmp/nvidia-rpms && systemctl preset-all
+    systemctl preset-all
 
 FROM gpu-${GPU} AS final
 ARG GPU
