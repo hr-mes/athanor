@@ -56,32 +56,43 @@ def http_get(url):
 
 def parse_xml(data):
     """Repository metadata comes from the network: refuse any DTD, so no entity can expand
-    or resolve. Use an explicit parser with DTD and entity handlers that refuse both."""
+    or resolve. Single-pass expat parser with TreeBuilder refuses DTDs/entities."""
     # Reject payloads with NUL bytes (prevents UTF-16 encoding bypasses)
     if b"\x00" in data:
         raise LockError("repository metadata contains NUL bytes: refused")
-    # Verify UTF-8 decoding works (cheap pre-check)
+    # Verify UTF-8 decoding works (strict mode)
     try:
-        text = data.decode("utf-8")
+        data.decode("utf-8")
     except UnicodeDecodeError:
         raise LockError("repository metadata is not UTF-8: refused")
-    # Cheap case-insensitive pre-check for DOCTYPE and ENTITY keywords (catches malformed XML too)
-    if b"<!DOCTYPE" in data.upper() or b"<!ENTITY" in data.upper():
-        raise LockError("repository metadata declares a DTD or entities: refused")
-    # Parse with explicit handlers that refuse DTDs and entities at the parser level
+    # Single-pass parse: expat parser with TreeBuilder and DTD/entity refusal
     def _refuse(*_):
         raise LockError("repository metadata declares a DTD or entities: refused")
-    parser = xml.parsers.expat.ParserCreate()
+    parser = xml.parsers.expat.ParserCreate(namespace_separator="}")
+    builder = ET.TreeBuilder()
+    # Wrap TreeBuilder handlers to convert namespace format from "ns}tag" to "{ns}tag"
+    def _start_element(name, attrs):
+        if "}" in name:
+            ns, tag = name.split("}", 1)
+            name = f"{{{ns}}}{tag}"
+        builder.start(name, attrs)
+    def _end_element(name):
+        if "}" in name:
+            ns, tag = name.split("}", 1)
+            name = f"{{{ns}}}{tag}"
+        builder.end(name)
+    parser.StartElementHandler = _start_element
+    parser.EndElementHandler = _end_element
+    parser.CharacterDataHandler = builder.data
     parser.StartDoctypeDeclHandler = _refuse
     parser.EntityDeclHandler = _refuse
     try:
         parser.Parse(data)
+        return builder.close()
     except LockError:
         raise
     except xml.parsers.expat.ExpatError as e:
         raise LockError(str(e))
-    # Now parse with ElementTree to get the tree
-    return ET.fromstring(data)
 
 
 def primary_href(repomd):
