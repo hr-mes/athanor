@@ -34,7 +34,9 @@ class Gate(unittest.TestCase):
         (self.bin / "modinfo").write_text(textwrap.dedent(f"""\
             #!/bin/bash
             declare -A v=({" ".join(f'[{k}]={val}' for k, val in self.modules.items())})
-            echo "${{v[$(basename "$3")]}}"
+            val="${{v[$(basename "$3")]}}"
+            if [[ $val == FAIL:* ]]; then echo "${{val#FAIL:}}" >&2; exit 1; fi
+            echo "$val"
             """))
         (self.bin / "rpm").write_text(textwrap.dedent(f"""\
             #!/bin/bash
@@ -119,6 +121,21 @@ class Gate(unittest.TestCase):
         self.touch("usr/lib/modprobe.d/dist-blacklist.conf", "blacklist nvidiafb\n")
         r = self.run_gate("none")
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_default_image_rejects_underscore_module_names(self):
+        self.touch("usr/lib/dracut/dracut.conf.d/x.conf", 'add_drivers+=" nvidia_drm nvidia_uvm "\n')
+        r = self.run_gate("none")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("x.conf", r.stderr)
+
+    def test_failing_modinfo_is_a_prefixed_violation_and_scan_continues(self):
+        self.open_image()
+        self.modules["nvidia-drm.ko"] = "FAIL:modinfo: No such file or directory"
+        (self.root / "usr/lib/firmware/nvidia/610.57.04/gsp_tu10x.bin").unlink()
+        r = self.run_gate("nvidia")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("nvidia-drm.ko: modinfo failed:", r.stderr)
+        self.assertIn("gsp_tu10x.bin", r.stderr)
 
 
 if __name__ == "__main__":

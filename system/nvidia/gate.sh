@@ -21,8 +21,8 @@ if [[ $GPU == none ]]; then
   for ko in "${modules[@]}"; do violation "${ko#"$ROOT"}: NVIDIA module in the default image"; done
   while IFS= read -r f; do
     violation "${f#"$ROOT"}: NVIDIA configuration in the default image"
-  # Word-bounded: Fedora's dist-blacklist.conf names the unrelated framebuffer driver nvidiafb.
-  done < <(grep -rlE '(^|[^[:alnum:]_])nvidia([^[:alnum:]_]|$)' "$ROOT/usr/lib/bootc/kargs.d" "$ROOT/usr/lib/modprobe.d" "$ROOT/etc/modprobe.d" "$ROOT/usr/lib/dracut/dracut.conf.d" 2> /dev/null | sort)
+  # Word-bounded: underscores and hyphens are boundaries; Fedora's dist-blacklist.conf names the unrelated framebuffer driver nvidiafb.
+  done < <(grep -rlE '(^|[^[:alnum:]])nvidia([^[:alnum:]]|$)' "$ROOT/usr/lib/bootc/kargs.d" "$ROOT/usr/lib/modprobe.d" "$ROOT/etc/modprobe.d" "$ROOT/usr/lib/dracut/dracut.conf.d" 2> /dev/null | sort)
   while IFS= read -r f; do
     violation "${f#"$ROOT"}: negativo17 repository in the default image"
   done < <(grep -rl 'negativo17' "$ROOT/etc/yum.repos.d" 2> /dev/null | sort)
@@ -38,14 +38,17 @@ esac
 
 [[ ${#modules[@]} -gt 0 ]] || violation "no nvidia*.ko under /usr/lib/modules/*/extra/nvidia"
 for ko in "${modules[@]}"; do
-  got=$(modinfo -F version "$ko")
-  [[ $got == "$expected" ]] || violation "${ko##*/}: module $got, pin $expected"
+  if got=$(modinfo -F version "$ko" 2>&1); then
+    [[ $got == "$expected" ]] || violation "${ko##*/}: module $got, pin $expected"
+  else
+    violation "${ko##*/}: modinfo failed: $got"
+  fi
 done
 for pkg in "${packages[@]}"; do
-  if got=$(rpm --root "$ROOT" -q --qf '%{VERSION}' "$pkg"); then
+  if got=$(rpm --root "$ROOT" -q --qf '%{VERSION}' "$pkg" 2>&1); then
     [[ $got == "$expected" ]] || violation "$pkg: package $got, pin $expected"
   else
-    violation "$pkg: not installed"
+    violation "$pkg: not installed or unreadable: $got"
   fi
 done
 if [[ $GPU == nvidia ]]; then
