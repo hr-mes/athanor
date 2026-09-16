@@ -60,6 +60,11 @@ class Gate(unittest.TestCase):
         self.touch("usr/share/glvnd/egl_vendor.d/10_nvidia.json")
         self.touch("usr/lib64/gbm/nvidia-drm_gbm.so")
         self.touch("usr/share/vulkan/icd.d/nvidia_icd.x86_64.json")
+        self.nouveau_blacklist()
+
+    def nouveau_blacklist(self):
+        self.touch("usr/lib/modprobe.d/athanor-nvidia-blacklist-nouveau.conf", "blacklist nouveau\nblacklist nova_core\n")
+        self.touch("usr/lib/bootc/kargs.d/01-nvidia.toml", 'kargs = ["rd.driver.blacklist=nouveau,nova_core", "modprobe.blacklist=nouveau,nova_core"]\n')
 
     def test_complete_open_image_passes(self):
         self.open_image()
@@ -103,6 +108,7 @@ class Gate(unittest.TestCase):
         self.touch("usr/share/glvnd/egl_vendor.d/10_nvidia.json")
         self.touch("usr/lib64/gbm/nvidia-drm_gbm.so")
         self.touch("usr/share/vulkan/icd.d/nvidia_icd.x86_64.json")
+        self.nouveau_blacklist()
         r = self.run_gate("nvidia-legacy")
         self.assertEqual(r.returncode, 0, r.stderr)
 
@@ -119,10 +125,13 @@ class Gate(unittest.TestCase):
         self.touch("usr/lib/modules/7.2.5-100.azoth.fc43.x86_64/vmlinuz")
         self.touch("usr/lib/bootc/kargs.d/02-hardening.toml", 'kargs = ["slab_nomerge"]')
         self.touch("usr/lib/modprobe.d/dist-blacklist.conf", "blacklist nvidiafb\n")
+        self.touch("usr/lib/modules/7.2.5-100.azoth.fc43.x86_64/kernel/drivers/video/fbdev/nvidia/nvidiafb.ko.xz")
+        self.touch("etc/yum.repos.d/rpmfusion.repo", "[rpmfusion-nonfree]\nexclude=*nvidia* *nvrm* *cuda*\n")
         r = self.run_gate("none")
         self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_default_image_rejects_underscore_module_names(self):
+        self.touch("usr/lib/modules/7.2.5-100.azoth.fc43.x86_64/vmlinuz")
         self.touch("usr/lib/dracut/dracut.conf.d/x.conf", 'add_drivers+=" nvidia_drm nvidia_uvm "\n')
         r = self.run_gate("none")
         self.assertEqual(r.returncode, 1)
@@ -136,6 +145,42 @@ class Gate(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("nvidia-drm.ko: modinfo failed:", r.stderr)
         self.assertIn("gsp_tu10x.bin", r.stderr)
+
+    def test_missing_modules_tree_fails_in_every_mode(self):
+        for gpu in ("none", "nvidia"):
+            with self.subTest(gpu=gpu):
+                r = self.run_gate(gpu)
+                self.assertEqual(r.returncode, 1)
+                self.assertIn("/usr/lib/modules: not a directory", r.stderr)
+
+    def test_module_outside_extra_is_found(self):
+        self.touch("usr/lib/modules/7.2.5-100.azoth.fc43.x86_64/updates/nvidia_uvm.ko.xz")
+        r = self.run_gate("none")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("updates/nvidia_uvm.ko.xz: NVIDIA module in the default image", r.stderr)
+        self.open_image()
+        self.modules["nvidia_uvm.ko.xz"] = "610.43.02"
+        r = self.run_gate("nvidia")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("nvidia_uvm.ko.xz: module 610.43.02, pin 610.57.04", r.stderr)
+
+    def test_default_image_rejects_rpmfusion_nvidia_driver_repository(self):
+        self.touch("usr/lib/modules/7.2.5-100.azoth.fc43.x86_64/vmlinuz")
+        self.touch("etc/yum.repos.d/rpmfusion-nonfree-nvidia-driver.repo", "[rpmfusion-nonfree-nvidia-driver]\nenabled=0\n")
+        self.touch("etc/yum.repos.d/third-party.repo", "[rpmfusion-nonfree-nvidia-driver]\nenabled=0\n")
+        r = self.run_gate("none")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("rpmfusion-nonfree-nvidia-driver.repo: NVIDIA driver repository", r.stderr)
+        self.assertIn("third-party.repo: NVIDIA driver repository", r.stderr)
+
+    def test_nvidia_image_without_nouveau_blacklist_fails(self):
+        self.open_image()
+        (self.root / "usr/lib/modprobe.d/athanor-nvidia-blacklist-nouveau.conf").write_text("options nvidia-drm modeset=1\n")
+        (self.root / "usr/lib/bootc/kargs.d/01-nvidia.toml").write_text('kargs = ["rd.driver.blacklist=nouveau"]\n')
+        r = self.run_gate("nvidia")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no modprobe.d file blacklists nouveau", r.stderr)
+        self.assertIn("no kargs.d file sets modprobe.blacklist=nouveau", r.stderr)
 
 
 if __name__ == "__main__":
