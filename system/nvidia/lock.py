@@ -8,9 +8,14 @@
   lock.py fetch open|legacy --out DIR        download the locked RPMs and verify each SHA-256;
                                              prints the lock's version
   lock.py check open|legacy --version V      exit 0 if the repository publishes the branch at V
+  lock.py latest open|legacy --major M       print the newest version M.* of the branch's primary
+                                             package in the repository metadata
+  lock.py verify open|legacy --version V     compare locks/<branch>.lock, which must be at V, with
+                                             the repository metadata, without downloading RPMs
 
-Exit codes: 0 success, 3 the requested version is not published, 1 any other error
-(network, metadata, lock file), 2 usage.
+Exit codes: 0 success, 3 the requested version is not published, 4 (verify) the repository
+publishes V with other files or checksums than the lock, 1 any other error (network,
+metadata, lock file), 2 usage.
 
 GPG signatures are verified by build-rpms.sh with rpmkeys and the keys in keys/: the lock
 covers what the unsigned repository metadata of negativo17 cannot.
@@ -32,8 +37,10 @@ COMMON = "{http://linux.duke.edu/metadata/common}"
 REPO = "{http://linux.duke.edu/metadata/repo}"
 ARCHES = ("x86_64", "noarch")
 NOT_PUBLISHED = 3
+STALE = 4
 BRANCHES = {
     "open": {
+        "primary": "nvidia-driver",
         "baseurl": "https://negativo17.org/repos/nvidia/fedora-43/x86_64/",
         "packages": [
             "nvidia-driver", "nvidia-driver-common", "nvidia-driver-cuda", "nvidia-driver-cuda-libs",
@@ -43,6 +50,7 @@ BRANCHES = {
         "companions": ["nvidia-driver-selinux"],
     },
     "legacy": {
+        "primary": "xorg-x11-drv-nvidia",
         "baseurl": "https://download1.rpmfusion.org/nonfree/fedora/updates/43/x86_64/",
         "packages": [
             "nvidia-modprobe", "nvidia-persistenced", "nvidia-settings", "xorg-x11-drv-nvidia",
@@ -223,6 +231,27 @@ def select(primary_xml, names, version, companions=()):
     return [found[n][0] for n in sorted(found)]
 
 
+def vtuple(version):
+    return tuple(int(part) for part in version.split("."))
+
+
+def newest(primary_xml, name, major):
+    """The highest version `major`.* of package `name`, for x86_64 or noarch."""
+    versions = {
+        attribute(pkg, f"{COMMON}version", "ver", name)
+        for pkg in parse_xml(primary_xml).iter(f"{COMMON}package")
+        if pkg.findtext(f"{COMMON}name") == name and pkg.findtext(f"{COMMON}arch") in ARCHES
+    }
+    try:
+        in_major = [v for v in versions if v.split(".")[0] == major]
+        best = max(in_major, key=vtuple, default=None)
+    except ValueError:
+        raise LockError(f"{name}: non-numeric version among {', '.join(sorted(versions))}")
+    if best is None:
+        raise NotPublished(f"{name}: no version {major}.* published")
+    return best
+
+
 def write_lock(path, branch, version, baseurl, entries):
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [f"# branch {branch}", f"# version {version}", f"# repository {baseurl}"]
@@ -250,26 +279,61 @@ def read_lock(path):
     return branch, version, baseurl, entries
 
 
-def resolve(branch, version, download):
+def primary_xml(branch, download):
     base = BRANCHES[branch]["baseurl"]
     href = primary_href(download(base + "repodata/repomd.xml"))
-    return select(gzip.decompress(download(base + href)), BRANCHES[branch]["packages"], version,
+    return gzip.decompress(download(base + href))
+
+
+def resolve(branch, version, download):
+    return select(primary_xml(branch, download), BRANCHES[branch]["packages"], version,
                   BRANCHES[branch]["companions"])
+
+
+def load_lock(locks, branch):
+    """The entries of locks/<branch>.lock, refused unless it belongs to the branch's repository."""
+    path = locks / f"{branch}.lock"
+    locked_branch, version, baseurl, entries = read_lock(path)
+    if locked_branch != branch:
+        raise LockError(f"{path}: lock of branch {locked_branch}, {branch} requested")
+    if baseurl != BRANCHES[branch]["baseurl"]:
+        raise LockError(f"{path}: repository {baseurl}, the {branch} branch uses {BRANCHES[branch]['baseurl']}")
+    outside = [url for _, url in entries if not url.startswith(baseurl)]
+    if outside:
+        raise LockError(f"{path}: URL outside the repository {baseurl}: {', '.join(outside)}")
+    return path, version, entries
 
 
 def main(argv=None, download=http_get):
     parser = argparse.ArgumentParser(description="Locks for the third-party NVIDIA RPMs.")
-    parser.add_argument("command", choices=("generate", "fetch", "check"))
+    parser.add_argument("command", choices=("generate", "fetch", "check", "latest", "verify"))
     parser.add_argument("branch", choices=sorted(BRANCHES))
     parser.add_argument("--version")
+    parser.add_argument("--major")
     parser.add_argument("--out", type=pathlib.Path)
     parser.add_argument("--locks", type=pathlib.Path, default=LOCKS)
     args = parser.parse_args(argv)
     try:
-        if args.command in ("generate", "check") and not args.version:
+        if args.command in ("generate", "check", "verify") and not args.version:
             raise LockError(f"{args.command} needs --version")
         if args.command == "check":
             resolve(args.branch, args.version, download)
+            return 0
+        if args.command == "latest":
+            if not args.major:
+                raise LockError("latest needs --major")
+            print(newest(primary_xml(args.branch, download), BRANCHES[args.branch]["primary"], args.major))
+            return 0
+        if args.command == "verify":
+            path, version, entries = load_lock(args.locks, args.branch)
+            if version != args.version:
+                raise LockError(f"{path}: lock at {version}, {args.version} expected")
+            base = BRANCHES[args.branch]["baseurl"]
+            published = {(e["sha256"], base + e["href"]) for e in resolve(args.branch, version, download)}
+            if published != set(entries):
+                changed = sorted(url for _, url in published.symmetric_difference(entries))
+                print(f"lock.py: {path} differs from the repository metadata at {version}: {', '.join(changed)}", file=sys.stderr)
+                return STALE
             return 0
         if args.command == "generate":
             base = BRANCHES[args.branch]["baseurl"]
@@ -284,15 +348,7 @@ def main(argv=None, download=http_get):
             return 0
         if not args.out:
             raise LockError("fetch needs --out")
-        path = args.locks / f"{args.branch}.lock"
-        branch, version, baseurl, entries = read_lock(path)
-        if branch != args.branch:
-            raise LockError(f"{path}: lock of branch {branch}, {args.branch} requested")
-        if baseurl != BRANCHES[branch]["baseurl"]:
-            raise LockError(f"{path}: repository {baseurl}, the {branch} branch uses {BRANCHES[branch]['baseurl']}")
-        outside = [url for _, url in entries if not url.startswith(baseurl)]
-        if outside:
-            raise LockError(f"{path}: URL outside the repository {baseurl}: {', '.join(outside)}")
+        _, version, entries = load_lock(args.locks, args.branch)
         args.out.mkdir(parents=True, exist_ok=True)
         for sha, url in entries:
             data = download(url)
