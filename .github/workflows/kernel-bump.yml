@@ -178,7 +178,7 @@ jobs:
           set -euo pipefail
           git add forge/specs/azoth system/Containerfile system/nvidia/locks
           keys=$(git diff --cached -U0 -- forge/specs/azoth/pins.env | sed -n 's/^+\([A-Z_]\+\)=.*/\1/p')
-          git diff --cached --quiet -- 'forge/specs/azoth/*/Containerfile' || keys+=${keys:+$'\n'}"base image"
+          git diff --cached --quiet -- 'forge/specs/azoth/*/Containerfile' system/Containerfile || keys+=${keys:+$'\n'}"base image"
           title="chore(kernel): bump $(paste -sd, - <<< "$keys" | sed 's/,/, /g')"
           outcome=$(cat prep-outcome)
           [[ $outcome != REFRESH ]] || title+=" (patch refresh needed)"
