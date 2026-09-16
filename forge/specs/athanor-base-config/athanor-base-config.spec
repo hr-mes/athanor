@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-base-config
 Version:        43.0.0
-Release:        3%{?dist}
+Release:        4%{?dist}
 Summary:        Athanor OS Base Configuration (Systemd, Branding, GPG)
 
 License:        MIT
@@ -82,6 +82,10 @@ rm -rf %{buildroot}/etc/tmpfiles.d
 /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/override.conf
 
 %changelog
+* Wed Sep 16 2026 Athanor Forge <forge@athanor.os> - 43.0.0-4
+- Drop the nvidia-powerd/nvidia-persistenced preset enables and the nvidia-persistenced
+  sysusers entry: the vendor packages own them in the NVIDIA images, and the default image
+  never installs the NVIDIA driver (doc_system_image.md, S3)
 * Wed Sep 16 2026 Athanor Forge <forge@athanor.os> - 43.0.0-3
 - Move the NVIDIA configuration and the negativo17 repository to athanor-nvidia-config (doc_system_image.md, S3)
 * Fri Jul 31 2026 Athanor <athanor@customer.mlnnita1.isp.starlink.com> - 1.0.0-6

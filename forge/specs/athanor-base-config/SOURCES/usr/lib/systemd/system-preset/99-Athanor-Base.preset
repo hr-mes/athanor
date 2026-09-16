@@ -1,5 +1,3 @@
-enable nvidia-powerd.service
-enable nvidia-persistenced.service
 enable athanor-journal-seal.service
 
 disable NetworkManager-wait-online.service
