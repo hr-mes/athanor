@@ -164,6 +164,18 @@ class Gate(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("nvidia_uvm.ko.xz: module 610.43.02, pin 610.57.04", r.stderr)
 
+    def test_in_tree_nvidia_platform_module_is_not_the_driver(self):
+        backlight = "usr/lib/modules/7.2.5-100.azoth.fc43.x86_64/kernel/drivers/platform/x86/nvidia-wmi-ec-backlight.ko.xz"
+        self.touch(backlight)
+        r = self.run_gate("none")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.open_image()
+        # A modinfo call on the backlight module would print an empty version and fail the pin.
+        self.modules["nvidia-wmi-ec-backlight.ko.xz"] = "FAIL:modinfo-called-on-the-backlight-module"
+        r = self.run_gate("nvidia")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("nvidia-wmi-ec-backlight", r.stderr)
+
     def test_default_image_rejects_rpmfusion_nvidia_driver_repository(self):
         self.touch("usr/lib/modules/7.2.5-100.azoth.fc43.x86_64/vmlinuz")
         self.touch("etc/yum.repos.d/rpmfusion-nonfree-nvidia-driver.repo", "[rpmfusion-nonfree-nvidia-driver]\nenabled=0\n")
