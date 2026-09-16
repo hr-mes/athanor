@@ -124,6 +124,58 @@ class Select(unittest.TestCase):
             lock.primary_href(repomd)
 
 
+class Companions(unittest.TestCase):
+    """Packages whose version does not follow the driver's, locked at the newest published NVR."""
+
+    def test_companion_at_the_newest_release_next_to_the_versioned_packages(self):
+        xml = primary(
+            package("nvidia-kmod-common", 3, "610.57.04", "1.fc43", "noarch", "k.rpm", "a" * 64),
+            package("nvidia-driver-selinux", 0, "0.1", "10.fc43", "noarch", "s-10.rpm", "c" * 64),
+            package("nvidia-driver-selinux", 0, "0.1", "2.fc43", "noarch", "s-2.rpm", "b" * 64),
+            package("nvidia-driver-selinux", 0, "0.2", "1.fc43", "i686", "s-i686.rpm", "d" * 64),
+        )
+        got = lock.select(xml, ["nvidia-kmod-common"], "610.57.04", companions=["nvidia-driver-selinux"])
+        self.assertEqual(
+            [(e["name"], e["href"], e["sha256"]) for e in got],
+            [("nvidia-driver-selinux", "s-10.rpm", "c" * 64), ("nvidia-kmod-common", "k.rpm", "a" * 64)],
+        )
+
+    def test_missing_companion_is_an_error_naming_it(self):
+        xml = primary(package("nvidia-kmod-common", 3, "610.57.04", "1.fc43", "noarch", "k.rpm", "a" * 64))
+        with self.assertRaisesRegex(lock.LockError, "not published: nvidia-driver-selinux"):
+            lock.select(xml, ["nvidia-kmod-common"], "610.57.04", companions=["nvidia-driver-selinux"])
+
+    def test_companion_newest_release_twice_is_ambiguous(self):
+        xml = primary(
+            package("nvidia-driver-selinux", 0, "0.1", "2.fc43", "noarch", "a.rpm", "a" * 64),
+            package("nvidia-driver-selinux", 0, "0.1", "2.fc43", "x86_64", "b.rpm", "b" * 64),
+        )
+        with self.assertRaisesRegex(lock.LockError, "ambiguous at its newest release: nvidia-driver-selinux"):
+            lock.select(xml, [], "610.57.04", companions=["nvidia-driver-selinux"])
+
+    def test_companion_with_non_sha256_checksum_is_refused(self):
+        xml = primary(package("nvidia-driver-selinux", 0, "0.1", "2.fc43", "noarch", "a.rpm", "a" * 40).replace('type="sha256"', 'type="sha1"'))
+        with self.assertRaisesRegex(lock.LockError, "nvidia-driver-selinux: checksum type sha1, sha256 required"):
+            lock.select(xml, [], "610.57.04", companions=["nvidia-driver-selinux"])
+
+    def test_companion_with_non_numeric_epoch_is_refused(self):
+        xml = primary(package("nvidia-driver-selinux", "x", "0.1", "2.fc43", "noarch", "a.rpm", "a" * 64))
+        with self.assertRaisesRegex(lock.LockError, "nvidia-driver-selinux: epoch 'x'"):
+            lock.select(xml, [], "610.57.04", companions=["nvidia-driver-selinux"])
+
+    def test_evr_order_follows_rpm(self):
+        ordered = [(0, "0.1~rc1", "1"), (0, "0.1", "1.fc43"), (0, "0.1", "2.fc43"), (0, "0.1", "10.fc43"),
+                   (0, "0.1a", "1"), (0, "0.1.0", "1"), (0, "1.0", "1"), (0, "1.0^git1", "1"), (1, "0.0", "1")]
+        for low, high in zip(ordered, ordered[1:]):
+            with self.subTest(low=low, high=high):
+                self.assertLess(lock.evr_compare(low, high), 0)
+                self.assertGreater(lock.evr_compare(high, low), 0)
+        self.assertEqual(lock.evr_compare((0, "0.01", "1"), (0, "0.1", "1")), 0)
+
+    def test_open_branch_locks_the_selinux_module(self):
+        self.assertIn("nvidia-driver-selinux", lock.BRANCHES["open"]["companions"])
+
+
 class LockFile(unittest.TestCase):
     def test_round_trip(self):
         with tempfile.TemporaryDirectory() as d:

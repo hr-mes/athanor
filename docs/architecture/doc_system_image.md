@@ -91,7 +91,7 @@ A mismatch is a build failure with the exact values, never a warning.
 
 **S7. Provenance of third-party RPMs.** Driver packages are installed by exact NVR from the pinned repository URL:
 
-- **Hashes:** the SHA-256 of each RPM is recorded in a manifest, `system/nvidia/locks/<branch>.lock`, one per driver branch (`open`, `legacy`), and the build verifies it before installation.
+- **Hashes:** the SHA-256 of each RPM is recorded in a manifest, `system/nvidia/locks/<branch>.lock`, one per driver branch (`open`, `legacy`), and the build verifies it before installation. A branch can also lock companion packages whose version does not follow the driver's, such as negativo17's `nvidia-driver-selinux` that `nvidia-kmod-common` requires whenever `selinux-policy-targeted` is installed: they are locked at the newest release the repository publishes, under the same hash and repository rules.
 - **Signatures:** `gpgcheck` stays on, with the negativo17 and RPM Fusion keys vendored in the repository. Package signatures are checked. negativo17 does not sign its repository metadata, which the manifest compensates for.
 - **Bumps:**
   - the bump bot regenerates the manifests whenever an `NVIDIA_*` pin moves;
