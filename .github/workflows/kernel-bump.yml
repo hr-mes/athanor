@@ -7,7 +7,8 @@ name: Kernel Bump
 # pins and runs `build.sh --stage prep` (signatures, patches, config gate): the outcome
 # goes into the PR, green or red. pr: opens the PR with the regenerated files and, only
 # when prep is green, enables its auto-merge; the check required by the branch protection
-# is "Kernel gate" of Kernel Build. One open bump PR at a time. `schedule` only works from
+# is "Kernel gate" of Kernel Build. A bump that moves system/Containerfile or an NVIDIA lock
+# never auto-merges: System Image Check and a human review decide. One open bump PR at a time. `schedule` only works from
 # the default branch; by hand on any branch; and on a push of this file: a change to the
 # bot exercises it right away, and that is how GitHub registers the workflow outside the
 # default branch, where workflow_dispatch alone does not make it runnable.
@@ -173,12 +174,17 @@ jobs:
           pattern: bump-*
           merge-multiple: true
 
-      - name: Branch, commit, PR (auto-merge only on a green prep)
+      - name: Branch, commit, PR (auto-merge only on a green prep that leaves the system image alone)
         run: |
           set -euo pipefail
           git add forge/specs/azoth system/Containerfile system/nvidia/locks
           keys=$(git diff --cached -U0 -- forge/specs/azoth/pins.env | sed -n 's/^+\([A-Z_]\+\)=.*/\1/p')
           git diff --cached --quiet -- 'forge/specs/azoth/*/Containerfile' system/Containerfile || keys+=${keys:+$'\n'}"base image"
+          git diff --cached --quiet -- system/nvidia/locks || keys+=${keys:+$'\n'}"NVIDIA locks"
+          # A new system base or NVIDIA lock changes the packages of the image: System Image
+          # Check reports the difference and a person merges (doc_system_image.md, section 4).
+          reviewed=false
+          git diff --cached --quiet -- system/Containerfile system/nvidia/locks || reviewed=true
           title="chore(kernel): bump $(paste -sd, - <<< "$keys" | sed 's/,/, /g')"
           outcome=$(cat prep-outcome)
           [[ $outcome != REFRESH ]] || title+=" (patch refresh needed)"
@@ -189,8 +195,13 @@ jobs:
           git commit -q -m "$title" -m "Opened by the bump bot (kernel-bump.yml, spec section 8)."
           git push -u origin "$branch"
           cat body.md prep.md > pr.md
+          if [[ $reviewed == true ]]; then
+            printf '\n## Merge\n\nThis bump moves the system base image or an NVIDIA lock. System Image Check and a human review decide the merge: the package difference is in the summary of that check. No auto-merge.\n' >> pr.md
+          fi
           url=$(gh pr create --base "$GITHUB_REF_NAME" --head "$branch" --label kernel-bump --title "$title" --body-file pr.md)
-          if [[ $outcome == ok ]]; then
+          if [[ $reviewed == true ]]; then
+            echo "PR: ${url} (system base or NVIDIA lock moved: no auto-merge, System Image Check and a human review decide)" | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [[ $outcome == ok ]]; then
             gh pr merge --auto --squash "$url"
             echo "PR: ${url} (auto-merge once the Kernel gate check is green)" | tee -a "$GITHUB_STEP_SUMMARY"
           else
