@@ -81,6 +81,8 @@ Task 8 ships and migrates the maintainer's desktop.
 
 ### Task 1: Lock files for the third-party NVIDIA RPMs
 
+> Superseded detail: the committed system/nvidia/lock.py and gate.sh (hardened in review) are authoritative; the interfaces below are unchanged.
+
 **Files:**
 - Create: `system/nvidia/lock.py`, `system/nvidia/tests/test_lock.py`
 - Create: `system/nvidia/keys/RPM-GPG-KEY-negativo17` (copied from `forge/specs/athanor-base-config/SOURCES/etc/pki/rpm-gpg/RPM-GPG-KEY-negativo17`), `system/nvidia/keys/RPM-GPG-KEY-rpmfusion-nonfree-fedora-2020` (copied from the same directory)
@@ -467,6 +469,8 @@ Claude-Session: https://claude.ai/code/session_01EUnNXqv8jNWDVMA83G7eZ4"
   - `usr/lib/bootc/kargs.d/01-nvidia.toml`
   - `usr/lib/dracut/dracut.conf.d/nvidia-drm.conf`
   - `usr/lib/systemd/system-preset/70-nvidia.preset`
+
+  > Outcome after the final review: the package is the same for both branches and its SOURCES hold only `usr/lib/bootc/kargs.d/01-nvidia.toml` (nvidia-drm options, `PreserveVideoMemoryAllocations`, and `rd.driver.blacklist=`/`modprobe.blacklist=nouveau,nova_core`), `usr/lib/modprobe.d/athanor-nvidia-blacklist-nouveau.conf`, `usr/lib/modprobe.d/nvidia-drm.conf`, `usr/lib/modules-load.d/10-nvidia.conf`, `usr/lib/systemd/system-preset/70-athanor-nvidia.preset` (`enable nvidia-persistenced.service`), `usr/lib/systemd/system/nvidia-powerd.service.d/laptop-only.conf` and `usr/lib/udev/rules.d/71-nvidia-uaccess.rules`. The sleep units, `nvidia-sleep.sh`, the system-sleep hook, `nvidia-power-management.conf` and the dracut file were deleted: negativo17 uses kernel suspend notifiers and omits the modules from the initrd, and the legacy lock gains RPM Fusion's `xorg-x11-drv-nvidia-power`, which owns the sleep units, `nvidia-power-management.conf` and `70-nvidia.preset`.
 - Delete: `forge/specs/athanor-base-config/SOURCES/etc/yum.repos.d/fedora-nvidia.repo`, `forge/specs/athanor-base-config/SOURCES/etc/pki/rpm-gpg/RPM-GPG-KEY-negativo17`
 - Create: `system/nvidia/build-rpms.sh`
 - Modify: `forge/specs/athanor-base-config/athanor-base-config.spec`
@@ -557,15 +561,13 @@ mkdir -p %{buildroot}
 cp -a %{_sourcedir}/usr %{buildroot}/
 
 %files
-/usr/bin/nvidia-sleep.sh
 /usr/lib/bootc/kargs.d/01-nvidia.toml
-/usr/lib/dracut/dracut.conf.d/nvidia-drm.conf
+/usr/lib/modprobe.d/athanor-nvidia-blacklist-nouveau.conf
 /usr/lib/modprobe.d/nvidia-drm.conf
-/usr/lib/modprobe.d/nvidia-power-management.conf
 /usr/lib/modules-load.d/10-nvidia.conf
-/usr/lib/systemd/system-preset/70-nvidia.preset
-/usr/lib/systemd/system-sleep/nvidia
-/usr/lib/systemd/system/nvidia-*
+/usr/lib/systemd/system-preset/70-athanor-nvidia.preset
+%dir /usr/lib/systemd/system/nvidia-powerd.service.d
+/usr/lib/systemd/system/nvidia-powerd.service.d/laptop-only.conf
 /usr/lib/udev/rules.d/71-nvidia-uaccess.rules
 
 %changelog
@@ -635,29 +637,31 @@ Expected: no output.
 Run with the sandbox disabled:
 
 ```bash
-podman run --rm --security-opt label=disable -v /var/home/hr-mes/athanor:/src:ro -v "$SCRATCH/nv-out:/out" registry.fedoraproject.org/fedora:43 \
+systemd-run --user --pipe --wait podman run --rm --security-opt label=disable -v /var/home/hr-mes/athanor:/src:ro -v "$SCRATCH/nv-out:/out" registry.fedoraproject.org/fedora:43 \
   bash -c 'dnf5 -y -q install rpm-build python3 >/dev/null && bash /src/system/nvidia/build-rpms.sh /out'
 ```
 
 Expected:
 - `build-rpms.sh: open 610.57.04: 10 RPMs`
-- `build-rpms.sh: legacy 580.178.04: 9 RPMs`
+- `build-rpms.sh: legacy 580.178.04: 10 RPMs`
 
 Then the closure and conflict test:
 
 ```bash
 for b in open legacy; do
-  podman run --rm --security-opt label=disable -v "$SCRATCH/nv-out/$b:/rpms:ro" registry.fedoraproject.org/fedora:43 \
-    bash -c 'dnf5 -y -q install --setopt=install_weak_deps=False /rpms/*.rpm >/tmp/log 2>&1 || { tail -30 /tmp/log; exit 1; }; rpm -q akmod-nvidia kmod-nvidia dkms-nvidia xorg-x11-drv-nvidia-kmodsrc | grep -c "is not installed"; systemctl preset-all >/dev/null 2>&1; for u in $(sed -n "s/^enable //p" /usr/lib/systemd/system-preset/70-nvidia.preset); do systemctl cat "$u" >/dev/null 2>&1 || echo "preset names missing unit $u"; done; echo "$b ok"'
+  systemd-run --user --pipe --wait podman run --rm --security-opt label=disable -v "$SCRATCH/nv-out/$b:/rpms:ro" registry.fedoraproject.org/fedora:43 \
+    bash -c 'dnf5 -y -q install --setopt=install_weak_deps=False /rpms/*.rpm >/tmp/log 2>&1 || { tail -30 /tmp/log; exit 1; }; rpm -q akmod-nvidia kmod-nvidia dkms-nvidia xorg-x11-drv-nvidia-kmodsrc | grep -c "is not installed"; systemctl preset-all >/dev/null 2>&1; for u in $(sed -n "s/^enable //p" /usr/lib/systemd/system-preset/70-athanor-nvidia.preset); do [[ $(systemctl is-enabled "$u" 2>&1) == enabled ]] || echo "preset names missing unit $u"; done; echo "$1 ok"' bash "$b"
 done
 ```
+
+`systemctl cat` exits 0 for a missing unit when no systemd instance runs, so the check reads `systemctl is-enabled`, which prints `not-found` for one.
 
 Expected for each branch:
 - `4`: none of the akmods, kmod, DKMS or kmodsrc packages are installed;
 - no `preset names missing unit` line;
 - `<branch> ok`.
 
-If a file conflict appears, go back to Step 1: the conflicting file is vendor-owned and must be deleted from `athanor-nvidia-config`. If a preset names a missing unit, remove that `enable` line from `70-nvidia.preset`.
+If a file conflict appears, go back to Step 1: the conflicting file is vendor-owned and must be deleted from `athanor-nvidia-config`. If a preset names a missing unit, remove that `enable` line from `70-athanor-nvidia.preset`.
 
 - [ ] **Step 7: Verify the specs and commit**
 
@@ -674,6 +678,8 @@ Claude-Session: https://claude.ai/code/session_01EUnNXqv8jNWDVMA83G7eZ4"
 ---
 
 ### Task 3: The image gate
+
+> Superseded detail: the committed system/nvidia/lock.py and gate.sh (hardened in review) are authoritative; the interfaces below are unchanged.
 
 **Files:**
 - Create: `system/nvidia/gate.sh`, `system/nvidia/tests/test_gate.py`

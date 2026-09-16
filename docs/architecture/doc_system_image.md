@@ -68,12 +68,14 @@ The tier packages, the upstream packages, the UKI assembly and the hardening are
   - `nvidia-driver` and `nvidia-driver-libs`: EGL, GLX, GBM backend, Vulkan ICD;
   - `nvidia-driver-cuda` and `nvidia-persistenced`: `nvidia-smi`, CUDA libraries.
 - **`azoth-nvidia-kmod`,** a package built in this repository that provides `nvidia-kmod = 3:<version>`. `nvidia-kmod-common` requires that capability. The package contains no module: the modules come from the signed image above, and akmods and DKMS are never installed.
-- **`athanor-nvidia-config`,** which moves out of `athanor-base-config`: `kargs.d/01-nvidia.toml`, `nvidia-drm` options and the NVIDIA suspend and resume presets.
+- **`athanor-nvidia-config`,** which moves out of `athanor-base-config`: `kargs.d/01-nvidia.toml`, `nvidia-drm` options and the persistence daemon preset. It is the same package in both variants:
+  - it blacklists `nouveau` and `nova_core` in `modprobe.d` and on the kernel command line (`rd.driver.blacklist=` and `modprobe.blacklist=`), because RPM Fusion sets these arguments only through `grubby`, which does nothing in an image build;
+  - power management and the initrd policy (NVIDIA modules omitted from the initrd) stay with the vendor packages of each branch: negativo17 uses the kernel suspend notifiers (`NVreg_UseKernelSuspendNotifiers=1`), and RPM Fusion's `xorg-x11-drv-nvidia-power` ships and presets the suspend, resume and hibernate units.
 
 **S5. `athanor-system-nvidia-legacy`.** The same structure, with three differences:
 
 - the signed legacy modules come from `azoth-nvidia:<kernel-nvr>-legacy`;
-- the userspace is RPM Fusion's `xorg-x11-drv-nvidia` family at exactly `NVIDIA_LEGACY_VERSION`, because negativo17 publishes no 580 for Fedora 43;
+- the userspace is RPM Fusion's `xorg-x11-drv-nvidia` family at exactly `NVIDIA_LEGACY_VERSION`, including `xorg-x11-drv-nvidia-power` for suspend and resume, because negativo17 publishes no 580 for Fedora 43;
 - no GSP firmware is needed.
 
 The shim provides whatever kernel-module capability those packages require; the implementation plan reads it from their `Requires` before building the shim.
@@ -89,7 +91,7 @@ A mismatch is a build failure with the exact values, never a warning.
 
 **S7. Provenance of third-party RPMs.** Driver packages are installed by exact NVR from the pinned repository URL:
 
-- **Hashes:** the SHA-256 of each RPM is recorded in a manifest per variant (`system/nvidia/<variant>.sha256`), and the build verifies it before installation.
+- **Hashes:** the SHA-256 of each RPM is recorded in a manifest, `system/nvidia/locks/<branch>.lock`, one per driver branch (`open`, `legacy`), and the build verifies it before installation.
 - **Signatures:** `gpgcheck` stays on, with the negativo17 and RPM Fusion keys vendored in the repository. Package signatures are checked. negativo17 does not sign its repository metadata, which the manifest compensates for.
 - **Bumps:**
   - the bump bot regenerates the manifests whenever an `NVIDIA_*` pin moves;
@@ -114,7 +116,7 @@ A mismatch is a build failure with the exact values, never a warning.
 ## 3. What this replaces
 
 - **The base image:** `ghcr.io/hr-mes/ermete-base-nvidia:latest` and its implicit repositories.
-- **In `athanor-base-config`:** the NVIDIA kernel arguments, `nvidia-drm.conf` and the NVIDIA sleep scripts, which move to `athanor-nvidia-config` and are installed only by the variants.
+- **In `athanor-base-config`:** the NVIDIA kernel arguments and `nvidia-drm.conf`, which move to `athanor-nvidia-config` and are installed only by the variants, and the NVIDIA sleep scripts, which the vendor packages of each branch replace (S4).
 - **In `system/Containerfile`:** the unconditional copy of the open modules into every image.
 
 ## 4. Risks
@@ -122,6 +124,9 @@ A mismatch is a build failure with the exact values, never a warning.
 - **negativo17 has a single maintainer and keeps only a few versions.**
   - The manifest makes a disappearance visible as a failing build.
   - The fallback is to extract firmware and userspace from NVIDIA's `.run` of the pinned version ourselves. `nvidia.sh` already downloads it for the legacy branch.
+- **RPM Fusion keeps only the latest release.**
+  - `updates/43` publishes only the newest NVR of each package, so a pin that RPM Fusion has moved past fails `lock.py check` and the build until the pin is bumped.
+  - When 580 becomes a legacy series, RPM Fusion renames the packages (`xorg-x11-drv-nvidia-580xx*`). That needs a change to the package list in `lock.py`, not only a version bump.
 - **CI cost:** three image builds per cycle instead of one. The shared stages are cached layers, so only the GPU layer and the UKI assembly are paid three times.
 - **Flatpak applications** need the NVIDIA GL runtime extension matching the host driver version (`org.freedesktop.Platform.GL.nvidia-<version>`). flatpak installs it when the host driver is present; the hardware check covers it.
 - **Content drift of the base:** the digest pin plus a reviewed bump PR, with the package difference reported in the PR body.
