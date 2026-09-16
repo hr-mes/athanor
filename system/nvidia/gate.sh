@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Build gate of the system image (docs/architecture/doc_system_image.md, S3, S6, S8): run on the
 # finished image root before the UKI is assembled.
-#   none           no NVIDIA module, kernel argument, modprobe option, dracut configuration
-#                  or negativo17 repository
+#   none           no NVIDIA module, kernel argument, modprobe option, dracut configuration,
+#                  negativo17 repository or RPM Fusion NVIDIA driver repository
 #   nvidia         modules, driver packages, shim and GSP firmware at NVIDIA_OPEN_VERSION,
-#                  and the EGL, GBM and Vulkan files of the userspace
+#                  the EGL, GBM and Vulkan files of the userspace, and nouveau blacklisted
+#                  in modprobe.d and on the kernel command line
 #   nvidia-legacy  the same at NVIDIA_LEGACY_VERSION, with the RPM Fusion packages, no GSP check
 # Usage: gate.sh none|nvidia|nvidia-legacy PINS_ENV [ROOT]
 set -euo pipefail
@@ -15,7 +16,10 @@ ROOT=${3:-/}
 bad=0
 violation() { echo "nvidia gate: $*" >&2; bad=1; }
 
-mapfile -t modules < <(find "$ROOT/usr/lib/modules" -path '*/extra/nvidia/*' -name 'nvidia*.ko*' 2> /dev/null | sort)
+# Fail closed: a missing or misnamed modules tree must not pass as "no NVIDIA module".
+[[ -d $ROOT/usr/lib/modules ]] || violation "/usr/lib/modules: not a directory under $ROOT"
+# Every NVIDIA module wherever it lies (extra/, updates/, kernel/); nvidiafb is not one.
+mapfile -t modules < <(find "$ROOT/usr/lib/modules" \( -name 'nvidia.ko*' -o -name 'nvidia-*.ko*' -o -name 'nvidia_*.ko*' \) 2> /dev/null | sort)
 
 if [[ $GPU == none ]]; then
   for ko in "${modules[@]}"; do violation "${ko#"$ROOT"}: NVIDIA module in the default image"; done
@@ -24,8 +28,11 @@ if [[ $GPU == none ]]; then
   # Word-bounded: underscores and hyphens are boundaries; Fedora's dist-blacklist.conf names the unrelated framebuffer driver nvidiafb.
   done < <(grep -rlE '(^|[^[:alnum:]])nvidia([^[:alnum:]]|$)' "$ROOT/usr/lib/bootc/kargs.d" "$ROOT/usr/lib/modprobe.d" "$ROOT/etc/modprobe.d" "$ROOT/usr/lib/dracut/dracut.conf.d" 2> /dev/null | sort)
   while IFS= read -r f; do
-    violation "${f#"$ROOT"}: negativo17 repository in the default image"
-  done < <(grep -rl 'negativo17' "$ROOT/etc/yum.repos.d" 2> /dev/null | sort)
+    violation "${f#"$ROOT"}: NVIDIA driver repository in the default image"
+  done < <({
+    grep -rlE 'negativo17|^\[rpmfusion[^]]*nvidia' "$ROOT/etc/yum.repos.d"
+    find "$ROOT/etc/yum.repos.d" -name '*rpmfusion*nvidia*'
+  } 2> /dev/null | sort -u)
   exit "$bad"
 fi
 
@@ -36,7 +43,7 @@ case $GPU in
 esac
 [[ -n $expected ]] || { echo "gate.sh: no NVIDIA version for $GPU in $PINS" >&2; exit 2; }
 
-[[ ${#modules[@]} -gt 0 ]] || violation "no nvidia*.ko under /usr/lib/modules/*/extra/nvidia"
+[[ ${#modules[@]} -gt 0 ]] || violation "no NVIDIA module under /usr/lib/modules"
 for ko in "${modules[@]}"; do
   if got=$(modinfo -F version "$ko" 2>&1); then
     [[ $got == "$expected" ]] || violation "${ko##*/}: module $got, pin $expected"
@@ -60,4 +67,10 @@ for f in usr/share/glvnd/egl_vendor.d/10_nvidia.json usr/lib64/gbm/nvidia-drm_gb
   [[ -e $ROOT/$f ]] || violation "/$f missing"
 done
 compgen -G "$ROOT/usr/share/vulkan/icd.d/nvidia_icd*.json" > /dev/null || violation "/usr/share/vulkan/icd.d/nvidia_icd*.json missing"
+# nouveau must never claim the GPU: the modprobe.d blacklist covers the root filesystem, the
+# kernel argument also covers loads requested before any modprobe.d file is read.
+grep -qsE '^[[:space:]]*blacklist[[:space:]]+nouveau[[:space:]]*$' "$ROOT"/usr/lib/modprobe.d/*.conf "$ROOT"/etc/modprobe.d/*.conf ||
+  violation "no modprobe.d file blacklists nouveau"
+grep -qsE '(^|[^[:alnum:]._-])modprobe\.blacklist=([^[:space:]",]*,)*nouveau([,"[:space:]]|$)' "$ROOT"/usr/lib/bootc/kargs.d/*.toml ||
+  violation "no kargs.d file sets modprobe.blacklist=nouveau"
 exit "$bad"
