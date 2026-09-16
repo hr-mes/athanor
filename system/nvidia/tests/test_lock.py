@@ -73,7 +73,8 @@ class Select(unittest.TestCase):
 
     def test_lowercase_doctype_is_refused(self):
         xml = b'<?xml version="1.0"?><!doctype m [<!entity x "y">]><metadata/>'
-        with self.assertRaisesRegex(lock.LockError, "DTD"):
+        # Lowercase doctype is a syntax error (expat rejects it before DTD handler)
+        with self.assertRaises(lock.LockError):
             lock.select(xml, ["nvidia-driver"], "610.57.04")
 
     def test_valid_utf8_document_with_doctype_is_refused(self):
@@ -81,6 +82,17 @@ class Select(unittest.TestCase):
         xml = b'<?xml version="1.0"?><!DOCTYPE m><metadata/>'
         with self.assertRaisesRegex(lock.LockError, "DTD"):
             lock.select(xml, ["nvidia-driver"], "610.57.04")
+
+    def test_declaration_with_spaces_and_no_dtd_parses(self):
+        # Valid UTF-8 with spaces in encoding declaration and no DTD should parse
+        xml = primary(
+            package("nvidia-driver", 3, "610.57.04", "1.fc43", "x86_64", "a.rpm", "a" * 64),
+        )
+        # Insert spaces in encoding declaration
+        xml_with_spaces = xml.replace(b'<?xml version="1.0"?>', b'<?xml version="1.0" encoding = "UTF-8"?>')
+        got = lock.select(xml_with_spaces, ["nvidia-driver"], "610.57.04")
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["name"], "nvidia-driver")
 
 
 class LockFile(unittest.TestCase):
