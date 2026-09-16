@@ -82,9 +82,18 @@ else
   
   # Invalidiamo la cache degli upstream (compilati da zero) ad ogni aggiornamento della Base Image
   # per prevenire desincronizzazione librerie (es. libx265 per ffmpeg).
+  #
+  # The digest is no longer fetched from the registry: it already lives in the base-atomic
+  # FROM line of system/Containerfile, moved there by the kernel bump bot on every bump
+  # (forge/specs/azoth/bump.py). Reading it from the checkout avoids both the network call
+  # and the ghcr.io/${OWNER}/ermete-base-nvidia:latest tag, an image this repository no
+  # longer publishes since the rename.
   if [[ -z "${BASE_DIGEST:-}" ]]; then
-    if command -v skopeo >/dev/null 2>&1; then
-      BASE_DIGEST=$(skopeo inspect --no-tags "docker://ghcr.io/${OWNER}/ermete-base-nvidia:latest" 2>/dev/null | grep -oP '"Digest": "\K[^"]+' | head -n 1 || true)
+    SYSTEM_CONTAINERFILE="$(dirname "${BASH_SOURCE[0]}")/../../system/Containerfile"
+    BASE_DIGEST=$(grep -oP '^FROM \S*base-atomic\S*@\Ksha256:[0-9a-f]{64}' "$SYSTEM_CONTAINERFILE" | head -n 1)
+    if [[ -z "$BASE_DIGEST" ]]; then
+      echo "check_idempotency.sh: no base-atomic digest found in ${SYSTEM_CONTAINERFILE}" >&2
+      exit 1
     fi
   fi
   
