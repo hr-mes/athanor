@@ -17,6 +17,7 @@ import argparse
 import gzip
 import hashlib
 import pathlib
+import re
 import sys
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -56,8 +57,25 @@ def http_get(url):
 def parse_xml(data):
     """Repository metadata comes from the network: refuse any DTD, so no entity can expand
     or resolve (the standard library parser has no switch for it and defusedxml is not in
-    the build stage)."""
-    if b"<!DOCTYPE" in data or b"<!ENTITY" in data:
+    the build stage). Decode as UTF-8 first to prevent encoding-based DTD bypasses."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise LockError("repository metadata is not UTF-8: refused")
+    # Check XML declaration for non-UTF-8 encoding
+    if text.startswith("<?xml"):
+        decl_end = text.find("?>")
+        if decl_end != -1:
+            decl = text[:decl_end]
+            if "encoding=" in decl.lower():
+                # Extract encoding value
+                match = re.search(r'encoding\s*=\s*["\']([^"\']+)["\']', decl, re.IGNORECASE)
+                if match:
+                    enc = match.group(1).upper()
+                    if enc != "UTF-8":
+                        raise LockError("repository metadata declares non-UTF-8 encoding: refused")
+    # Scan for DTD/entity declarations (case-insensitive)
+    if "<!DOCTYPE" in text.upper() or "<!ENTITY" in text.upper():
         raise LockError("repository metadata declares a DTD or entities: refused")
     return ET.fromstring(data)
 
