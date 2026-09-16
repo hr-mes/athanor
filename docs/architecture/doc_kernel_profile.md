@@ -913,12 +913,13 @@ Found on the running system and in the repository (2026-09-14):
 - **CI signing:** the Secure Boot key is used in the same job as the image build and
   third-party actions, and the `signing` environment, which had no required reviewers, requires the
   maintainer's approval since 2026-09-14 (D43; immediate item of section 15).
-- **Base configuration** (P3): `ermete-base-config` is still installed and duplicates
-  `10-ermete.conf` (scx_loader), `99-ermete-slim-boot.conf`, `99-Ermete-Base.preset` and
-  `10-ermete-hw-groups.conf`, `kargs.d/01-nvidia.toml` and a `bootc-fetch-apply-updates`
-  override, and ships masks for `akmods@` and `dkms`;
-  `athanor-base-config` does not obsolete it yet, and P3 adds
-  `Obsoletes: ermete-base-config`. The NVIDIA dracut and kargs configuration moved to `athanor-nvidia-config`, installed only by the NVIDIA image variants (doc_system_image.md, S4), and overrides
+- **Base configuration** (P3): `ermete-base-config` came with the former `ermete-base-nvidia`
+  base and duplicated `10-ermete.conf` (scx_loader), `99-ermete-slim-boot.conf`,
+  `99-Ermete-Base.preset`, `10-ermete-hw-groups.conf`, `kargs.d/01-nvidia.toml` and a
+  `bootc-fetch-apply-updates` override, with masks for `akmods@` and `dkms`; it disappears with
+  the switch to `base-atomic` (doc_system_image.md, S1), which does not ship it. The NVIDIA dracut
+  and kargs configuration moved to `athanor-nvidia-config`, installed only by the NVIDIA image
+  variants (doc_system_image.md, S4). `athanor-base-config` overrides
   `bootc-fetch-apply-updates` to stage updates automatically, which conflicts with the
   confirmation of section 8 once enabled (inactive today only because `99-Athanor.preset` names the non-existent
   `bootc-fetch-apply.timer`).
