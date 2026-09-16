@@ -35,7 +35,7 @@ The base `ghcr.io/hr-mes/ermete-base-nvidia:latest` was built on 2026-07-05 (`or
 - **What it is:** a bootc image (`containers.bootc=1`, `ostree.bootable=true`). It shares the bottom layer of `fedora-bootc:43` (same `ostree.final-diffid`) and adds the desktop plumbing: NetworkManager with Wi-Fi and WWAN, pipewire, bluez, firmware, CUPS, ibus, Mesa, flatpak and Xwayland.
 - **What it replaces:** `ermete-base-nvidia`. The additions that base made become declared, reviewed content of this repository:
   - repositories, as pinned release packages with vendored GPG keys;
-  - codecs;
+  - codecs: Cisco openh264 from Fedora's `fedora-cisco-openh264` repository replaces the `noopenh264` stub of the base;
   - presets.
 
   Nothing is inherited from an image that no one rebuilds.
