@@ -57,11 +57,12 @@ def http_get(url):
 
 def parse_xml(data):
     """Repository metadata comes from the network: refuse any DTD, so no entity can expand
-    or resolve. Single-pass expat parser with TreeBuilder refuses DTDs/entities."""
-    # Reject payloads with NUL bytes (prevents UTF-16 encoding bypasses)
+    or resolve. The expat DOCTYPE and ENTITY handlers below are the enforcement; the NUL and
+    strict UTF-8 checks are an extra layer that refuses non-UTF-8 encodings before parsing."""
+    if not data:
+        raise LockError("repository metadata is empty: refused")
     if b"\x00" in data:
         raise LockError("repository metadata contains NUL bytes: refused")
-    # Verify UTF-8 decoding works (strict mode)
     try:
         data.decode("utf-8")
     except UnicodeDecodeError:
@@ -88,7 +89,7 @@ def parse_xml(data):
     parser.StartDoctypeDeclHandler = _refuse
     parser.EntityDeclHandler = _refuse
     try:
-        parser.Parse(data)
+        parser.Parse(data, True)
         return builder.close()
     except LockError:
         raise
@@ -96,10 +97,19 @@ def parse_xml(data):
         raise LockError(str(e))
 
 
+def attribute(element, tag, name, what):
+    """`name` of the child `tag` of `element`, or LockError naming `what`."""
+    child = element.find(tag)
+    value = None if child is None else child.get(name)
+    if not value:
+        raise LockError(f"{what}: no {tag.rsplit('}', 1)[-1]} {name} in the repository metadata")
+    return value
+
+
 def primary_href(repomd):
     for data in parse_xml(repomd).iter(f"{REPO}data"):
         if data.get("type") == "primary":
-            return data.find(f"{REPO}location").get("href")
+            return attribute(data, f"{REPO}location", "href", "repomd.xml primary")
     raise LockError("repomd.xml has no primary metadata")
 
 
@@ -108,13 +118,16 @@ def select(primary_xml, names, version):
     found = {name: [] for name in names}
     for pkg in parse_xml(primary_xml).iter(f"{COMMON}package"):
         name = pkg.findtext(f"{COMMON}name")
-        ver = pkg.find(f"{COMMON}version")
-        if name in found and ver.get("ver") == version and pkg.findtext(f"{COMMON}arch") in ARCHES:
-            found[name].append({
-                "name": name,
-                "href": pkg.find(f"{COMMON}location").get("href"),
-                "sha256": pkg.findtext(f"{COMMON}checksum"),
-            })
+        if name not in found:
+            continue
+        if attribute(pkg, f"{COMMON}version", "ver", name) != version or pkg.findtext(f"{COMMON}arch") not in ARCHES:
+            continue
+        if attribute(pkg, f"{COMMON}checksum", "type", name) != "sha256":
+            raise LockError(f"{name}: checksum type {pkg.find(f'{COMMON}checksum').get('type')}, sha256 required")
+        sha = pkg.findtext(f"{COMMON}checksum")
+        if not sha:
+            raise LockError(f"{name}: empty checksum in the repository metadata")
+        found[name].append({"name": name, "href": attribute(pkg, f"{COMMON}location", "href", name), "sha256": sha})
     missing = sorted(n for n, entries in found.items() if not entries)
     if missing:
         raise LockError(f"not published at {version}: {', '.join(missing)}")
@@ -132,19 +145,23 @@ def write_lock(path, branch, version, baseurl, entries):
 
 
 def read_lock(path):
-    version = baseurl = None
+    branch = version = baseurl = None
     entries = []
-    for line in path.read_text().splitlines():
-        if line.startswith("# version "):
+    for number, line in enumerate(path.read_text().splitlines(), 1):
+        if line.startswith("# branch "):
+            branch = line.split(" ", 2)[2]
+        elif line.startswith("# version "):
             version = line.split(" ", 2)[2]
         elif line.startswith("# repository "):
             baseurl = line.split(" ", 2)[2]
         elif line and not line.startswith("#"):
-            sha, url = line.split("  ", 1)
+            sha, sep, url = line.partition("  ")
+            if not sep or len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha) or not url or " " in url:
+                raise LockError(f"{path}:{number}: malformed lock line, expected '<sha256>  <url>'")
             entries.append((sha, url))
-    if not version or not baseurl or not entries:
+    if not branch or not version or not baseurl or not entries:
         raise LockError(f"{path}: incomplete lock")
-    return version, baseurl, entries
+    return branch, version, baseurl, entries
 
 
 def resolve(branch, version, download):
@@ -180,7 +197,15 @@ def main(argv=None, download=http_get):
             return 0
         if not args.out:
             raise LockError("fetch needs --out")
-        version, _, entries = read_lock(args.locks / f"{args.branch}.lock")
+        path = args.locks / f"{args.branch}.lock"
+        branch, version, baseurl, entries = read_lock(path)
+        if branch != args.branch:
+            raise LockError(f"{path}: lock of branch {branch}, {args.branch} requested")
+        if baseurl != BRANCHES[branch]["baseurl"]:
+            raise LockError(f"{path}: repository {baseurl}, the {branch} branch uses {BRANCHES[branch]['baseurl']}")
+        outside = [url for _, url in entries if not url.startswith(baseurl)]
+        if outside:
+            raise LockError(f"{path}: URL outside the repository {baseurl}: {', '.join(outside)}")
         args.out.mkdir(parents=True, exist_ok=True)
         for sha, url in entries:
             data = download(url)
@@ -190,7 +215,7 @@ def main(argv=None, download=http_get):
             (args.out / url.rsplit("/", 1)[1]).write_bytes(data)
         print(version)
         return 0
-    except (LockError, OSError, ET.ParseError) as error:
+    except (LockError, OSError) as error:
         print(f"lock.py: {error}", file=sys.stderr)
         return 1
 
