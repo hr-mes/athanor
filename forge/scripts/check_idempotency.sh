@@ -90,8 +90,7 @@ else
   # longer publishes since the rename.
   if [[ -z "${BASE_DIGEST:-}" ]]; then
     SYSTEM_CONTAINERFILE="$(dirname "${BASH_SOURCE[0]}")/../../system/Containerfile"
-    BASE_DIGEST=$(grep -oP '^FROM \S*base-atomic\S*@\Ksha256:[0-9a-f]{64}' "$SYSTEM_CONTAINERFILE" | head -n 1)
-    if [[ -z "$BASE_DIGEST" ]]; then
+    if ! BASE_DIGEST=$(grep -m1 -oP '^FROM \S*base-atomic\S*@\Ksha256:[0-9a-f]{64}' "$SYSTEM_CONTAINERFILE"); then
       echo "check_idempotency.sh: no base-atomic digest found in ${SYSTEM_CONTAINERFILE}" >&2
       exit 1
     fi
