@@ -60,6 +60,12 @@ RUN if rpm -q fedora-workstation-repositories >/dev/null; then \
         dnf5 remove -y --no-autoremove fedora-workstation-repositories; \
     fi
 
+# base-atomic ships the noopenh264 stub; the H.264 codec is Cisco's openh264 from Fedora's own
+# fedora-cisco-openh264 repository, which replaces the stub (doc_system_image.md, S1).
+RUN dnf5 install -y --allowerasing --enablerepo=fedora-cisco-openh264 openh264 && \
+    rpm -q openh264 && \
+    ! rpm -q noopenh264
+
 # The Azoth kernel of the pins is the one tier 0 installed.
 ARG AZOTH_NVR
 RUN test -f "/usr/lib/modules/${AZOTH_NVR}.x86_64/vmlinuz"
