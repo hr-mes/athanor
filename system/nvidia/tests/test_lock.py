@@ -7,7 +7,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 
 HERE = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HERE))
@@ -64,6 +64,23 @@ class Select(unittest.TestCase):
         with self.assertRaisesRegex(lock.LockError, "ambiguous"):
             lock.select(xml, ["nvidia-driver"], "610.57.04")
 
+    def test_utf16_encoded_document_with_doctype_is_refused(self):
+        # UTF-16 encoding spreads <!DOCTYPE across interleaved bytes
+        xml = b'<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE m [<!ENTITY x "y">]><metadata/>'
+        # Try to encode as UTF-16
+        try:
+            xml_utf16 = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE m [<!ENTITY x "y">]><metadata/>'.encode('utf-16')
+        except Exception:
+            # If encoding fails, skip this test
+            return
+        with self.assertRaisesRegex(lock.LockError, "UTF-8"):
+            lock.select(xml_utf16, ["nvidia-driver"], "610.57.04")
+
+    def test_lowercase_doctype_is_refused(self):
+        xml = b'<?xml version="1.0"?><!doctype m [<!entity x "y">]><metadata/>'
+        with self.assertRaisesRegex(lock.LockError, "DTD"):
+            lock.select(xml, ["nvidia-driver"], "610.57.04")
+
 
 class LockFile(unittest.TestCase):
     def test_round_trip(self):
@@ -97,7 +114,8 @@ class Fetch(unittest.TestCase):
             tmp = pathlib.Path(d)
             lock.write_lock(tmp / "open.lock", "open", "610.57.04", "https://repo/", [(sha, "https://repo/a.rpm")])
             out = tmp / "out"
-            code = lock.main(["fetch", "open", "--out", str(out), "--locks", str(tmp)], download=lambda url: payload)
+            with redirect_stdout(io.StringIO()):
+                code = lock.main(["fetch", "open", "--out", str(out), "--locks", str(tmp)], download=lambda url: payload)
             self.assertEqual(code, 0)
             self.assertEqual((out / "a.rpm").read_bytes(), payload)
 
@@ -129,6 +147,76 @@ class Repomd(unittest.TestCase):
             self.assertEqual(version, "580.178.04")
             self.assertEqual(len(entries), len(lock.BRANCHES["legacy"]["packages"]))
             self.assertTrue(all(s == sha for s, _ in entries))
+
+    def test_checksum_mismatch_in_metadata_fails_and_keeps_nothing(self):
+        # Repository metadata says one checksum, downloaded bytes have a different SHA-256
+        good_rpm = b"payload"
+        good_sha = hashlib.sha256(good_rpm).hexdigest()
+        bad_rpm = b"different payload"
+        bad_sha = hashlib.sha256(bad_rpm).hexdigest()
+        # Metadata with good_sha for the first package
+        xml = primary(*[
+            package(lock.BRANCHES["legacy"]["packages"][0], 3, "580.178.04", "1.fc43", "x86_64", f"x/{lock.BRANCHES['legacy']['packages'][0]}.rpm", good_sha),
+        ] + [
+            package(n, 3, "580.178.04", "1.fc43", "x86_64", f"x/{n}.rpm", good_sha) for n in lock.BRANCHES["legacy"]["packages"][1:]
+        ])
+        base = lock.BRANCHES["legacy"]["baseurl"]
+        files = {
+            base + "repodata/repomd.xml": b'<repomd xmlns="http://linux.duke.edu/metadata/repo"><data type="primary"><location href="repodata/p.xml.gz"/></data></repomd>',
+            base + "repodata/p.xml.gz": gzip.compress(xml),
+        }
+        with tempfile.TemporaryDirectory() as d:
+            tmp = pathlib.Path(d)
+            # Download function returns bad_rpm for the first package, good_rpm for others
+            call_count = [0]
+            def download(url):
+                if lock.BRANCHES["legacy"]["packages"][0] in url and call_count[0] == 2:
+                    # This is the first package download (after metadata)
+                    call_count[0] += 1
+                    return bad_rpm
+                call_count[0] += 1
+                return files.get(url, good_rpm)
+            err = io.StringIO()
+            with redirect_stderr(err):
+                code = lock.main(["generate", "legacy", "--version", "580.178.04", "--locks", str(tmp)], download=download)
+            self.assertEqual(code, 1)
+            self.assertIn(lock.BRANCHES["legacy"]["packages"][0], err.getvalue())
+            # Verify no lock file was written
+            self.assertFalse((tmp / "legacy.lock").exists())
+
+    def test_check_succeeds_when_all_packages_published(self):
+        # Test check command returns 0 when all packages are available at the version
+        rpm = b"payload"
+        sha = hashlib.sha256(rpm).hexdigest()
+        xml = primary(*[
+            package(n, 3, "580.178.04", "1.fc43", "x86_64", f"x/{n}.rpm", sha) for n in lock.BRANCHES["legacy"]["packages"]
+        ])
+        base = lock.BRANCHES["legacy"]["baseurl"]
+        files = {
+            base + "repodata/repomd.xml": b'<repomd xmlns="http://linux.duke.edu/metadata/repo"><data type="primary"><location href="repodata/p.xml.gz"/></data></repomd>',
+            base + "repodata/p.xml.gz": gzip.compress(xml),
+        }
+        code = lock.main(["check", "legacy", "--version", "580.178.04"], download=lambda url: files.get(url, rpm))
+        self.assertEqual(code, 0)
+
+    def test_check_fails_when_package_missing(self):
+        # Test check command returns 1 when a package is missing
+        rpm = b"payload"
+        sha = hashlib.sha256(rpm).hexdigest()
+        # Publish all packages except the first one
+        xml = primary(*[
+            package(n, 3, "580.178.04", "1.fc43", "x86_64", f"x/{n}.rpm", sha) for n in lock.BRANCHES["legacy"]["packages"][1:]
+        ])
+        base = lock.BRANCHES["legacy"]["baseurl"]
+        files = {
+            base + "repodata/repomd.xml": b'<repomd xmlns="http://linux.duke.edu/metadata/repo"><data type="primary"><location href="repodata/p.xml.gz"/></data></repomd>',
+            base + "repodata/p.xml.gz": gzip.compress(xml),
+        }
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = lock.main(["check", "legacy", "--version", "580.178.04"], download=lambda url: files.get(url, rpm))
+        self.assertEqual(code, 1)
+        self.assertIn(lock.BRANCHES["legacy"]["packages"][0], err.getvalue())
 
 
 if __name__ == "__main__":
