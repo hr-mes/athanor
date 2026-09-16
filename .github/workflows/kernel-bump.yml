@@ -32,7 +32,8 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # Regenerating both NVIDIA locks downloads about 650 MB of RPMs.
+    timeout-minutes: 30
     outputs:
       changed: ${{ steps.bump.outputs.changed }}
     env:
