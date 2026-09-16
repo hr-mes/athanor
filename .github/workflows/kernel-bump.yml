@@ -54,10 +54,10 @@ jobs:
           set -euo pipefail
           python3 forge/specs/azoth/bump.py apply > body.md
           changed=false
-          [[ -z $(git status --porcelain -- forge/specs/azoth) ]] || changed=true
+          [[ -z $(git status --porcelain -- forge/specs/azoth system/Containerfile system/nvidia/locks) ]] || changed=true
           echo "changed=${changed}" >> "$GITHUB_OUTPUT"
           { echo "## bump: $([[ $changed == true ]] && echo "new pins" || echo "pins unchanged")"; echo; cat body.md; } >> "$GITHUB_STEP_SUMMARY"
-          git status --short -- forge/specs/azoth
+          git status --short -- forge/specs/azoth system/Containerfile system/nvidia/locks
 
       - if: ${{ steps.bump.outputs.changed == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -70,6 +70,9 @@ jobs:
             forge/specs/azoth/builder/Containerfile
             forge/specs/azoth/boot/Containerfile
             forge/specs/azoth/nvidia/Containerfile
+            system/Containerfile
+            system/nvidia/locks/open.lock
+            system/nvidia/locks/legacy.lock
           if-no-files-found: error
 
   prep:
@@ -173,7 +176,7 @@ jobs:
       - name: Branch, commit, PR (auto-merge only on a green prep)
         run: |
           set -euo pipefail
-          git add forge/specs/azoth
+          git add forge/specs/azoth system/Containerfile system/nvidia/locks
           keys=$(git diff --cached -U0 -- forge/specs/azoth/pins.env | sed -n 's/^+\([A-Z_]\+\)=.*/\1/p')
           git diff --cached --quiet -- 'forge/specs/azoth/*/Containerfile' || keys+=${keys:+$'\n'}"base image"
           title="chore(kernel): bump $(paste -sd, - <<< "$keys" | sed 's/,/, /g')"
