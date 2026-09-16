@@ -30,20 +30,22 @@ ARG TETRAGON_VERSION=v1.3.0
 
 
 # TIER 0: BEDROCK HARDWARE & KERNEL FOUNDATION
-RUN --mount=type=bind,from=ghcr.io/hr-mes/athanor-forge-tier0-repo:latest,source=/,target=/mnt/tier0-repo \
+# The tier repositories mount under /tmp: in an ostree image /mnt is a symlink to var/mnt,
+# which does not exist at build time, so podman cannot create a mount target below it.
+RUN --mount=type=bind,from=ghcr.io/hr-mes/athanor-forge-tier0-repo:latest,source=/,target=/tmp/tier0-repo \
     --mount=type=cache,dst=/var/cache --mount=type=cache,dst=/var/cache/libdnf5 \
     base_kernel=$(rpm -qa kernel kernel-core 'kernel-modules*' 'kernel-uki-virt*') && \
     if [ -n "$base_kernel" ]; then \
         echo "Tier 0: Removing the base image kernel: bootc supports one kernel per image and Azoth is installed below..." && \
         dnf5 remove -y --no-autoremove $base_kernel; \
     fi && \
-    BASE_CONFIG=$(find /mnt/tier0-repo -name "athanor-base-config*.rpm" | head -n 1) && \
+    BASE_CONFIG=$(find /tmp/tier0-repo -name "athanor-base-config*.rpm" | head -n 1) && \
     if [ -n "$BASE_CONFIG" ]; then \
         echo "Tier 0: Installing core Athanor Forge base configuration..." && \
         if rpm -q fedora-logos >/dev/null; then rpm -e --nodeps fedora-logos; fi && \
         rpm -Uvh --replacefiles --replacepkgs --nodeps "$BASE_CONFIG"; \
     fi && \
-    RPM_LIST=$(find /mnt/tier0-repo -name "*.rpm" 2>/dev/null | awk '!/systemd-standalone-|.*-free-.*\.rpm|glibc32|kernel-debug|rpm-.*\.rpm|fedora-release-|selinux-policy|athanor-base-config|-doc-|debuginfo|debugsource/ && (!/-devel-/ || /kernel-devel/)') && \
+    RPM_LIST=$(find /tmp/tier0-repo -name "*.rpm" 2>/dev/null | awk '!/systemd-standalone-|.*-free-.*\.rpm|glibc32|kernel-debug|rpm-.*\.rpm|fedora-release-|selinux-policy|athanor-base-config|-doc-|debuginfo|debugsource/ && (!/-devel-/ || /kernel-devel/)') && \
     if [ -n "$RPM_LIST" ]; then \
         echo "Tier 0: Installing the hardware foundation and the Azoth kernel..." && \
         dnf5 install -y --allowerasing --setopt=install_weak_deps=False --setopt=tsflags=nodocs $RPM_LIST; \
@@ -65,35 +67,35 @@ RUN test -f "/usr/lib/modules/${AZOTH_NVR}.x86_64/vmlinuz"
 # Tier 0: Install Cilium Tetragon eBPF Runtime Security is now delegated to athanor-tetragon RPM
 
 # TIER 1: CORE USERSERVICE, DBUS & POLICYKIT
-RUN --mount=type=bind,from=ghcr.io/hr-mes/athanor-forge-tier1-repo:latest,source=/,target=/mnt/tier1-repo \
+RUN --mount=type=bind,from=ghcr.io/hr-mes/athanor-forge-tier1-repo:latest,source=/,target=/tmp/tier1-repo \
     --mount=type=cache,dst=/var/cache --mount=type=cache,dst=/var/cache/libdnf5 \
     echo "Tier 1: Installing Scudo Hardened Allocator (compiler-rt), Keylime & UKI tools..." && \
     dnf5 install -y --setopt=install_weak_deps=False --setopt=tsflags=nodocs compiler-rt keylime-tenant keylime-agent systemd-ukify systemd-boot-unsigned sbsigntools openssl tpm2-tools cryptsetup dracut && \
-    if find /mnt/tier1-repo -name "*.rpm" 1> /dev/null 2>&1; then \
+    if find /tmp/tier1-repo -name "*.rpm" 1> /dev/null 2>&1; then \
         echo "Tier 1: Installing Core User Services, DBus & Policies..." && \
-        RPM_LIST=$(find /mnt/tier1-repo -name "*.rpm" ! -name "*-devel-*" ! -name "*-doc-*" ! -name "*debuginfo*" ! -name "*debugsource*" ! -name "*astro-toolchain*" ! -name "*sccache*" ! -name "*buildah*" ! -name "*mold*" ! -name "*osbuild*" ! -name "*cargo-tools*") && \
+        RPM_LIST=$(find /tmp/tier1-repo -name "*.rpm" ! -name "*-devel-*" ! -name "*-doc-*" ! -name "*debuginfo*" ! -name "*debugsource*" ! -name "*astro-toolchain*" ! -name "*sccache*" ! -name "*buildah*" ! -name "*mold*" ! -name "*osbuild*" ! -name "*cargo-tools*") && \
         if [ -n "$RPM_LIST" ]; then \
             dnf5 install -y --setopt=install_weak_deps=False --setopt=tsflags=nodocs $RPM_LIST; \
         fi; \
     fi
 
 # TIER 2: DESIGN SYSTEM & STATIC ASSETS
-RUN --mount=type=bind,from=ghcr.io/hr-mes/athanor-forge-tier2-repo:latest,source=/,target=/mnt/tier2-repo \
+RUN --mount=type=bind,from=ghcr.io/hr-mes/athanor-forge-tier2-repo:latest,source=/,target=/tmp/tier2-repo \
     --mount=type=cache,dst=/var/cache --mount=type=cache,dst=/var/cache/libdnf5 \
-    if find /mnt/tier2-repo -name "*.rpm" 1> /dev/null 2>&1; then \
+    if find /tmp/tier2-repo -name "*.rpm" 1> /dev/null 2>&1; then \
         echo "Tier 2: Installing Design System & Static Assets..." && \
-        RPM_LIST=$(find /mnt/tier2-repo -name "*.rpm" ! -name "*-devel-*" ! -name "*-doc-*" ! -name "*debuginfo*" ! -name "*debugsource*" ! -name "*astro-toolchain*" ! -name "*sccache*" ! -name "*buildah*" ! -name "*mold*" ! -name "*osbuild*" ! -name "*cargo-tools*") && \
+        RPM_LIST=$(find /tmp/tier2-repo -name "*.rpm" ! -name "*-devel-*" ! -name "*-doc-*" ! -name "*debuginfo*" ! -name "*debugsource*" ! -name "*astro-toolchain*" ! -name "*sccache*" ! -name "*buildah*" ! -name "*mold*" ! -name "*osbuild*" ! -name "*cargo-tools*") && \
         if [ -n "$RPM_LIST" ]; then \
             dnf5 install -y --setopt=install_weak_deps=False --setopt=tsflags=nodocs $RPM_LIST; \
         fi; \
     fi
 
 # TIER 3: AGILE RUST SHELL & APPS
-RUN --mount=type=bind,from=ghcr.io/hr-mes/athanor-forge-tier3-repo:latest,source=/,target=/mnt/tier3-repo \
+RUN --mount=type=bind,from=ghcr.io/hr-mes/athanor-forge-tier3-repo:latest,source=/,target=/tmp/tier3-repo \
     --mount=type=cache,dst=/var/cache --mount=type=cache,dst=/var/cache/libdnf5 \
-    if find /mnt/tier3-repo -name "*.rpm" 1> /dev/null 2>&1; then \
+    if find /tmp/tier3-repo -name "*.rpm" 1> /dev/null 2>&1; then \
         echo "Tier 3: Installing Agile Rust Shell & Apps..." && \
-        RPM_LIST=$(find /mnt/tier3-repo -name "*.rpm" ! -name "*-devel-*" ! -name "*-doc-*" ! -name "*debuginfo*" ! -name "*debugsource*" ! -name "*astro-toolchain*" ! -name "*sccache*" ! -name "*buildah*" ! -name "*mold*" ! -name "*osbuild*" ! -name "*cargo-tools*") && \
+        RPM_LIST=$(find /tmp/tier3-repo -name "*.rpm" ! -name "*-devel-*" ! -name "*-doc-*" ! -name "*debuginfo*" ! -name "*debugsource*" ! -name "*astro-toolchain*" ! -name "*sccache*" ! -name "*buildah*" ! -name "*mold*" ! -name "*osbuild*" ! -name "*cargo-tools*") && \
         if [ -n "$RPM_LIST" ]; then \
             dnf5 install -y --setopt=install_weak_deps=False --setopt=tsflags=nodocs $RPM_LIST; \
         fi; \
