@@ -1,13 +1,28 @@
-# The NVIDIA modules are built for the kernel NVR of the pins, signed with the project
-# module signing key by nvidia-kmod.yml and published as azoth-nvidia:<nvr>-<branch>: a
-# scratch image with lib/modules/<kver>/extra/nvidia/*.ko, copied next to the kernel
-# in tier 0. AZOTH_NVR is passed by call-system-image.yml from forge/specs/azoth/nvr.sh.
+# The Athanor system images (docs/architecture/doc_system_image.md). One file, three images
+# selected by the GPU build argument: none (athanor-system), nvidia (athanor-system-nvidia)
+# and nvidia-legacy (athanor-system-nvidia-legacy). Everything up to the `system` stage is
+# shared; the GPU stages add the signed NVIDIA modules of the Azoth kernel with the locked
+# vendor packages; the final stage gates, assembles the UKI and lints. AZOTH_NVR is passed by
+# system/build-image.sh from forge/specs/azoth/nvr.sh.
 ARG AZOTH_NVR
-FROM ghcr.io/hr-mes/azoth-nvidia:${AZOTH_NVR}-open AS nvidia-modules
+ARG GPU=none
 
-# The base image is built by the separate repository hr-mes/ermete-base-nvidia and
-# has not been renamed: no athanor-base-nvidia image has ever been published.
-FROM ghcr.io/hr-mes/ermete-base-nvidia:latest
+FROM ghcr.io/hr-mes/azoth-nvidia:${AZOTH_NVR}-open AS nvidia-modules-open
+FROM ghcr.io/hr-mes/azoth-nvidia:${AZOTH_NVR}-legacy AS nvidia-modules-legacy
+
+# The vendor RPMs of both NVIDIA branches, verified by hash and GPG, with the shim and the
+# configuration package (system/nvidia/build-rpms.sh). A throwaway stage: rpm-build never
+# reaches an image.
+FROM registry.fedoraproject.org/fedora:43@sha256:9b8b763ff01cc0e0fe8775fd3fa286c6b008a119013d178e00444fbcc04ae9f2 AS nvidia-rpms
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+COPY forge/specs/azoth/pins.env /src/forge/specs/azoth/pins.env
+COPY system/nvidia/ /src/system/nvidia/
+RUN dnf5 install -y --setopt=install_weak_deps=False rpm-build python3 && \
+    bash /src/system/nvidia/build-rpms.sh /out
+
+# Fedora's atomic desktop base (S1): the bootc base of Silverblue and Kinoite, pinned by
+# digest and moved by the bump bot.
+FROM quay.io/fedora-ostree-desktops/base-atomic:43@sha256:ead5f8bc4032ea4bc2f61d60f3101d6cc90f6c87bb405345a3d18b8b1651cd70 AS system
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ARG FEDORA_VERSION=43
 ENV FEDORA_VERSION=$FEDORA_VERSION
@@ -35,12 +50,9 @@ RUN --mount=type=bind,from=ghcr.io/hr-mes/athanor-forge-tier0-repo:latest,source
     fi && \
     rm -rf /usr/lib/firmware/{mellanox,qlogic,netronome,liquidio,cxgb4,bnx2x,cavium,dpaa2}
 
-# The signed NVIDIA modules of the Azoth kernel; depmod runs in assemble_uki.sh. The
-# test ties the modules to the kernel installed above: both come from the same NVR.
+# The Azoth kernel of the pins is the one tier 0 installed.
 ARG AZOTH_NVR
-COPY --from=nvidia-modules /lib/modules/ /usr/lib/modules/
-RUN test -f "/usr/lib/modules/${AZOTH_NVR}.x86_64/vmlinuz" && \
-    test -f "/usr/lib/modules/${AZOTH_NVR}.x86_64/extra/nvidia/nvidia.ko"
+RUN test -f "/usr/lib/modules/${AZOTH_NVR}.x86_64/vmlinuz"
 
 # Tier 0: Install Cilium Tetragon eBPF Runtime Security is now delegated to athanor-tetragon RPM
 
@@ -125,6 +137,31 @@ RUN if ls /usr/share/selinux/packages/*.cil >/dev/null 2>&1; then \
 # Declarative Systemd presets & sysusers
 RUN authselect enable-feature with-systemd-homed && \
     systemctl enable tetragon.service systemd-sysext.service systemd-homed.service athanor-tpm-rollback-check.service athanor-tpm-rollback-update.service athanor-tpm-luks-seal.service && systemd-sysusers && systemctl preset-all && systemctl --global preset-all
+
+# GPU stages (S2-S5): the signed modules of the kernel NVR with the locked vendor packages of
+# the same version, the shim and athanor-nvidia-config. libva-nvidia-driver (VA-API on NVDEC)
+# only makes sense with the NVIDIA driver.
+FROM system AS gpu-none
+
+FROM system AS gpu-nvidia
+COPY --from=nvidia-modules-open /lib/modules/ /usr/lib/modules/
+COPY --from=nvidia-rpms /out/open/ /tmp/nvidia-rpms/
+RUN --mount=type=cache,dst=/var/cache --mount=type=cache,dst=/var/cache/libdnf5 \
+    dnf5 install -y --setopt=install_weak_deps=False --setopt=tsflags=nodocs /tmp/nvidia-rpms/*.rpm libva-nvidia-driver && \
+    rm -rf /tmp/nvidia-rpms && systemctl preset-all
+
+FROM system AS gpu-nvidia-legacy
+COPY --from=nvidia-modules-legacy /lib/modules/ /usr/lib/modules/
+COPY --from=nvidia-rpms /out/legacy/ /tmp/nvidia-rpms/
+RUN --mount=type=cache,dst=/var/cache --mount=type=cache,dst=/var/cache/libdnf5 \
+    dnf5 install -y --setopt=install_weak_deps=False --setopt=tsflags=nodocs /tmp/nvidia-rpms/*.rpm libva-nvidia-driver && \
+    rm -rf /tmp/nvidia-rpms && systemctl preset-all
+
+FROM gpu-${GPU} AS final
+ARG GPU
+COPY forge/specs/azoth/pins.env /scripts/pins.env
+COPY system/nvidia/gate.sh /scripts/nvidia-gate.sh
+RUN bash /scripts/nvidia-gate.sh "${GPU}" /scripts/pins.env /
 
 # Initramfs & Unified Kernel Image (UKI) generation
 RUN --mount=type=secret,id=uki_key,required=false \
