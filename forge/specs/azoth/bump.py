@@ -32,6 +32,7 @@ PINS = HERE / "pins.env"
 # every FROM pinned by digest moves in the same bump.
 CONTAINERFILES = [HERE / d / "Containerfile" for d in ("builder", "boot", "nvidia")] + [HERE.parents[2] / "system" / "Containerfile"]
 NVIDIA_LOCK = HERE.parents[2] / "system" / "nvidia" / "lock.py"
+LOCK_NOT_PUBLISHED = 3  # lock.py's exit code for a version the repository does not publish
 KERNEL_MD = HERE / "KERNEL.md"
 FEDORA_RELEASES = ("F43", "F44")  # in order of preference for the same patch level
 LTS_SERIES = "6.18"  # KERNEL_CHANNEL=lts: the longterm Fedora and CachyOS maintain
@@ -203,9 +204,17 @@ def nvidia_legacy(current):
     return max(re.findall(rf"href='({major}\.\d+(?:\.\d+)?)/'", index), key=vtuple)
 
 
+def lock_py(*args, allowed=(0,)):
+    """Run system/nvidia/lock.py; an exit code outside `allowed` aborts the bot with its stderr."""
+    done = subprocess.run([sys.executable, "-B", str(NVIDIA_LOCK), *args], capture_output=True, text=True)
+    if done.returncode not in allowed:
+        sys.exit(f"lock.py {' '.join(args)}: exit {done.returncode}\n{done.stderr.strip()}")
+    return done
+
+
 def lock_check(branch, version):
     """True when the branch's driver repository publishes every locked package at version."""
-    return subprocess.run([sys.executable, "-B", str(NVIDIA_LOCK), "check", branch, "--version", version], capture_output=True).returncode == 0
+    return lock_py("check", branch, "--version", version, allowed=(0, LOCK_NOT_PUBLISHED)).returncode == 0
 
 
 def packaged_or_current(branch, candidate, current, notes, check=lock_check):
