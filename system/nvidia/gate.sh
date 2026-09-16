@@ -18,8 +18,10 @@ violation() { echo "nvidia gate: $*" >&2; bad=1; }
 
 # Fail closed: a missing or misnamed modules tree must not pass as "no NVIDIA module".
 [[ -d $ROOT/usr/lib/modules ]] || violation "/usr/lib/modules: not a directory under $ROOT"
-# Every NVIDIA module wherever it lies (extra/, updates/, kernel/); nvidiafb is not one.
-mapfile -t modules < <(find "$ROOT/usr/lib/modules" \( -name 'nvidia.ko*' -o -name 'nvidia-*.ko*' -o -name 'nvidia_*.ko*' \) 2> /dev/null | sort)
+# The modules of the NVIDIA driver itself wherever they lie (extra/, updates/, kernel/), by
+# exact base name: in-tree modules such as nvidiafb or nvidia-wmi-ec-backlight are not the driver.
+mapfile -t modules < <(find "$ROOT/usr/lib/modules" -regextype posix-extended \
+  -regex '.*/nvidia([-_](drm|modeset|uvm|peermem))?\.ko(\.(xz|zst|gz))?' 2> /dev/null | sort)
 
 if [[ $GPU == none ]]; then
   for ko in "${modules[@]}"; do violation "${ko#"$ROOT"}: NVIDIA module in the default image"; done
