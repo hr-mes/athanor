@@ -68,7 +68,10 @@ jobs:
         env:
           OWNER: ${{ github.repository_owner }}
           TMPDIR: ${{ runner.temp }}
-        run: bash system/package-delta.sh "ghcr.io/${OWNER,,}/athanor-system:latest" localhost/athanor-system:check >> "$GITHUB_STEP_SUMMARY"
+        # tee: the job summary cannot be read through the REST API, the log can (gh run view --log).
+        run: |
+          set -euo pipefail
+          bash system/package-delta.sh "ghcr.io/${OWNER,,}/athanor-system:latest" localhost/athanor-system:check | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Remove the images of this job
         if: always()
