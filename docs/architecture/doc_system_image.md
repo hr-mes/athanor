@@ -94,9 +94,10 @@ A mismatch is a build failure with the exact values, never a warning.
 - **Hashes:** the SHA-256 of each RPM is recorded in a manifest, `system/nvidia/locks/<branch>.lock`, one per driver branch (`open`, `legacy`), and the build verifies it before installation. A branch can also lock companion packages whose version does not follow the driver's, such as negativo17's `nvidia-driver-selinux` that `nvidia-kmod-common` requires whenever `selinux-policy-targeted` is installed: they are locked at the newest release the repository publishes, under the same hash and repository rules.
 - **Signatures:** `gpgcheck` stays on, with the negativo17 and RPM Fusion keys vendored in the repository. Package signatures are checked. negativo17 does not sign its repository metadata, which the manifest compensates for.
 - **Bumps:**
-  - the bump bot regenerates the manifests whenever an `NVIDIA_*` pin moves;
+  - the bump bot regenerates the manifests whenever an `NVIDIA_*` pin moves, and on every run verifies each manifest against the repository metadata, regenerating it when the repository republishes the pinned version with other files or checksums;
   - `NVIDIA_OPEN_VERSION` moves only to a version that both `NVIDIA/open-gpu-kernel-modules` and negativo17 publish;
-  - `NVIDIA_LEGACY_VERSION` moves only to a version RPM Fusion publishes.
+  - `NVIDIA_LEGACY_VERSION` moves to the newest version of its branch that RPM Fusion publishes;
+  - a bump that moves the system base or a manifest never merges by itself: System Image Check and a human review decide.
 
 **S8. Build, publication and installation.**
 
@@ -125,7 +126,7 @@ A mismatch is a build failure with the exact values, never a warning.
   - The manifest makes a disappearance visible as a failing build.
   - The fallback is to extract firmware and userspace from NVIDIA's `.run` of the pinned version ourselves. `nvidia.sh` already downloads it for the legacy branch.
 - **RPM Fusion keeps only the latest release.**
-  - `updates/43` publishes only the newest NVR of each package, so a pin that RPM Fusion has moved past fails `lock.py check` and the build until the pin is bumped.
+  - `updates/43` publishes only the newest NVR of each package, so a pin that RPM Fusion has moved past fails the build until the pin is bumped. The bump bot verifies the lock on every daily run and moves the pin or regenerates the lock by pull request.
   - When 580 becomes a legacy series, RPM Fusion renames the packages (`xorg-x11-drv-nvidia-580xx*`). That needs a change to the package list in `lock.py`, not only a version bump.
 - **CI cost:** three image builds per cycle instead of one. The shared stages are cached layers, so only the GPU layer and the UKI assembly are paid three times.
 - **Flatpak applications** need the NVIDIA GL runtime extension matching the host driver version (`org.freedesktop.Platform.GL.nvidia-<version>`). flatpak installs it when the host driver is present; the hardware check covers it.

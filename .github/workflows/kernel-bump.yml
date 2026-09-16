@@ -2,7 +2,9 @@ name: Kernel Bump
 
 # The kernel bump bot (forge/specs/azoth/bump.py, spec section 8).
 # check: on a GitHub runner, bump.py compares the pins with Bodhi, the CachyOS releases,
-# the NVIDIA tags and the Fedora registry; when nothing changed it stops here. prep: on
+# the NVIDIA tags and the Fedora registry; it also moves the system base (quay.io base-atomic
+# in system/Containerfile) and verifies each NVIDIA lock against its repository metadata,
+# regenerating it when the packages changed; when nothing changed it stops here. prep: on
 # the self-hosted runner, inside the builder, regenerates the hash manifests for the new
 # pins and runs `build.sh --stage prep` (signatures, patches, config gate): the outcome
 # goes into the PR, green or red. pr: opens the PR with the regenerated files and, only

@@ -12,8 +12,10 @@ one. Without a pair the kernel stays where it is and a note says so. With the pa
 head commit of CachyOS/kernel-patches for the series and the commit of
 linux-cachyos/config in force at the date of the CachyOS release move as well.
 Outside the kernel: the NVIDIA versions (open from the GitHub tags, legacy from RPM Fusion)
-within the pinned branch, and the digest of the base image of the Containerfiles. The
-hash manifests are not here: `build.sh --stage manifest` and `nvidia.sh manifest` write
+within the pinned branch, and the digest of the base image of the Containerfiles, the system
+base quay.io base-atomic in system/Containerfile included. Every run also verifies the NVIDIA
+locks in system/nvidia/locks against the repository metadata and regenerates a lock whose
+pin moved or whose packages the repository republished. The kernel hash manifests are not here: `build.sh --stage manifest` and `nvidia.sh manifest` write
 them. Standard library only: it runs on the GitHub runner without installing anything.
 """
 
