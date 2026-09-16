@@ -9,6 +9,9 @@
                                              prints the lock's version
   lock.py check open|legacy --version V      exit 0 if the repository publishes the branch at V
 
+Exit codes: 0 success, 3 the requested version is not published, 1 any other error
+(network, metadata, lock file), 2 usage.
+
 GPG signatures are verified by build-rpms.sh with rpmkeys and the keys in keys/: the lock
 covers what the unsigned repository metadata of negativo17 cannot.
 """
@@ -28,6 +31,7 @@ LOCKS = HERE / "locks"
 COMMON = "{http://linux.duke.edu/metadata/common}"
 REPO = "{http://linux.duke.edu/metadata/repo}"
 ARCHES = ("x86_64", "noarch")
+NOT_PUBLISHED = 3
 BRANCHES = {
     "open": {
         "baseurl": "https://negativo17.org/repos/nvidia/fedora-43/x86_64/",
@@ -52,6 +56,10 @@ BRANCHES = {
 
 class LockError(Exception):
     """A lock that cannot be produced or honoured; the message names the package or file."""
+
+
+class NotPublished(LockError):
+    """The repository does not publish the branch at the requested version."""
 
 
 def http_get(url):
@@ -199,7 +207,7 @@ def select(primary_xml, names, version, companions=()):
             published[name].append((evr, entry))
     missing = sorted(n for n, entries in found.items() if not entries)
     if missing:
-        raise LockError(f"not published at {version}: {', '.join(missing)}")
+        raise NotPublished(f"not published at {version}: {', '.join(missing)}")
     ambiguous = sorted(n for n, entries in found.items() if len(entries) > 1)
     if ambiguous:
         raise LockError(f"ambiguous at {version} (several releases or arches): {', '.join(ambiguous)}")
@@ -294,6 +302,9 @@ def main(argv=None, download=http_get):
             (args.out / url.rsplit("/", 1)[1]).write_bytes(data)
         print(version)
         return 0
+    except NotPublished as error:
+        print(f"lock.py: {error}", file=sys.stderr)
+        return NOT_PUBLISHED
     except (LockError, OSError) as error:
         print(f"lock.py: {error}", file=sys.stderr)
         return 1

@@ -324,8 +324,8 @@ class Repomd(unittest.TestCase):
         code = lock.main(["check", "legacy", "--version", "580.178.04"], download=lambda url: files.get(url, rpm))
         self.assertEqual(code, 0)
 
-    def test_check_fails_when_package_missing(self):
-        # Test check command returns 1 when a package is missing
+    def test_check_exits_3_when_package_missing(self):
+        # "Not published" has its own exit code, distinct from errors
         rpm = b"payload"
         sha = hashlib.sha256(rpm).hexdigest()
         # Publish all packages except the first one
@@ -340,8 +340,18 @@ class Repomd(unittest.TestCase):
         err = io.StringIO()
         with redirect_stderr(err):
             code = lock.main(["check", "legacy", "--version", "580.178.04"], download=lambda url: files.get(url, rpm))
-        self.assertEqual(code, 1)
+        self.assertEqual(code, lock.NOT_PUBLISHED)
+        self.assertEqual(lock.NOT_PUBLISHED, 3)
         self.assertIn(lock.BRANCHES["legacy"]["packages"][0], err.getvalue())
+
+    def test_check_exits_1_on_a_network_error(self):
+        def download(url):
+            raise OSError("connection reset")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = lock.main(["check", "legacy", "--version", "580.178.04"], download=download)
+        self.assertEqual(code, 1)
+        self.assertIn("connection reset", err.getvalue())
 
 
 if __name__ == "__main__":
