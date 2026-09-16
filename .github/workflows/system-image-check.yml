@@ -48,11 +48,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
+          TMPDIR: ${{ runner.temp }}
         run: |
           set -euo pipefail
           echo "${GITHUB_TOKEN}" | podman login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
 
       - name: Build the three images (throwaway UKI key)
+        # The runner guest's system disk is small, and podman stages downloads and build copies
+        # in TMPDIR (default /var/tmp); TMPDIR points to the job's temp directory on the scratch disk.
+        env:
+          TMPDIR: ${{ runner.temp }}
         run: |
           set -euo pipefail
           for gpu in none nvidia nvidia-legacy; do
@@ -62,10 +67,13 @@ jobs:
       - name: Package delta of the default image
         env:
           OWNER: ${{ github.repository_owner }}
+          TMPDIR: ${{ runner.temp }}
         run: bash system/package-delta.sh "ghcr.io/${OWNER,,}/athanor-system:latest" localhost/athanor-system:check >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove the images of this job
         if: always()
+        env:
+          TMPDIR: ${{ runner.temp }}
         run: |
           set -euo pipefail
           for name in athanor-system athanor-system-nvidia athanor-system-nvidia-legacy; do
