@@ -14,6 +14,7 @@ sys.path.insert(0, str(HERE))
 import lock  # noqa: E402
 
 COMMON = 'xmlns="http://linux.duke.edu/metadata/common" xmlns:rpm="http://linux.duke.edu/metadata/rpm"'
+OPEN = lock.BRANCHES["open"]["baseurl"]
 
 
 def package(name, epoch, ver, rel, arch, href, sha):
@@ -94,16 +95,54 @@ class Select(unittest.TestCase):
         self.assertEqual(len(got), 1)
         self.assertEqual(got[0]["name"], "nvidia-driver")
 
+    def test_truncated_metadata_is_refused(self):
+        with self.assertRaisesRegex(lock.LockError, "no element found|unclosed"):
+            lock.select(b"<a><b>", ["nvidia-driver"], "610.57.04")
+
+    def test_empty_metadata_is_refused(self):
+        with self.assertRaisesRegex(lock.LockError, "empty"):
+            lock.select(b"", ["nvidia-driver"], "610.57.04")
+
+    def test_package_without_location_is_refused(self):
+        xml = primary(package("nvidia-driver", 3, "610.57.04", "1.fc43", "x86_64", "a.rpm", "a" * 64).replace('<location href="a.rpm"/>', ""))
+        with self.assertRaisesRegex(lock.LockError, "nvidia-driver: no location href"):
+            lock.select(xml, ["nvidia-driver"], "610.57.04")
+
+    def test_package_without_version_is_refused(self):
+        xml = primary(package("nvidia-driver", 3, "610.57.04", "1.fc43", "x86_64", "a.rpm", "a" * 64).replace('ver="610.57.04" ', ""))
+        with self.assertRaisesRegex(lock.LockError, "nvidia-driver: no version ver"):
+            lock.select(xml, ["nvidia-driver"], "610.57.04")
+
+    def test_non_sha256_checksum_is_refused(self):
+        xml = primary(package("nvidia-driver", 3, "610.57.04", "1.fc43", "x86_64", "a.rpm", "a" * 40).replace('type="sha256"', 'type="sha1"'))
+        with self.assertRaisesRegex(lock.LockError, "checksum type sha1, sha256 required"):
+            lock.select(xml, ["nvidia-driver"], "610.57.04")
+
+    def test_repomd_primary_without_location_is_refused(self):
+        repomd = b'<repomd xmlns="http://linux.duke.edu/metadata/repo"><data type="primary"/></repomd>'
+        with self.assertRaisesRegex(lock.LockError, "repomd.xml primary: no location href"):
+            lock.primary_href(repomd)
+
 
 class LockFile(unittest.TestCase):
     def test_round_trip(self):
         with tempfile.TemporaryDirectory() as d:
             path = pathlib.Path(d) / "open.lock"
             lock.write_lock(path, "open", "610.57.04", "https://repo/x/", [("f" * 64, "https://repo/x/b.rpm"), ("e" * 64, "https://repo/x/a.rpm")])
-            version, baseurl, entries = lock.read_lock(path)
+            branch, version, baseurl, entries = lock.read_lock(path)
+            self.assertEqual(branch, "open")
             self.assertEqual(version, "610.57.04")
             self.assertEqual(baseurl, "https://repo/x/")
             self.assertEqual(entries, [("e" * 64, "https://repo/x/a.rpm"), ("f" * 64, "https://repo/x/b.rpm")])
+
+    def test_malformed_lock_line_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(d) / "open.lock"
+            for line in ("deadbeef https://repo/x/a.rpm", "z" * 64 + "  https://repo/x/a.rpm", "e" * 64 + "  "):
+                with self.subTest(line=line):
+                    path.write_text(f"# branch open\n# version 610.57.04\n# repository https://repo/x/\n{line}\n")
+                    with self.assertRaisesRegex(lock.LockError, "open.lock:4: malformed lock line"):
+                        lock.read_lock(path)
 
 
 class Fetch(unittest.TestCase):
@@ -111,7 +150,7 @@ class Fetch(unittest.TestCase):
         payload = b"rpm bytes"
         with tempfile.TemporaryDirectory() as d:
             tmp = pathlib.Path(d)
-            lock.write_lock(tmp / "open.lock", "open", "610.57.04", "https://repo/", [("0" * 64, "https://repo/a.rpm")])
+            lock.write_lock(tmp / "open.lock", "open", "610.57.04", OPEN, [("0" * 64, OPEN + "a.rpm")])
             out = tmp / "out"
             err = io.StringIO()
             with redirect_stderr(err):
@@ -125,12 +164,33 @@ class Fetch(unittest.TestCase):
         sha = hashlib.sha256(payload).hexdigest()
         with tempfile.TemporaryDirectory() as d:
             tmp = pathlib.Path(d)
-            lock.write_lock(tmp / "open.lock", "open", "610.57.04", "https://repo/", [(sha, "https://repo/a.rpm")])
+            lock.write_lock(tmp / "open.lock", "open", "610.57.04", OPEN, [(sha, OPEN + "a.rpm")])
             out = tmp / "out"
             with redirect_stdout(io.StringIO()):
                 code = lock.main(["fetch", "open", "--out", str(out), "--locks", str(tmp)], download=lambda url: payload)
             self.assertEqual(code, 0)
             self.assertEqual((out / "a.rpm").read_bytes(), payload)
+
+    def fetch_refused(self, branch, baseurl, url, message):
+        payload = b"rpm bytes"
+        with tempfile.TemporaryDirectory() as d:
+            tmp = pathlib.Path(d)
+            lock.write_lock(tmp / "open.lock", branch, "610.57.04", baseurl, [(hashlib.sha256(payload).hexdigest(), url)])
+            err = io.StringIO()
+            with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                code = lock.main(["fetch", "open", "--out", str(tmp / "out"), "--locks", str(tmp)], download=lambda url: payload)
+            self.assertEqual(code, 1)
+            self.assertIn(message, err.getvalue())
+            self.assertFalse((tmp / "out").exists())
+
+    def test_lock_of_another_branch_is_refused(self):
+        self.fetch_refused("legacy", OPEN, OPEN + "a.rpm", "lock of branch legacy, open requested")
+
+    def test_url_outside_the_repository_is_refused(self):
+        self.fetch_refused("open", OPEN, "https://evil.example/a.rpm", "URL outside the repository")
+
+    def test_lock_repository_other_than_the_branch_is_refused(self):
+        self.fetch_refused("open", "https://evil.example/", "https://evil.example/a.rpm", "the open branch uses")
 
 
 class Repomd(unittest.TestCase):
@@ -156,7 +216,7 @@ class Repomd(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             code = lock.main(["generate", "legacy", "--version", "580.178.04", "--locks", d], download=lambda url: files.get(url, rpm))
             self.assertEqual(code, 0)
-            version, _, entries = lock.read_lock(pathlib.Path(d) / "legacy.lock")
+            _, version, _, entries = lock.read_lock(pathlib.Path(d) / "legacy.lock")
             self.assertEqual(version, "580.178.04")
             self.assertEqual(len(entries), len(lock.BRANCHES["legacy"]["packages"]))
             self.assertTrue(all(s == sha for s, _ in entries))
