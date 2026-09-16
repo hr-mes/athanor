@@ -173,7 +173,6 @@
     "ffmpeg",
     "mpv",
     "x264",
-    "libva-nvidia-driver",
     "libva-utils",
     "imv",
     "mesa-dri-drivers",
