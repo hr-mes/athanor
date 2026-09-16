@@ -64,20 +64,21 @@ class Select(unittest.TestCase):
         with self.assertRaisesRegex(lock.LockError, "ambiguous"):
             lock.select(xml, ["nvidia-driver"], "610.57.04")
 
-    def test_utf16_encoded_document_with_doctype_is_refused(self):
-        # UTF-16 encoding spreads <!DOCTYPE across interleaved bytes
-        xml = b'<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE m [<!ENTITY x "y">]><metadata/>'
-        # Try to encode as UTF-16
-        try:
-            xml_utf16 = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE m [<!ENTITY x "y">]><metadata/>'.encode('utf-16')
-        except Exception:
-            # If encoding fails, skip this test
-            return
-        with self.assertRaisesRegex(lock.LockError, "UTF-8"):
-            lock.select(xml_utf16, ["nvidia-driver"], "610.57.04")
+    def test_utf16le_without_bom_with_doctype_is_refused(self):
+        # UTF-16LE without BOM: NULs interleave with ASCII, all bytes are valid UTF-8,
+        # but ET.fromstring autodetects and processes the DTD/entity. NUL check catches it.
+        xml_utf16le = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE m [<!ENTITY x "PWNED">]><metadata>&x;</metadata>'.encode('utf-16-le')
+        with self.assertRaisesRegex(lock.LockError, "NUL"):
+            lock.select(xml_utf16le, ["nvidia-driver"], "610.57.04")
 
     def test_lowercase_doctype_is_refused(self):
         xml = b'<?xml version="1.0"?><!doctype m [<!entity x "y">]><metadata/>'
+        with self.assertRaisesRegex(lock.LockError, "DTD"):
+            lock.select(xml, ["nvidia-driver"], "610.57.04")
+
+    def test_valid_utf8_document_with_doctype_is_refused(self):
+        # Even valid UTF-8 with a DOCTYPE should be refused by parser-level handler
+        xml = b'<?xml version="1.0"?><!DOCTYPE m><metadata/>'
         with self.assertRaisesRegex(lock.LockError, "DTD"):
             lock.select(xml, ["nvidia-driver"], "610.57.04")
 
