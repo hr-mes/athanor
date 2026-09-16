@@ -1,0 +1,4 @@
+# The vendor presets enable the power management units of each branch (negativo17
+# 70-nvidia-driver.preset, RPM Fusion 70-nvidia.preset from xorg-x11-drv-nvidia-power);
+# only RPM Fusion leaves the persistence daemon disabled.
+enable nvidia-persistenced.service
