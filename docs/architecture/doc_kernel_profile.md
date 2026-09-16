@@ -918,7 +918,7 @@ Found on the running system and in the repository (2026-09-14):
   `10-ermete-hw-groups.conf`, `kargs.d/01-nvidia.toml` and a `bootc-fetch-apply-updates`
   override, and ships masks for `akmods@` and `dkms`;
   `athanor-base-config` does not obsolete it yet, and P3 adds
-  `Obsoletes: ermete-base-config`. the NVIDIA dracut and kargs configuration moved to `athanor-nvidia-config`, installed only by the NVIDIA image variants (doc_system_image.md, S4), and overrides
+  `Obsoletes: ermete-base-config`. The NVIDIA dracut and kargs configuration moved to `athanor-nvidia-config`, installed only by the NVIDIA image variants (doc_system_image.md, S4), and overrides
   `bootc-fetch-apply-updates` to stage updates automatically, which conflicts with the
   confirmation of section 8 once enabled (inactive today only because `99-Athanor.preset` names the non-existent
   `bootc-fetch-apply.timer`).
