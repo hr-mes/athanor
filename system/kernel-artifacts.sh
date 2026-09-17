@@ -221,6 +221,18 @@ cycle() {
     esac
     shift 2
   done
+  # Argument shape is checked before the state, so a malformed call fails even on state=ready:
+  # a short SHA or an empty --head must never be compared as if it settled who owns the cycle.
+  case $event in
+    push)
+      [[ $before =~ ^[0-9a-f]{40}$ && $after =~ ^[0-9a-f]{40}$ ]] || die "cycle: --event push needs --before and --after, each a 40-hex-character commit SHA"
+      ;;
+    workflow_dispatch)
+      [[ -z $sha ]] || [[ $sha =~ ^[0-9a-f]{40}$ && $head =~ ^[0-9a-f]{40}$ ]] || die "cycle: --sha and --head must each be a 40-hex-character commit SHA"
+      ;;
+    schedule) ;;
+    *) die "cycle: --event must be push, workflow_dispatch or schedule, got '$event'" ;;
+  esac
   state=$(get state)
   nvr=$(get nvr)
   if [[ $state != ready ]]; then
@@ -248,7 +260,6 @@ cycle() {
       schedule)
         [[ $state == modules-missing ]] || die "azoth:$nvr is not published"
         ;;
-      *) die "cycle: unknown event '$event'" ;;
     esac
   fi
   echo "cycle=$decision" >> "$FILE"
