@@ -42,8 +42,13 @@ sempre con `git status` prima di qualunque operazione git distruttiva.**
 - Lint: `just lint` — copre forge, system e la sintassi del Justfile
 - Formattazione: `just format`
 - Verifica sintassi senza modificare: `just check-syntax`
-- Verificatore di progetto: `python3 scripts/verify.py` (o `workflows`, `polkit`, `paths`, `shipped`, `docs`)
+- Verificatore di progetto: `python3 scripts/verify.py` (o `workflows`, `kickstart`, `polkit`, `paths`, `shipped`, `docs`).
+  `workflows` chiama `actionlint` (che a sua volta passa shellcheck sui blocchi `run:`) e `kickstart` chiama
+  `ksvalidator` di `pykickstart` sui file `.ks`: se il binario manca il controllo passa con una nota, quindi installali.
 - Test: `cargo test -p <crate>`. 52 file contengono test; non esiste una suite unica, mira al crate.
+  I test python stanno in `<area>/tests/` e girano con `python3 -B -m unittest discover -s <dir>`.
+- Panic letto da un QR code: `python3 scripts/decode-drm-panic.py '<url drm-panic|payload z|->'` stampa
+  il log del kernel che drm_panic ha disegnato a schermo, senza passare il payload a un browser.
 - Build completa: `just all` — lunga, chiedi prima di lanciarla
 
 ## Comandi shell: niente `cd`
