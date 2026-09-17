@@ -18,6 +18,7 @@ REG = "ghcr.io/hr-mes"
 KERNEL = "sha256:" + "1" * 64
 DEVEL = "sha256:" + "2" * 64
 OTHER_KERNEL = "sha256:" + "9" * 64
+OTHER_NVR = "7.2.4-99.fc43.azoth.99"  # some other NVR the pins have since moved past
 MODULE = {"open": "sha256:" + "3" * 64, "legacy": "sha256:" + "4" * 64}
 KERNEL_BUILD = "https://github.com/hr-mes/athanor/.github/workflows/kernel-build.yml@refs/heads/iso-v0"
 KMOD = "https://github.com/hr-mes/athanor/.github/workflows/nvidia-kmod.yml@refs/heads/iso-v0"
@@ -277,6 +278,48 @@ class Resolve(Tool):
         r = self.run_script("resolve", "--expect-kernel-digest", KERNEL)
         self.assertEqual(r.returncode, 1)
         self.assertIsNone(self.state_file())
+
+    def test_expect_kernel_digest_reports_kernel_missing_when_the_pins_moved_to_another_nvr(self):
+        # The tag of the current (new) NVR does not exist yet: normal for a kernel just bumped,
+        # not the withdrawal the plain die() message would suggest.
+        fx = published()
+        del fx["tags"][f"{REG}/azoth:{NVR}"]
+        fx["configs"] = {f"{REG}/azoth@{KERNEL}": {"org.opencontainers.image.version": OTHER_NVR}}
+        self.registry(fx)
+        r = self.run_script("resolve", "--expect-kernel-digest", KERNEL)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file(), {"state": "kernel-missing", "nvr": NVR, "registry": REG})
+
+    def test_expect_kernel_digest_fails_when_the_same_nvr_loses_its_tag(self):
+        # KERNEL's own label still names the current NVR: the tag really was withdrawn under an
+        # unchanged NVR, not superseded by a pin bump, so this must still die.
+        fx = published()
+        del fx["tags"][f"{REG}/azoth:{NVR}"]
+        fx["configs"] = {f"{REG}/azoth@{KERNEL}": {"org.opencontainers.image.version": NVR}}
+        self.registry(fx)
+        r = self.run_script("resolve", "--expect-kernel-digest", KERNEL)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no longer published", r.stderr)
+        self.assertIsNone(self.state_file())
+
+    def test_republished_kernel_reports_kernel_missing_when_the_pins_moved_to_another_nvr(self):
+        # The current NVR's tag exists (KERNEL, untouched) but the caller's OTHER_KERNEL was
+        # resolved for a since-superseded NVR: pins moved, not a same-tag republish.
+        fx = published()
+        fx["configs"] = {f"{REG}/azoth@{OTHER_KERNEL}": {"org.opencontainers.image.version": OTHER_NVR}}
+        self.registry(fx)
+        r = self.run_script("resolve", "--expect-kernel-digest", OTHER_KERNEL)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file(), {"state": "kernel-missing", "nvr": NVR, "registry": REG})
+
+    def test_expect_kernel_digest_reports_kernel_missing_when_the_pins_moved_and_the_new_kernel_is_unsigned(self):
+        fx = published()
+        del fx["signatures"][f"{REG}/azoth@{KERNEL}"]
+        fx["configs"] = {f"{REG}/azoth@{KERNEL}": {"org.opencontainers.image.version": OTHER_NVR}}
+        self.registry(fx)
+        r = self.run_script("resolve", "--expect-kernel-digest", KERNEL)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file()["state"], "kernel-missing")
 
     def test_require_ready(self):
         self.registry(published(branches=("open",)))
