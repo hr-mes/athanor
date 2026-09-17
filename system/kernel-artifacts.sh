@@ -167,9 +167,12 @@ module_verdict() { # module_verdict REF BRANCH KERNEL_DIGEST DEVEL_DIGEST: verif
 pins_moved() { # pins_moved NVR EXPECT: whether EXPECT's own OCI label names a different NVR than
                 # NVR, i.e. the pins moved on since EXPECT was resolved rather than NVR's own tag
                 # being mutated or withdrawn. An EXPECT with no readable label (gone from the
-                # registry entirely, or never labelled) answers false: never the benign case.
-  local expect_nvr
-  expect_nvr=$(ask config "$REGISTRY/azoth@$2" org.opencontainers.image.version)
+                # registry entirely, or never labelled) answers false: never the benign case. A
+                # real read error (not a missing manifest) dies here instead of being folded
+                # into that same false, which would misreport it as a republish or withdrawal.
+  local expect_nvr status=0
+  expect_nvr=$(ask config "$REGISTRY/azoth@$2" org.opencontainers.image.version) || status=$?
+  [[ $status -eq 0 ]] || die "$REGISTRY/azoth@$2: could not read its OCI config to tell whether the pins moved on"
   [[ -n $expect_nvr && $expect_nvr != "$1" ]]
 }
 
