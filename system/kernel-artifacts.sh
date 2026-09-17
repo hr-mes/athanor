@@ -170,20 +170,16 @@ attested_nvr() { # attested_nvr REF: the NVR of REF's cosign-verified custom pin
                   # an unrelated or incomplete one first in the list cannot hide it. Empty when
                   # the attestation is missing, unverified, or no entry carries that pin. A real
                   # verification error, or a signed FEDORA_KERNEL_NVR that does not even look
-                  # like one, dies here after printing why; since this runs inside the command
-                  # substitution of its own caller, that only ends this subshell, so the caller
-                  # must still check the substitution's own exit status to see it.
+                  # like one (nvr.sh's own shape check, shared with the pinned value so both go
+                  # through the same rule), dies here after printing why; since this runs inside
+                  # the command substitution of its own caller, that only ends this subshell, so
+                  # the caller must still check the substitution's own exit status to see it.
   local predicates fedora status=0
   predicates=$(ask predicates "$1" kernel) || status=$?
   [[ $status -eq 0 ]] || die "$1: could not verify its pins attestation to tell whether the pins moved on"
   [[ $predicates != unverified ]] || return 0
   fedora=$(jq -rs '[.[].pins.FEDORA_KERNEL_NVR // empty] | first // empty' <<< "$predicates")
   [[ -n $fedora ]] || return 0
-  # The shape build.sh and nvr.sh both assume: <kernel version>-<release>.fc<Fedora release>.
-  # An attested value that does not match it could still run through nvr.sh's plain string
-  # slicing into some other well-formed-looking NVR, silently misjudging whether the pins
-  # moved instead of loudly failing on a signed value that never should have looked like this.
-  [[ $fedora =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+\.fc[0-9]+$ ]] || die "$1: its attested FEDORA_KERNEL_NVR '$fedora' does not look like one"
   bash "$ROOT/forge/specs/azoth/nvr.sh" <(echo "FEDORA_KERNEL_NVR=$fedora")
 }
 
