@@ -90,8 +90,8 @@ jobs:
           # second. It was also what made HOME=/root unwritable and broke the probe.
           podman run -i --rm --security-opt label=disable --security-opt seccomp=unconfined -e GITHUB_TOKEN="${GITHUB_TOKEN}" -v ${{ github.workspace }}:/workspace -w /workspace/forge ghcr.io/hr-mes/athanor-builder:${{ inputs.builder_hash }} bash scripts/check_idempotency.sh --package "${PKG_NAME}" --registry ${{ env.REGISTRY }} --owner ${{ github.repository_owner }} --image-name "$img_name" > idemp.out
           source ./idemp.out
-          echo "hash=$CONTENT_HASH" >> $GITHUB_OUTPUT
-          if [ "$CACHE_HIT" = "true" ]; then echo "skip=true" >> $GITHUB_OUTPUT; else echo "skip=false" >> $GITHUB_OUTPUT; fi
+          echo "hash=$CONTENT_HASH" >> "$GITHUB_OUTPUT"
+          if [ "$CACHE_HIT" = "true" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Extreme Rust Cache (LLVM & Dependencies)
         if: steps.check.outputs.skip != 'true'
@@ -183,19 +183,19 @@ jobs:
           export BUILDAH_ISOLATION=chroot
           echo "${{ secrets.GITHUB_TOKEN }}" | buildah login -u ${{ github.actor }} --password-stdin ${{ env.REGISTRY }}
           ctr=$(buildah from scratch)
-          buildah copy $ctr RPMS/*.rpm /
+          buildah copy "$ctr" RPMS/*.rpm /
           
           img_prefix="athanor-forge"
           if [ ! -d "specs/athanor-${PKG_NAME}" ] && [ ! -d "specs/${PKG_NAME}" ]; then
             img_prefix="athanor-forge-rolling"
           fi
           IMAGE_LOWER=$(echo "${{ env.REGISTRY }}/${{ github.repository_owner }}/${img_prefix}-${PKG_NAME}" | tr '[:upper:]' '[:lower:]')
-          buildah config --label tier.content.sha256="${{ steps.check.outputs.hash }}" $ctr
-          buildah commit --omit-timestamp $ctr $IMAGE_LOWER:latest
-          buildah tag $IMAGE_LOWER:latest $IMAGE_LOWER:${{ steps.check.outputs.hash }}
-          buildah push $IMAGE_LOWER:latest
-          buildah push $IMAGE_LOWER:${{ steps.check.outputs.hash }}
-          buildah rm $ctr || true
+          buildah config --label tier.content.sha256="${{ steps.check.outputs.hash }}" "$ctr"
+          buildah commit --omit-timestamp "$ctr" "$IMAGE_LOWER:latest"
+          buildah tag "$IMAGE_LOWER:latest" "$IMAGE_LOWER:${{ steps.check.outputs.hash }}"
+          buildah push "$IMAGE_LOWER:latest"
+          buildah push "$IMAGE_LOWER:${{ steps.check.outputs.hash }}"
+          buildah rm "$ctr" || true
 
       - name: Generate SBOM (Syft)
         if: steps.check.outputs.skip != 'true'
@@ -208,7 +208,7 @@ jobs:
             img_prefix="athanor-forge-rolling"
           fi
           IMAGE_LOWER=$(echo "${{ env.REGISTRY }}/${{ github.repository_owner }}/${img_prefix}-${PKG_NAME}:latest" | tr "[:upper:]" "[:lower:]")
-          nix run nixpkgs#syft -- packages $IMAGE_LOWER -o spdx-json=sbom-${PKG_NAME}.spdx.json
+          nix run nixpkgs#syft -- packages "$IMAGE_LOWER" -o "spdx-json=sbom-${PKG_NAME}.spdx.json"
 
       - name: Sign & Attest Micro-Container
         if: steps.check.outputs.skip != 'true'
@@ -239,7 +239,7 @@ jobs:
 
       - name: 🧹 Cleanup Workspace Permissions
         if: always()
-        run: podman unshare chown -R $USER:$USER ${{ github.workspace }} || true
+        run: podman unshare chown -R "$USER:$USER" ${{ github.workspace }} || true
 
       - name: 🧹 Fix Workspace Permissions (GH Actions Cleanup)
         if: always()
@@ -298,8 +298,8 @@ jobs:
           # second. It was also what made HOME=/root unwritable and broke the probe.
           podman run -i --rm --security-opt label=disable --security-opt seccomp=unconfined -e GITHUB_TOKEN="${GITHUB_TOKEN}" -v ${{ github.workspace }}:/workspace -w /workspace/forge ghcr.io/hr-mes/athanor-builder:${{ inputs.builder_hash }} bash scripts/check_idempotency.sh --package "${PKG_NAME}" --registry ${{ env.REGISTRY }} --owner ${{ github.repository_owner }} --image-name "$img_name" > idemp.out
           source ./idemp.out
-          echo "hash=$CONTENT_HASH" >> $GITHUB_OUTPUT
-          if [ "$CACHE_HIT" = "true" ]; then echo "skip=true" >> $GITHUB_OUTPUT; else echo "skip=false" >> $GITHUB_OUTPUT; fi
+          echo "hash=$CONTENT_HASH" >> "$GITHUB_OUTPUT"
+          if [ "$CACHE_HIT" = "true" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Extreme Rust Cache (LLVM & Dependencies)
         if: steps.check.outputs.skip != 'true'
@@ -391,19 +391,19 @@ jobs:
           export BUILDAH_ISOLATION=chroot
           echo "${{ secrets.GITHUB_TOKEN }}" | buildah login -u ${{ github.actor }} --password-stdin ${{ env.REGISTRY }}
           ctr=$(buildah from scratch)
-          buildah copy $ctr RPMS/*.rpm /
+          buildah copy "$ctr" RPMS/*.rpm /
           
           img_prefix="athanor-forge"
           if [ ! -d "specs/athanor-${PKG_NAME}" ] && [ ! -d "specs/${PKG_NAME}" ]; then
             img_prefix="athanor-forge-rolling"
           fi
           IMAGE_LOWER=$(echo "${{ env.REGISTRY }}/${{ github.repository_owner }}/${img_prefix}-${PKG_NAME}" | tr '[:upper:]' '[:lower:]')
-          buildah config --label tier.content.sha256="${{ steps.check.outputs.hash }}" $ctr
-          buildah commit --omit-timestamp $ctr $IMAGE_LOWER:latest
-          buildah tag $IMAGE_LOWER:latest $IMAGE_LOWER:${{ steps.check.outputs.hash }}
-          buildah push $IMAGE_LOWER:latest
-          buildah push $IMAGE_LOWER:${{ steps.check.outputs.hash }}
-          buildah rm $ctr || true
+          buildah config --label tier.content.sha256="${{ steps.check.outputs.hash }}" "$ctr"
+          buildah commit --omit-timestamp "$ctr" "$IMAGE_LOWER:latest"
+          buildah tag "$IMAGE_LOWER:latest" "$IMAGE_LOWER:${{ steps.check.outputs.hash }}"
+          buildah push "$IMAGE_LOWER:latest"
+          buildah push "$IMAGE_LOWER:${{ steps.check.outputs.hash }}"
+          buildah rm "$ctr" || true
 
       - name: Generate SBOM (Syft)
         if: steps.check.outputs.skip != 'true'
@@ -416,7 +416,7 @@ jobs:
             img_prefix="athanor-forge-rolling"
           fi
           IMAGE_LOWER=$(echo "${{ env.REGISTRY }}/${{ github.repository_owner }}/${img_prefix}-${PKG_NAME}:latest" | tr "[:upper:]" "[:lower:]")
-          nix run nixpkgs#syft -- packages $IMAGE_LOWER -o spdx-json=sbom-${PKG_NAME}.spdx.json
+          nix run nixpkgs#syft -- packages "$IMAGE_LOWER" -o "spdx-json=sbom-${PKG_NAME}.spdx.json"
 
       - name: Sign & Attest Micro-Container
         if: steps.check.outputs.skip != 'true'
@@ -447,7 +447,7 @@ jobs:
 
       - name: 🧹 Cleanup Workspace Permissions
         if: always()
-        run: podman unshare chown -R $USER:$USER ${{ github.workspace }} || true
+        run: podman unshare chown -R "$USER:$USER" ${{ github.workspace }} || true
 
       - name: 🧹 Fix Workspace Permissions (GH Actions Cleanup)
         if: always()
@@ -504,8 +504,8 @@ jobs:
           # second. It was also what made HOME=/root unwritable and broke the probe.
           podman run -i --rm --security-opt label=disable --security-opt seccomp=unconfined -e GITHUB_TOKEN="${GITHUB_TOKEN}" -v ${{ github.workspace }}:/workspace -w /workspace/forge ghcr.io/hr-mes/athanor-builder:${{ inputs.builder_hash }} bash scripts/check_idempotency.sh --package "${PKG_NAME}" --registry ${{ env.REGISTRY }} --owner ${{ github.repository_owner }} --image-name "$img_name" > idemp.out
           source ./idemp.out
-          echo "hash=$CONTENT_HASH" >> $GITHUB_OUTPUT
-          if [ "$CACHE_HIT" = "true" ]; then echo "skip=true" >> $GITHUB_OUTPUT; else echo "skip=false" >> $GITHUB_OUTPUT; fi
+          echo "hash=$CONTENT_HASH" >> "$GITHUB_OUTPUT"
+          if [ "$CACHE_HIT" = "true" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Extreme Rust Cache (LLVM & Dependencies)
         if: steps.check.outputs.skip != 'true'
@@ -597,19 +597,19 @@ jobs:
           export BUILDAH_ISOLATION=chroot
           echo "${{ secrets.GITHUB_TOKEN }}" | buildah login -u ${{ github.actor }} --password-stdin ${{ env.REGISTRY }}
           ctr=$(buildah from scratch)
-          buildah copy $ctr RPMS/*.rpm /
+          buildah copy "$ctr" RPMS/*.rpm /
           
           img_prefix="athanor-forge"
           if [ ! -d "specs/athanor-${PKG_NAME}" ] && [ ! -d "specs/${PKG_NAME}" ]; then
             img_prefix="athanor-forge-rolling"
           fi
           IMAGE_LOWER=$(echo "${{ env.REGISTRY }}/${{ github.repository_owner }}/${img_prefix}-${PKG_NAME}" | tr '[:upper:]' '[:lower:]')
-          buildah config --label tier.content.sha256="${{ steps.check.outputs.hash }}" $ctr
-          buildah commit --omit-timestamp $ctr $IMAGE_LOWER:latest
-          buildah tag $IMAGE_LOWER:latest $IMAGE_LOWER:${{ steps.check.outputs.hash }}
-          buildah push $IMAGE_LOWER:latest
-          buildah push $IMAGE_LOWER:${{ steps.check.outputs.hash }}
-          buildah rm $ctr || true
+          buildah config --label tier.content.sha256="${{ steps.check.outputs.hash }}" "$ctr"
+          buildah commit --omit-timestamp "$ctr" "$IMAGE_LOWER:latest"
+          buildah tag "$IMAGE_LOWER:latest" "$IMAGE_LOWER:${{ steps.check.outputs.hash }}"
+          buildah push "$IMAGE_LOWER:latest"
+          buildah push "$IMAGE_LOWER:${{ steps.check.outputs.hash }}"
+          buildah rm "$ctr" || true
 
       - name: Generate SBOM (Syft)
         if: steps.check.outputs.skip != 'true'
@@ -622,7 +622,7 @@ jobs:
             img_prefix="athanor-forge-rolling"
           fi
           IMAGE_LOWER=$(echo "${{ env.REGISTRY }}/${{ github.repository_owner }}/${img_prefix}-${PKG_NAME}:latest" | tr "[:upper:]" "[:lower:]")
-          nix run nixpkgs#syft -- packages $IMAGE_LOWER -o spdx-json=sbom-${PKG_NAME}.spdx.json
+          nix run nixpkgs#syft -- packages "$IMAGE_LOWER" -o "spdx-json=sbom-${PKG_NAME}.spdx.json"
 
       - name: Sign & Attest Micro-Container
         if: steps.check.outputs.skip != 'true'
@@ -653,7 +653,7 @@ jobs:
 
       - name: 🧹 Cleanup Workspace Permissions
         if: always()
-        run: podman unshare chown -R $USER:$USER ${{ github.workspace }} || true
+        run: podman unshare chown -R "$USER:$USER" ${{ github.workspace }} || true
 
       - name: 🧹 Fix Workspace Permissions (GH Actions Cleanup)
         if: always()
