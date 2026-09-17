@@ -415,6 +415,34 @@ class Cycle(Repo):
         self.state("kernel-missing")
         self.assertEqual(self.cycle("--event", "schedule").returncode, 1)
 
+    def test_cycle_rejects_an_unknown_event(self):
+        self.state("ready")
+        r = self.cycle("--event", "bogus", "--before", "a" * 40, "--after", "b" * 40)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--event", r.stderr)
+
+    def test_ready_with_a_malformed_before_fails(self):
+        # Argument shape is checked before the state is even read: state=ready must not mask
+        # a caller bug.
+        self.state("ready")
+        r = self.cycle("--event", "push", "--before", "not-a-sha", "--after", "a" * 40)
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_push_without_after_fails(self):
+        self.state("ready")
+        r = self.cycle("--event", "push", "--before", "a" * 40)
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_dispatch_with_sha_but_empty_head_fails(self):
+        self.state("kernel-missing")
+        r = self.cycle("--event", "workflow_dispatch", "--sha", "a" * 40)
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_dispatch_with_a_short_sha_fails(self):
+        self.state("kernel-missing")
+        r = self.cycle("--event", "workflow_dispatch", "--sha", "a" * 7, "--head", "a" * 7 + "0" * 33)
+        self.assertNotEqual(r.returncode, 0)
+
 
 class CheckPlan(Repo):
     def plan(self, files):
