@@ -33,6 +33,8 @@ RPMS_OUT/
 output/
 _build*/
 forge/*.tar.gz
+kernel-artifacts/
+nvidia-publish/
 
 # Security / Keys
 *.key
