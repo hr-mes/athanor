@@ -369,6 +369,22 @@ class Resolve(Tool):
         self.assertIn("republished", r.stderr)
         self.assertIsNone(self.state_file())
 
+    def test_pins_moved_check_keeps_the_expectation_when_the_attestation_says_it_did_not_move(self):
+        # The label disagrees (it names another NVR, i.e. it looks like "moved"); the
+        # cosign-verified attestation says the real current NVR, so the expectation is kept
+        # and this dies exactly as an unrelated, stale digest should — the attestation must
+        # override the label in the "not moved" direction too, not just the "moved" one.
+        fx = published()
+        fx["attestations"][f"{REG}/azoth@{OTHER_KERNEL}"] = [
+            {"identity": KERNEL_BUILD, "predicate": {"pins": {"FEDORA_KERNEL_NVR": PINS["FEDORA_KERNEL_NVR"]}}}
+        ]
+        fx["configs"] = {f"{REG}/azoth@{OTHER_KERNEL}": {"org.opencontainers.image.version": OTHER_NVR}}
+        self.registry(fx)
+        r = self.run_script("resolve", "--expect-kernel-digest", OTHER_KERNEL)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("republished", r.stderr)
+        self.assertIsNone(self.state_file())
+
     def test_pins_moved_past_the_expected_digest_resolves_normally_to_ready(self):
         # The current NVR's tag exists (KERNEL, untouched, fully ready) but the caller's
         # OTHER_KERNEL was resolved for a since-superseded NVR: the expectation no longer
