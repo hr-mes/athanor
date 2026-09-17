@@ -308,18 +308,22 @@ class Resolve(Tool):
         self.assertIn("no longer published", r.stderr)
         self.assertIsNone(self.state_file())
 
-    def test_expect_kernel_digest_fails_on_a_real_error_reading_the_pins_moved_check(self):
-        # A registry outage while checking whether EXPECT's own pins moved (the attestation
-        # check runs first) must not be folded into "they did not move": that would
-        # misreport a transient failure as a republish or a withdrawal instead of the real,
-        # distinct cause.
+    def test_expect_kernel_digest_fails_on_an_attestation_only_outage(self):
+        # attestation_errors fails only cosign verify-attestation on this ref: skopeo's config
+        # read would succeed cleanly (no configs entry, i.e. an ordinary "no label"). EXPECT is
+        # deliberately the current, matching KERNEL: if the outage were silently swallowed and
+        # read as "not moved" (a false negative from pins_moved), nothing here would ever
+        # notice the difference, because $kernel == $expect already skips every other die() and
+        # the fixture is otherwise fully ready -- this run would wrongly succeed with
+        # state=ready instead of failing, which is the only way this test can tell a real fix
+        # from a swallowed die() that merely printed the right words on its way to a silent,
+        # unrelated success.
         fx = published()
-        fx["errors"] = [f"{REG}/azoth@{OTHER_KERNEL}"]
+        fx["attestation_errors"] = [f"{REG}/azoth@{KERNEL}"]
         self.registry(fx)
-        r = self.run_script("resolve", "--expect-kernel-digest", OTHER_KERNEL)
-        self.assertEqual(r.returncode, 1)
+        r = self.run_script("resolve", "--expect-kernel-digest", KERNEL)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("could not verify its pins attestation", r.stderr)
-        self.assertNotIn("republished or withdrawn", r.stderr)
         self.assertIsNone(self.state_file())
 
     def test_pins_moved_check_prefers_the_verified_attestation_over_the_label(self):
