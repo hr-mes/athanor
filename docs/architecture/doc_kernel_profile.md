@@ -942,9 +942,10 @@ Found on the running system and in the repository (2026-09-14):
   its preset line leave the image. `system/Containerfile` enables `tetragon.service`, `athanor-tpm-luks-seal.service`,
   `athanor-tpm-rollback-check.service` and `athanor-tpm-rollback-update.service`,
   and `preset-all` disables them again. Shipped disabled and reviewed in a dedicated
-  session before P6: `athanor-gatekeeper-rs`, `athanor-daemon`, `athanor-secure-boot`,
-  `athanor-store-rs`, `athanor-lvfs-rs`, `athanor-backup`, `athanor-recovery`, the TPM rollback units and
-  `athanor-tpm-luks-seal.service`; the Gatekeeper and attestation are restricted areas.
+  session before P6: `athanor-secure-boot`, `athanor-lvfs-rs`, `athanor-backup`,
+  `athanor-recovery`, the TPM rollback units and `athanor-tpm-luks-seal.service`.
+  `athanor-gatekeeper-rs`, `athanor-daemon` and `athanor-store-rs` were removed from the
+  image on 2026-09-17 pending redesign; the Gatekeeper and attestation are restricted areas.
 - **Snapshots** (P3): `athanor-timewarp` targets bcachefs, which left mainline in Linux
   6.18, and misdetects `/var/home` as tmpfs; `athanor-backup-hourly` fails because
   `athanor-backup` is disabled. Both are ported to btrfs subvolume snapshots.
