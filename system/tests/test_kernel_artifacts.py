@@ -302,6 +302,19 @@ class Resolve(Tool):
         self.assertIn("no longer published", r.stderr)
         self.assertIsNone(self.state_file())
 
+    def test_expect_kernel_digest_fails_on_a_real_error_reading_the_pins_moved_check(self):
+        # A registry outage while reading EXPECT's own config must not be folded into "the
+        # pins did not move": that would misreport a transient failure as a republish or a
+        # withdrawal instead of the real, distinct cause.
+        fx = published()
+        fx["errors"] = [f"{REG}/azoth@{OTHER_KERNEL}"]
+        self.registry(fx)
+        r = self.run_script("resolve", "--expect-kernel-digest", OTHER_KERNEL)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("could not read its OCI config", r.stderr)
+        self.assertNotIn("republished or withdrawn", r.stderr)
+        self.assertIsNone(self.state_file())
+
     def test_pins_moved_past_the_expected_digest_resolves_normally_to_ready(self):
         # The current NVR's tag exists (KERNEL, untouched, fully ready) but the caller's
         # OTHER_KERNEL was resolved for a since-superseded NVR: the expectation no longer
