@@ -134,6 +134,7 @@ resolve() {
   kernel=$(ask digest "$REGISTRY/azoth:$nvr")
   devel=$(ask digest "$REGISTRY/azoth-devel:$nvr")
   if [[ -z $kernel || -z $devel ]]; then
+    [[ -z $expect ]] || die "$REGISTRY/azoth:$nvr is no longer published, the caller resolved $expect: the kernel was republished or withdrawn since"
     write kernel-missing "${lines[@]}"
     return 0
   fi
@@ -141,6 +142,7 @@ resolve() {
   kernel_signed=$(ask signed "$REGISTRY/azoth@$kernel" kernel)
   devel_signed=$(ask signed "$REGISTRY/azoth-devel@$devel" kernel)
   if [[ $kernel_signed != signed || $devel_signed != signed ]]; then
+    [[ -z $expect ]] || die "$REGISTRY/azoth:$nvr is no longer signed, the caller resolved $expect: the kernel was republished or its signature was revoked since"
     write kernel-missing "${lines[@]}"
     return 0
   fi
