@@ -478,7 +478,7 @@ def test_console_logs_in_opens_settings_and_stops(tmp: pathlib.Path) -> None:
         # It starts Settings inside that session and asks whether it stayed up.
         typed_until(conn, b"SETTINGS_%s", 60)
         started = time.time()
-        conn.sendall(b"SETTINGS_ALIVE window-after:3s\r\n")
+        conn.sendall(b"SETTINGS_ALIVE name-after:3s\r\n")
         proc.wait(timeout=40)
         waited = time.time() - started
     finally:

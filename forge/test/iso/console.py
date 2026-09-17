@@ -295,27 +295,30 @@ SESSION_DIAGNOSTICS = (
 )
 # With the desktop up, start the settings application inside it. The serial login shares
 # the account's user manager with the desktop, and that manager carries the session's
-# WAYLAND_DISPLAY, so a transient unit started here opens on the seat. A running process
-# is not the question, a window is: GTK exports every application window on the session
-# bus under the application's own name, as /os/athanor/Settings/window/N, the moment it
-# is created, so the guest watches for that path for up to a minute -- run 34581940472
-# answered on the process alone and its screenshot showed no window yet -- and then
-# reports whether the unit is still active five seconds after the window appeared.
+# WAYLAND_DISPLAY, so a transient unit started here opens on the seat. The application is
+# COSMIC Settings: athanor-settings-rs left the image. A process that merely exists is
+# not the question -- run 34581940472 answered on the process alone and its screenshot
+# showed no window yet. COSMIC Settings is not a GTK application and exports no window
+# object, so the guest waits up to a minute for it to claim its application name on the
+# session bus, which libcosmic's single-instance startup does before it opens the window,
+# and then reports whether the unit is still active five seconds later. The name proves
+# the application got through its start-up; the screenshot taken on the answer is what
+# shows the window.
 SETTINGS_UNIT = b"athanor-settings-probe"
-SETTINGS_APP = b"os.athanor.Settings"
+SETTINGS_APP = b"com.system76.CosmicSettings"
 SETTINGS_PROBE = (
-    b"systemd-run --user --quiet --unit=" + SETTINGS_UNIT + b" athanor-settings-rs;"
-    b" w=; for i in $(seq 60); do busctl --user tree "
+    b"systemd-run --user --quiet --unit=" + SETTINGS_UNIT + b" cosmic-settings;"
+    b" w=; for i in $(seq 60); do busctl --user status "
     + SETTINGS_APP
-    + b" --list 2>/dev/null | grep -q /window/ && { w=$i; break; }; sleep 1; done; sleep 5;"
+    + b" >/dev/null 2>&1 && { w=$i; break; }; sleep 1; done; sleep 5;"
     b' if [ -n "$w" ] && systemctl --user -q is-active ' + SETTINGS_UNIT + b".service;"
-    b" then printf 'SETTINGS_%s window-after:%ss\\n' ALIVE \"$w\";"
-    b" else printf 'SETTINGS_%s window-after:%s %s\\n' DEAD \"${w:-never}\""
+    b" then printf 'SETTINGS_%s name-after:%ss\\n' ALIVE \"$w\";"
+    b" else printf 'SETTINGS_%s name-after:%s %s\\n' DEAD \"${w:-never}\""
     b' "$(systemctl --user show '
     + SETTINGS_UNIT
     + b".service -p ActiveState -p Result -p ExecMainStatus --value | tr '\\n' ' ')\"; fi"
 )
-# A minute of looking for the window, five seconds of watching, and a margin.
+# A minute of looking for the bus name, five seconds of watching, and a margin.
 SETTINGS_PROBE_WAIT = 75.0
 
 # What to ask when Settings did not stay up: the unit's own account of itself, what it
