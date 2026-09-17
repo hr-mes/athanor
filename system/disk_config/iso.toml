@@ -35,14 +35,21 @@ awk '$1 ~ /^#/ || $2 != "/"' /etc/fstab > /etc/fstab.athanor
 mv /etc/fstab.athanor /etc/fstab
 # A btrfs root loses compress=zstd:1 with that line, so the option moves to the kernel
 # command line of this installation only; any other root file system gets nothing, since
-# ext4 and xfs refuse the option and would not mount. /sysroot is the physical root
-# Anaconda binds into this chroot, and `ostree admin instutil set-kargs --merge` is the
-# call Anaconda itself uses to write root= and rootflags=subvol=: positional arguments
-# are appended to the deployment's arguments, and the initrd joins every rootflags=. The
-# arguments belong to the deployment, so bootc carries them into every later deployment.
+# ext4 and xfs refuse the option and would not mount.
+#
+# This %post runs chrooted into the new deployment (Anaconda's system root, /mnt/sysroot
+# seen from the installer). PrepareOSTreeMountTargetsTask bind-mounts the physical root,
+# the one holding /ostree/deploy, at /sysroot inside it, and Anaconda's own
+# ConfigureBootloader runs `ostree admin instutil set-kargs --merge` in this same chroot to
+# write root= and rootflags=subvol=. Without --sysroot, ostree would take / and reach the
+# repository only through the deployment's ostree -> sysroot/ostree link; naming /sysroot
+# addresses the physical root directly. set-kargs acts on the first deployment, the one
+# just installed, and --merge appends the positional argument to its arguments: the
+# initrd's systemd-fstab-generator joins every rootflags=. The arguments belong to the
+# deployment, so bootc carries them into every later deployment.
 root_fstype=$(stat -f -c %T /sysroot)
 if [ "$root_fstype" = btrfs ]; then
-    ostree admin instutil set-kargs --merge rootflags=compress=zstd:1
+    ostree admin instutil set-kargs --sysroot=/sysroot --merge rootflags=compress=zstd:1
 fi
 %end
 """
