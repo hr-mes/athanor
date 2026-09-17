@@ -37,6 +37,8 @@ install -m 0755 target/release/athanor-shell-rs %{buildroot}/usr/bin/athanor-she
   cannot be enforced, instead of warning and running unconfined.
 - Apply Landlock first in main(), before the Tokio runtime or GTK start any thread,
   and fail closed unless the process is single-threaded at that point.
+- Grant WriteFile beneath /dev/dri so the greeter opens the GPU render nodes instead
+  of falling back to software rendering.
 * Fri Sep 11 2026 Athanor Forge <forge@athanor.os> - 1.0.0-29
 - Landlock confines writes to the unit's writable set (configuration and state
   directories, runtime directory, /tmp) instead of denying reads outside /usr, /etc
