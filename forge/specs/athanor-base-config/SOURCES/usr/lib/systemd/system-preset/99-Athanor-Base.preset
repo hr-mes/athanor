@@ -1,5 +1,3 @@
-enable athanor-journal-seal.service
-
 disable NetworkManager-wait-online.service
 disable systemd-networkd-wait-online.service
 disable plymouth-quit-wait.service

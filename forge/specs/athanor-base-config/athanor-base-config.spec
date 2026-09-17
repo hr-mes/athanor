@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-base-config
 Version:        43.0.0
-Release:        5%{?dist}
+Release:        6%{?dist}
 Summary:        Athanor OS Base Configuration (Systemd, Branding, GPG)
 
 License:        MIT
@@ -83,6 +83,11 @@ rm -rf %{buildroot}/etc/tmpfiles.d
 /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/override.conf
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 43.0.0-6
+- Remove athanor-journal-seal.service, its preset line and Seal=yes from
+  99-immutable.conf. Fedora builds systemd without gcrypt, so journalctl has no
+  forward-secure sealing, --setup-keys fails and the unit failed on every boot while
+  sealing was never in effect. Storage=persistent stays.
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 43.0.0-5
 - Mount the btrfs root with compress=zstd:1 through rootflags= in
   kargs.d/07-btrfs-root.toml. The installer now removes the / line Anaconda writes to
