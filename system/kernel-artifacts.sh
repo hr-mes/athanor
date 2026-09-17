@@ -164,15 +164,34 @@ module_verdict() { # module_verdict REF BRANCH KERNEL_DIGEST DEVEL_DIGEST: verif
     then "verified" else "unverified" end' <<< "$predicates"
 }
 
-pins_moved() { # pins_moved NVR EXPECT: whether EXPECT's own OCI label names a different NVR than
-                # NVR, i.e. the pins moved on since EXPECT was resolved rather than NVR's own tag
-                # being mutated or withdrawn. An EXPECT with no readable label (gone from the
-                # registry entirely, or never labelled) answers false: never the benign case. A
-                # real read error (not a missing manifest) dies here instead of being folded
-                # into that same false, which would misreport it as a republish or withdrawal.
+attested_nvr() { # attested_nvr REF: the NVR of REF's cosign-verified custom pins attestation,
+                  # i.e. build-inputs.py's FEDORA_KERNEL_NVR run through nvr.sh's own formula.
+                  # Empty when the attestation is missing, unverified, or predates that pin. A
+                  # real verification error dies here rather than being read as "no attestation".
+  local predicates fedora status=0
+  predicates=$(ask predicates "$1" kernel) || status=$?
+  [[ $status -eq 0 ]] || die "$1: could not verify its pins attestation to tell whether the pins moved on"
+  [[ $predicates != unverified ]] || return 0
+  fedora=$(jq -rs '.[0].pins.FEDORA_KERNEL_NVR // empty' <<< "$predicates")
+  [[ -n $fedora ]] || return 0
+  bash "$ROOT/forge/specs/azoth/nvr.sh" <(echo "FEDORA_KERNEL_NVR=$fedora")
+}
+
+pins_moved() { # pins_moved NVR EXPECT: whether EXPECT names a different NVR than NVR, i.e. the
+                # pins moved on since EXPECT was resolved rather than NVR's own tag being
+                # mutated or withdrawn. Prefers the NVR of EXPECT's cosign-verified pins
+                # attestation (attested_nvr); the org.opencontainers.image.version OCI label is
+                # only a fallback for when that attestation is missing or predates
+                # FEDORA_KERNEL_NVR, and unlike the attestation it is not itself verified.
+                # EXPECT with neither answers false: never the benign case. A real read error
+                # on either check dies here instead of being folded into that same false, which
+                # would misreport it as a republish or withdrawal.
   local expect_nvr status=0
-  expect_nvr=$(ask config "$REGISTRY/azoth@$2" org.opencontainers.image.version) || status=$?
-  [[ $status -eq 0 ]] || die "$REGISTRY/azoth@$2: could not read its OCI config to tell whether the pins moved on"
+  expect_nvr=$(attested_nvr "$REGISTRY/azoth@$2")
+  if [[ -z $expect_nvr ]]; then
+    expect_nvr=$(ask config "$REGISTRY/azoth@$2" org.opencontainers.image.version) || status=$?
+    [[ $status -eq 0 ]] || die "$REGISTRY/azoth@$2: could not read its OCI config to tell whether the pins moved on"
+  fi
   [[ -n $expect_nvr && $expect_nvr != "$1" ]]
 }
 
