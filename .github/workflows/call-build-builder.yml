@@ -50,11 +50,11 @@ jobs:
           bash scripts/check_idempotency.sh --package builder --registry ghcr.io --owner ${{ github.repository_owner }} --image-name athanor-builder > idemp.out
           source ./idemp.out
           if [ "$CACHE_HIT" = "true" ]; then
-            echo "cache_hit=true" >> $GITHUB_OUTPUT
+            echo "cache_hit=true" >> "$GITHUB_OUTPUT"
           else
-            echo "cache_hit=false" >> $GITHUB_OUTPUT
+            echo "cache_hit=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "content_hash=$CONTENT_HASH" >> $GITHUB_OUTPUT
+          echo "content_hash=$CONTENT_HASH" >> "$GITHUB_OUTPUT"
 
       - name: Build and Publish Builder (Pure Nix)
         if: steps.check_idempotency.outputs.cache_hit != 'true'
@@ -66,16 +66,16 @@ jobs:
           
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
           IMAGE_LOWER=$(echo "${{ env.REGISTRY }}/${{ github.repository_owner }}/athanor-builder" | tr '[:upper:]' '[:lower:]')
-          podman tag ghcr.io/hr-mes/athanor-builder:${{ vars.BUILDER_STABLE_TAG || 'latest' }} $IMAGE_LOWER:latest || true
-          podman tag $IMAGE_LOWER:latest $IMAGE_LOWER:${{ steps.check_idempotency.outputs.content_hash }}
-          bash scripts/retry.sh podman push $IMAGE_LOWER:latest
-          bash scripts/retry.sh podman push $IMAGE_LOWER:${{ steps.check_idempotency.outputs.content_hash }}
+          podman tag ghcr.io/hr-mes/athanor-builder:${{ vars.BUILDER_STABLE_TAG || 'latest' }} "$IMAGE_LOWER:latest" || true
+          podman tag "$IMAGE_LOWER:latest" "$IMAGE_LOWER:${{ steps.check_idempotency.outputs.content_hash }}"
+          bash scripts/retry.sh podman push "$IMAGE_LOWER:latest"
+          bash scripts/retry.sh podman push "$IMAGE_LOWER:${{ steps.check_idempotency.outputs.content_hash }}"
           echo "Waiting 15 seconds for GHCR eventual consistency..."
           sleep 15
 
       - name: 🧹 Cleanup Workspace Permissions
         if: always()
-        run: podman unshare chown -R $USER:$USER ${{ github.workspace }} || true
+        run: podman unshare chown -R "$USER:$USER" ${{ github.workspace }} || true
 
       - name: 🧹 Fix Workspace Permissions (GH Actions Cleanup)
         if: always()

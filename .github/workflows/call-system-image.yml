@@ -222,7 +222,7 @@ jobs:
         run: |
           set -euo pipefail
           podman run -i --rm --security-opt label=disable --security-opt seccomp=unconfined -v "${GITHUB_WORKSPACE}:/workspace:rw" -w /workspace docker.io/library/ubuntu:latest rm -rf /workspace/var-tmp || true
-          sudo chown -R $(id -u):$(id -g) "${GITHUB_WORKSPACE}" || podman unshare chown -R $(id -u):$(id -g) "${GITHUB_WORKSPACE}" || true
+          sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}" || podman unshare chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}" || true
 
       - name: 🧹 Fix Workspace Permissions (GH Actions Cleanup)
         if: always()

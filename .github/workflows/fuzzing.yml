@@ -90,7 +90,7 @@ jobs:
           
           cd tests/fuzz
 
-          TARGETS=$(cargo fuzz list --fuzz-dir . 2>/dev/null || ls fuzz_targets/*.rs 2>/dev/null | xargs -n 1 basename | sed 's/\.rs$//')
+          TARGETS=$(cargo fuzz list --fuzz-dir . 2>/dev/null || find fuzz_targets -maxdepth 1 -name '*.rs' -exec basename {} .rs \; 2>/dev/null)
 
           if [ -z "$TARGETS" ]; then
             echo "❌ ERROR: Nessun target di fuzzing valido in tests/fuzz"

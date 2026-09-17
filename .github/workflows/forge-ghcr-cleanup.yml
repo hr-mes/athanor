@@ -54,9 +54,11 @@ jobs:
           DELETED_UNTAGGED=0
           DELETED_DUPLICATES=0
 
-          echo "### 🧹 Autonomous Janitor Cleanup Summary" >> $GITHUB_STEP_SUMMARY
-          echo "| Package | Scanned Versions | Untagged Pruned | Merkle Duplicates Pruned | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|---|---|---|---|---|" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "### 🧹 Autonomous Janitor Cleanup Summary"
+            echo "| Package | Scanned Versions | Untagged Pruned | Merkle Duplicates Pruned | Status |"
+            echo "|---|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
 
           for PACKAGE in $PACKAGES; do
             TOTAL_PACKAGES=$((TOTAL_PACKAGES + 1))
@@ -72,7 +74,7 @@ jobs:
             
             if [ "$VERSION_COUNT" -eq 0 ]; then
               echo "  No versions found for $PACKAGE."
-              echo "| \`$PACKAGE\` | 0 | 0 | 0 | Clean |" >> $GITHUB_STEP_SUMMARY
+              echo "| \`$PACKAGE\` | 0 | 0 | 0 | Clean |" >> "$GITHUB_STEP_SUMMARY"
               continue
             fi
 
@@ -112,10 +114,6 @@ jobs:
 
                 if [ "$KEEP" = "true" ]; then
                   echo "  [Retain Tagged] Keeping version $VERSION_ID (Tags: $TAGS)."
-                  FIRST_TAG=$(echo "$version" | jq -r '.metadata.container.tags[0]')
-                  IMAGE_REF="docker://$REGISTRY/$ORG/$PACKAGE:$FIRST_TAG"
-                  
-                  # Removed fake Merkle evaluation log
                 else
                   # Duplicate Merkle Layer Tree / Exceeds retention limit
                   echo "  [Deduplicate Merkle] Deleting redundant tagged version $VERSION_ID (Tags: $TAGS)..."
@@ -130,7 +128,7 @@ jobs:
 
             DELETED_UNTAGGED=$((DELETED_UNTAGGED + PKG_UNTAGGED_DEL))
             DELETED_DUPLICATES=$((DELETED_DUPLICATES + PKG_DUPLICATE_DEL))
-            echo "| \`$PACKAGE\` | $VERSION_COUNT | $PKG_UNTAGGED_DEL | $PKG_DUPLICATE_DEL | Optimized |" >> $GITHUB_STEP_SUMMARY
+            echo "| \`$PACKAGE\` | $VERSION_COUNT | $PKG_UNTAGGED_DEL | $PKG_DUPLICATE_DEL | Optimized |" >> "$GITHUB_STEP_SUMMARY"
           done
 
           echo "--------------------------------------------------"

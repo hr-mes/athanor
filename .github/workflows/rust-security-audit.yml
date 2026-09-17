@@ -173,7 +173,7 @@ jobs:
       - name: ?????? Resilient Kani Setup (Bypass GitHub 503)
         run: |
           set -euo pipefail
-          for i in {1..5}; do if cargo kani setup; then break; fi; sleep 2; done
+          for _ in {1..5}; do if cargo kani setup; then break; fi; sleep 2; done
 
       - name: Run Mathematical Proofs (${{ matrix.module }})
         run: |
@@ -238,7 +238,7 @@ jobs:
       - name: ?????? Resilient Kani Setup (Bypass GitHub 503)
         run: |
           set -euo pipefail
-          for i in {1..5}; do if cargo kani setup; then break; fi; sleep 2; done
+          for _ in {1..5}; do if cargo kani setup; then break; fi; sleep 2; done
 
       - name: ???? Formal Verification - PQC Mesh Bus (system/athanor-mesh-bus)
         run: |
