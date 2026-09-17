@@ -79,6 +79,9 @@ jobs:
           TMPDIR: ${{ runner.temp }}
         run: |
           set -euo pipefail
+          # The build leaves the containers of its bind-mounted stages behind, and they hold
+          # the intermediate images: prune refuses to touch an image a container still uses.
+          podman rm --all --force
           for name in athanor-system athanor-system-nvidia athanor-system-nvidia-legacy; do
             if podman image exists "localhost/$name:check"; then podman rmi "localhost/$name:check"; fi
           done
