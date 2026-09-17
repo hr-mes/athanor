@@ -165,16 +165,18 @@ module_verdict() { # module_verdict REF BRANCH KERNEL_DIGEST DEVEL_DIGEST: verif
 }
 
 attested_nvr() { # attested_nvr REF: the NVR of REF's cosign-verified custom pins attestation,
-                  # i.e. build-inputs.py's FEDORA_KERNEL_NVR run through nvr.sh's own formula.
-                  # Empty when the attestation is missing, unverified, or predates that pin. A
-                  # real verification error dies here after printing why; since this runs inside
-                  # the command substitution of its own caller, that only ends this subshell, so
-                  # the caller must still check the substitution's own exit status to see it.
+                  # i.e. build-inputs.py's FEDORA_KERNEL_NVR run through nvr.sh's own formula,
+                  # scanning every verified entry the way module_verdict's any(.[]; ...) does so
+                  # an unrelated or incomplete one first in the list cannot hide it. Empty when
+                  # the attestation is missing, unverified, or no entry carries that pin. A real
+                  # verification error dies here after printing why; since this runs inside the
+                  # command substitution of its own caller, that only ends this subshell, so the
+                  # caller must still check the substitution's own exit status to see it.
   local predicates fedora status=0
   predicates=$(ask predicates "$1" kernel) || status=$?
   [[ $status -eq 0 ]] || die "$1: could not verify its pins attestation to tell whether the pins moved on"
   [[ $predicates != unverified ]] || return 0
-  fedora=$(jq -rs '.[0].pins.FEDORA_KERNEL_NVR // empty' <<< "$predicates")
+  fedora=$(jq -rs '[.[].pins.FEDORA_KERNEL_NVR // empty] | first // empty' <<< "$predicates")
   [[ -n $fedora ]] || return 0
   bash "$ROOT/forge/specs/azoth/nvr.sh" <(echo "FEDORA_KERNEL_NVR=$fedora")
 }

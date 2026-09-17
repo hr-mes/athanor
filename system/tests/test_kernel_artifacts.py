@@ -340,6 +340,20 @@ class Resolve(Tool):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.state_file()["state"], "ready")
 
+    def test_pins_moved_check_scans_every_attestation_entry_for_the_pin(self):
+        # An unrelated verified entry sorts first: attested_nvr must still find the pin in a
+        # later one instead of stopping at the first entry, the way module_verdict already
+        # scans every predicate with `any(.[]; ...)`.
+        fx = published()
+        fx["attestations"][f"{REG}/azoth@{OTHER_KERNEL}"] = [
+            {"identity": KERNEL_BUILD, "predicate": {"unrelated": "entry"}},
+            {"identity": KERNEL_BUILD, "predicate": {"pins": {"FEDORA_KERNEL_NVR": OTHER_FEDORA_KERNEL_NVR}}},
+        ]
+        self.registry(fx)
+        r = self.run_script("resolve", "--expect-kernel-digest", OTHER_KERNEL)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file()["state"], "ready")
+
     def test_pins_moved_check_falls_back_to_the_label_when_the_attestation_is_unverified(self):
         # The attestation exists but was not signed by kernel-build.yml: it must not count,
         # falling back to the label, which agrees with the current NVR (not moved), so this
