@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-nix-support
 Version:        1.0.0
-Release:        6%{?dist}
+Release:        7%{?dist}
 Summary:        Athanor OS athanor-nix-support
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -30,20 +30,30 @@ writable, encrypted /var.
 # Nothing to build
 
 %install
+mkdir -p %{buildroot}/etc/tmpfiles.d
 mkdir -p %{buildroot}/usr/lib/tmpfiles.d
 mkdir -p %{buildroot}/usr/lib/systemd/system
 mkdir -p %{buildroot}/usr/lib/systemd/system-preset
 
+cp -a %{_sourcedir}/etc/tmpfiles.d/nix-daemon.conf %{buildroot}/etc/tmpfiles.d/
 cp -a %{_sourcedir}/usr/lib/tmpfiles.d/* %{buildroot}/usr/lib/tmpfiles.d/
 cp -a %{_sourcedir}/usr/lib/systemd/system/* %{buildroot}/usr/lib/systemd/system/
 cp -a %{_sourcedir}/usr/lib/systemd/system-preset/* %{buildroot}/usr/lib/systemd/system-preset/
 
 %files
+%config(noreplace) /etc/tmpfiles.d/nix-daemon.conf
 /usr/lib/tmpfiles.d/10-athanor-nix.conf
 /usr/lib/systemd/system/nix.mount
 /usr/lib/systemd/system-preset/80-athanor-nix.preset
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-7
+- Replace the nix-daemon package's tmpfiles rules with /etc/tmpfiles.d/nix-daemon.conf.
+  Fedora's rules create /nix/var/nix/{daemon-socket,builds} in the read-only ostree /nix
+  before nix.mount runs, and failed on every boot. The override creates both in /var/nix
+  with the same modes and the 7-day age on builds; 10-athanor-nix.conf no longer seeds
+  them, so no path is declared twice.
+
 * Sat Sep 12 2026 Athanor Forge <forge@athanor.os> - 1.0.0-6
 - Break the ordering cycle that kept nix.mount from activating on a clean boot. A .mount
   unit gets an implicit Before=local-fs.target from DefaultDependencies; combined with the
