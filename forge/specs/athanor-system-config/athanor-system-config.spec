@@ -10,7 +10,7 @@ BuildArch:      noarch
 
 Requires: cosmic-comp greetd greenboot systemd-ukify nodejs
 # Core UI andDaemons
-Requires: athanor-shell-rs athanor-daemon-rs
+Requires: athanor-shell-rs
 Requires: xdg-desktop-portal-athanor
 # The eBPF monitor and the cloud agent are integrations the configuration is ready
 # for, not prerequisites of the configuration itself: weak dependencies.
@@ -90,6 +90,8 @@ mkdir -p /etc/yum.repos.d
 - Drop the athanor-settings-rs dependency: it signed CRDT writes with a key generated
   for each write and put a Cloudflare API token on curl's command line. It leaves the
   image; cosmic-settings is the settings application.
+- Drop the athanor-daemon-rs dependency: its only live entry point was session-bus
+  activation, which ran it with none of its unit's sandboxing. It leaves the image.
 * Sun Sep 13 2026 Athanor Forge <forge@athanor.os> - 1.0.0-29
 - Ship a USBGuard baseline policy in /etc/usbguard/rules.d. The preset enables
   usbguard.service and the only rule ever shipped, the rules.conf tmpfiles writes,

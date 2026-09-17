@@ -21,3 +21,7 @@ athanor-store-rs
 # write and passed a Cloudflare API token to curl on the command line; cosmic-settings
 # covers settings until the application is redesigned.
 athanor-settings-rs
+# athanor-daemon-rs was D-Bus-activated on the session bus, outside its hardened system
+# unit, and claimed os.athanor.Bedrock and the athanor portal name there; nothing in the
+# COSMIC session uses it.
+athanor-daemon-rs
