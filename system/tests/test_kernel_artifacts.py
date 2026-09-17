@@ -207,6 +207,30 @@ class Resolve(Tool):
         self.assertEqual(r.returncode, 1)
         self.assertIn("republished", r.stderr)
 
+    def test_republished_kernel_leaves_no_stale_file(self):
+        self.registry(published())
+        self.assertEqual(self.run_script("resolve").returncode, 0)
+        self.assertIsNotNone(self.state_file())
+        r = self.run_script("resolve", "--expect-kernel-digest", OTHER_KERNEL)
+        self.assertEqual(r.returncode, 1)
+        self.assertIsNone(self.state_file())
+
+    def test_expect_kernel_digest_fails_when_kernel_becomes_absent(self):
+        fx = published()
+        del fx["tags"][f"{REG}/azoth:{NVR}"]
+        self.registry(fx)
+        r = self.run_script("resolve", "--expect-kernel-digest", KERNEL)
+        self.assertEqual(r.returncode, 1)
+        self.assertIsNone(self.state_file())
+
+    def test_expect_kernel_digest_fails_when_kernel_becomes_unsigned(self):
+        fx = published()
+        del fx["signatures"][f"{REG}/azoth@{KERNEL}"]
+        self.registry(fx)
+        r = self.run_script("resolve", "--expect-kernel-digest", KERNEL)
+        self.assertEqual(r.returncode, 1)
+        self.assertIsNone(self.state_file())
+
     def test_require_ready(self):
         self.registry(published(branches=("open",)))
         self.assertEqual(self.run_script("require-ready").returncode, 1)
