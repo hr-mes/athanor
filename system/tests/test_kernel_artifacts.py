@@ -179,6 +179,18 @@ class Resolve(Tool):
         self.assertEqual(self.state_file()["state"], "modules-missing")
         self.assertNotIn("nvidia_open_digest", self.state_file())
 
+    def test_attestation_for_another_devel_digest_is_modules_missing(self):
+        fx = published()
+        ref = f"{REG}/azoth-nvidia@{MODULE['open']}"
+        stale = predicate("open")
+        stale["devel_digest"] = OTHER_KERNEL
+        fx["attestations"][ref] = [{"identity": KMOD, "predicate": stale}]
+        self.registry(fx)
+        r = self.run_script("resolve")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file()["state"], "modules-missing")
+        self.assertNotIn("nvidia_open_digest", self.state_file())
+
     def test_attestation_for_other_nvidia_pins_is_modules_missing(self):
         fx = published()
         ref = f"{REG}/azoth-nvidia@{MODULE['open']}"
