@@ -55,6 +55,7 @@ jobs:
       nvr: ${{ steps.key.outputs.nvr }}
       reuse: ${{ steps.key.outputs.reuse }}
       devel_digest: ${{ steps.artifacts.outputs.devel_digest }}
+      registry: ${{ steps.artifacts.outputs.registry }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
@@ -95,7 +96,7 @@ jobs:
         run: |
           set -euo pipefail
           bash system/kernel-artifacts.sh resolve
-          grep -E '^devel_digest=' kernel-artifacts/kernel-artifacts.env >> "$GITHUB_OUTPUT"
+          grep -E '^(devel_digest|registry)=' kernel-artifacts/kernel-artifacts.env >> "$GITHUB_OUTPUT"
 
   build:
     needs: inputs
@@ -233,6 +234,7 @@ jobs:
     with:
       devel-artifact: ${{ needs.inputs.outputs.reuse != 'true' && 'kernel-devel' || '' }}
       devel-digest: ${{ needs.inputs.outputs.devel_digest }}
+      registry: ${{ needs.inputs.outputs.registry }}
 
   gate:
     # The single check required by the branch protection: green only when every gate is
