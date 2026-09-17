@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-desktop-ui
 Version:        1.0.0
-Release:        9%{?dist}
+Release:        10%{?dist}
 Summary:        Athanor OS Desktop UI configurations
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -20,7 +20,7 @@ Requires: slurp
 Requires: wl-clipboard
 Requires: brightnessctl
 Requires: playerctl
-Requires:       athanor-shell-rs athanor-settings-rs wireplumber nautilus firefox
+Requires:       athanor-shell-rs wireplumber nautilus firefox
 
 %description
 Provides the unified Desktop UI configuration for Athanor OS.
@@ -44,6 +44,9 @@ cp -p %{_sourcedir}/etc/udev/rules.d/99-ddcutil-i2c.rules %{buildroot}/usr/lib/u
 /usr/lib/udev/rules.d/99-ddcutil-i2c.rules
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-10
+- Drop the athanor-settings-rs dependency: the application leaves the image and
+  cosmic-settings takes its place.
 * Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.0-9
 - Stop shipping the niri config: the desktop runs on cosmic-comp. The /etc/skel niri
   config.kdl and the legacy athanor-niri-session Provides/Obsoletes are gone; the ddcutil

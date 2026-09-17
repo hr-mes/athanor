@@ -17,3 +17,7 @@ athanor-greeter
 # its policy declares, and verified package signatures against a caller-supplied key;
 # cosmic-store covers the store until it is redesigned.
 athanor-store-rs
+# athanor-settings-rs "signed" its CRDT writes with a Dilithium key generated for each
+# write and passed a Cloudflare API token to curl on the command line; cosmic-settings
+# covers settings until the application is redesigned.
+athanor-settings-rs
