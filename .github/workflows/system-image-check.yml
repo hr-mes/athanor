@@ -79,9 +79,13 @@ jobs:
           TMPDIR: ${{ runner.temp }}
         run: |
           set -euo pipefail
-          # The build leaves the containers of its bind-mounted stages behind, and they hold
-          # the intermediate images: prune refuses to touch an image a container still uses.
+          # The build leaves the containers of its stages behind in the storage, and they hold
+          # the intermediate images: a prune refuses to touch an image a container still uses.
+          # Those are buildah containers, which podman calls external, so `podman rm --all`
+          # does not see them and only `system prune --external` clears them. The storage is
+          # on the cache disk, which outlives the guest, so this has to happen every time.
           podman rm --all --force
+          podman system prune --force --external
           for name in athanor-system athanor-system-nvidia athanor-system-nvidia-legacy; do
             if podman image exists "localhost/$name:check"; then podman rmi "localhost/$name:check"; fi
           done
