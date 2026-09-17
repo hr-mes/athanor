@@ -95,7 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           bash system/kernel-artifacts.sh resolve
-          sed -n 's/^devel_digest=/devel_digest=/p' kernel-artifacts/kernel-artifacts.env >> "$GITHUB_OUTPUT"
+          grep -E '^devel_digest=' kernel-artifacts/kernel-artifacts.env >> "$GITHUB_OUTPUT"
 
   build:
     needs: inputs
