@@ -40,6 +40,9 @@ readarray -t UPSTREAM_CLI < <(jq -r '.upstream_cli[] // empty' config/packages.j
 ARTIFACTS="$(dirname "${BASH_SOURCE[0]}")/../../system/kernel-artifacts.sh"
 KERNEL_STATE=$(bash "$ARTIFACTS" get state)
 [[ $KERNEL_STATE == ready ]] || { echo "[FATAL] kernel artifacts are ${KERNEL_STATE}, not ready: run system/kernel-artifacts.sh require-ready first" >&2; exit 1; }
+KERNEL_NVR=$(bash "$ARTIFACTS" get nvr)
+PINNED_NVR=$(bash "$(dirname "${BASH_SOURCE[0]}")/../specs/azoth/nvr.sh")
+[[ $KERNEL_NVR == "$PINNED_NVR" ]] || { echo "[FATAL] kernel artifacts were resolved for ${KERNEL_NVR}, the pins give ${PINNED_NVR}: run system/kernel-artifacts.sh resolve again" >&2; exit 2; }
 KERNEL_DIGEST=$(bash "$ARTIFACTS" get kernel_digest)
 
 # Packages published by a dedicated workflow, not the DAG, so no athanor-forge-<pkg>
