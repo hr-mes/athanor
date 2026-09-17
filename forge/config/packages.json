@@ -23,7 +23,6 @@
     "xdg-desktop-portal-athanor",
     "secure-boot",
     "lvfs-rs",
-    "ui-agent",
     "tetragon",
     "scudo",
     "qa",
@@ -33,7 +32,6 @@
     "astro-toolchain",
     "sccache",
     "mold",
-    "dock",
     "keylime",
     "recovery",
     "cargo-tools",
@@ -72,7 +70,6 @@
     "bibata",
     "matugen",
     "dart-sass",
-    "dock",
     "keylime",
     "recovery",
     "kernel-forge"
@@ -87,7 +84,6 @@
     "gatekeeper-rs",
     "xdg-desktop-portal-athanor",
     "lvfs-rs",
-    "ui-agent",
     "qa",
     "athanor-semantic-db"
   ],

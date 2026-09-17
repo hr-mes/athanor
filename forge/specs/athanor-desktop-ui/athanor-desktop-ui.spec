@@ -10,9 +10,7 @@ BuildArch:      noarch
 Provides:       athanor-ags-config = 1.0.1-3
 Obsoletes:      athanor-ags-config < 1.0.1-3
 
-Requires: lxpolkit
 Requires: cliphist
-Requires: swayidle
 Requires: ddcutil
 Requires: foot
 Requires: grim
@@ -24,7 +22,7 @@ Requires:       athanor-shell-rs wireplumber nautilus firefox
 
 %description
 Provides the unified Desktop UI configuration for Athanor OS.
-Includes dependencies for Wayland (lxpolkit, swayidle, ddcutil)
+Includes dependencies for Wayland (ddcutil)
 and configures UDEV for i2c access.
 
 %prep
@@ -47,6 +45,9 @@ cp -p %{_sourcedir}/etc/udev/rules.d/99-ddcutil-i2c.rules %{buildroot}/usr/lib/u
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-10
 - Drop the athanor-settings-rs dependency: the application leaves the image and
   cosmic-settings takes its place.
+- Drop lxpolkit and swayidle: nothing in the COSMIC session starts either of them.
+  cosmic-osd is the session's polkit authentication agent, and idle handling belongs
+  to cosmic-idle.
 * Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - 1.0.0-9
 - Stop shipping the niri config: the desktop runs on cosmic-comp. The /etc/skel niri
   config.kdl and the legacy athanor-niri-session Provides/Obsoletes are gone; the ddcutil

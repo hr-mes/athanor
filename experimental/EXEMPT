@@ -25,3 +25,6 @@ athanor-settings-rs
 # unit, and claimed os.athanor.Bedrock and the athanor portal name there; nothing in the
 # COSMIC session uses it.
 athanor-daemon-rs
+# athanor-dock has no unit since the COSMIC dock replaced it; the crate stays a library
+# of athanor-shell-rs, only its standalone binary leaves the image.
+athanor-dock
