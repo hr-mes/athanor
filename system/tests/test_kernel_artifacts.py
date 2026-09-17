@@ -354,6 +354,36 @@ class Resolve(Tool):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.state_file()["state"], "ready")
 
+    def test_pins_moved_check_confirms_the_nvr_when_the_matching_attestation_sorts_first(self):
+        # Two verified attestations can sit on one digest, since the identity regex accepts
+        # kernel-build.yml on any branch: the one confirming the current NVR must decide
+        # regardless of the other, so the expectation is kept and this still dies.
+        fx = published()
+        fx["attestations"][f"{REG}/azoth@{OTHER_KERNEL}"] = [
+            {"identity": KERNEL_BUILD, "predicate": {"pins": {"FEDORA_KERNEL_NVR": PINS["FEDORA_KERNEL_NVR"]}}},
+            {"identity": KERNEL_BUILD, "predicate": {"pins": {"FEDORA_KERNEL_NVR": OTHER_FEDORA_KERNEL_NVR}}},
+        ]
+        self.registry(fx)
+        r = self.run_script("resolve", "--expect-kernel-digest", OTHER_KERNEL)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("republished", r.stderr)
+        self.assertIsNone(self.state_file())
+
+    def test_pins_moved_check_confirms_the_nvr_when_the_matching_attestation_sorts_second(self):
+        # Same as above with the two attestations in the opposite order: picking an arbitrary
+        # one (the first) would let the non-matching entry contest a confirmed NVR just
+        # because it sorts first, wrongly dropping the republish guard here.
+        fx = published()
+        fx["attestations"][f"{REG}/azoth@{OTHER_KERNEL}"] = [
+            {"identity": KERNEL_BUILD, "predicate": {"pins": {"FEDORA_KERNEL_NVR": OTHER_FEDORA_KERNEL_NVR}}},
+            {"identity": KERNEL_BUILD, "predicate": {"pins": {"FEDORA_KERNEL_NVR": PINS["FEDORA_KERNEL_NVR"]}}},
+        ]
+        self.registry(fx)
+        r = self.run_script("resolve", "--expect-kernel-digest", OTHER_KERNEL)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("republished", r.stderr)
+        self.assertIsNone(self.state_file())
+
     def test_pins_moved_check_falls_back_to_the_label_when_the_attestation_is_unverified(self):
         # The attestation exists but was not signed by kernel-build.yml: it must not count,
         # falling back to the label, which agrees with the current NVR (not moved), so this
