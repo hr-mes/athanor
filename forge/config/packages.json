@@ -112,6 +112,7 @@
     "mokutil",
     "nftables",
     "power-profiles-daemon",
+    "qemu-img",
     "qemu-kvm",
     "squashfuse",
     "upower",
