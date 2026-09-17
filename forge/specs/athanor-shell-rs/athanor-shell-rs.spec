@@ -31,9 +31,8 @@ install -m 0755 target/release/athanor-shell-rs %{buildroot}/usr/bin/athanor-she
 %changelog
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-31
 - Remove the greeter's keyring unlock. It called os.athanor.Bedrock.SecretEnroller on
-  the session bus, which the greetd user never has, so it never ran; had it run, it
-  would have handed the plaintext password to whichever process owned that name. PAM,
-  run by greetd for the new session, unlocks the keyring.
+  the greetd user's session bus, handing the plaintext password to whichever process
+  owned that name there. PAM, run by greetd for the new session, unlocks the keyring.
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-30
 - The greeter hands the password to greetd alone: the SecretEnroller call on the
   session bus, which gave the plaintext password to whichever process owned
