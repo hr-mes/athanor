@@ -1,5 +1,6 @@
 use landlock::{
-    AccessFs, CompatLevel, Compatible, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI,
+    AccessFs, BitFlags, CompatLevel, Compatible, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
+    ABI,
 };
 use std::env;
 use std::path::{Path, PathBuf};
@@ -38,23 +39,38 @@ pub fn ensure_single_threaded() -> Result<(), Box<dyn std::error::Error>> {
 /// caller can refuse to run unconfined. Call it before any other thread exists (see
 /// [`ensure_single_threaded`]).
 pub fn apply_landlock_sandbox() -> Result<(), Box<dyn std::error::Error>> {
-    restrict_writes_to(&writable_paths())
+    restrict_writes_to(&grants())
 }
 
-/// Restricts the calling thread, and the threads it creates, to writing beneath `paths`.
-fn restrict_writes_to(paths: &[PathBuf]) -> Result<(), Box<dyn std::error::Error>> {
-    let abi = ABI::V1;
-    let write_access = AccessFs::from_write(abi);
+/// The DRM device directory. GPU rendering opens its card and render nodes read-write,
+/// and under a ruleset that handles write accesses opening a file for writing needs
+/// `WriteFile`. Reads, directory listing and ioctls are not handled by the ABI V1 write
+/// set, so they need no grant; creating or removing anything here is not granted.
+const DRM_DEVICE_DIR: &str = "/dev/dri";
+
+/// Every grant of the sandbox: the unit's writable directories with the whole write
+/// set, and the DRM nodes with `WriteFile` alone.
+fn grants() -> Vec<(PathBuf, BitFlags<AccessFs>)> {
+    let write_access = AccessFs::from_write(ABI::V1);
+    let mut grants: Vec<_> = writable_paths().into_iter().map(|path| (path, write_access)).collect();
+    grants.push((PathBuf::from(DRM_DEVICE_DIR), AccessFs::WriteFile.into()));
+    grants
+}
+
+/// Restricts the calling thread, and the threads it creates, to the write accesses
+/// granted beneath each path; a path that does not exist is skipped.
+fn restrict_writes_to(grants: &[(PathBuf, BitFlags<AccessFs>)]) -> Result<(), Box<dyn std::error::Error>> {
+    let write_access = AccessFs::from_write(ABI::V1);
 
     let mut ruleset = Ruleset::default()
         .set_compatibility(CompatLevel::HardRequirement)
         .handle_access(write_access)?
         .create()?;
 
-    for path in paths {
+    for (path, access) in grants {
         if path.exists() {
             let path_fd = PathFd::new(path)?;
-            ruleset = ruleset.add_rule(PathBeneath::new(path_fd, write_access))?;
+            ruleset = ruleset.add_rule(PathBeneath::new(path_fd, *access))?;
         }
     }
 
@@ -127,7 +143,7 @@ mod tests {
         // Landlock confines the calling thread and its future children only, so the
         // restriction stays inside this thread and the rest of the test binary is free.
         std::thread::spawn(move || {
-            restrict_writes_to(&[allowed.clone()]).expect("Landlock must be enforced, not skipped");
+            restrict_writes_to(&[(allowed.clone(), AccessFs::from_write(ABI::V1))]).expect("Landlock must be enforced, not skipped");
             assert_denied(&denied.join("probe"));
             std::fs::write(allowed.join("probe"), b"x").expect("write in the allowed set must succeed");
         })
@@ -140,10 +156,37 @@ mod tests {
     fn threads_created_after_the_sandbox_inherit_it() {
         let (base, allowed, denied) = probe_dirs("inherit");
         std::thread::spawn(move || {
-            restrict_writes_to(&[allowed]).expect("Landlock must be enforced, not skipped");
+            restrict_writes_to(&[(allowed, AccessFs::from_write(ABI::V1))]).expect("Landlock must be enforced, not skipped");
             std::thread::spawn(move || assert_denied(&denied.join("probe")))
                 .join()
                 .expect("child thread");
+        })
+        .join()
+        .expect("sandbox test thread");
+        std::fs::remove_dir_all(base).expect("cleanup outside the sandboxed thread");
+    }
+
+    #[test]
+    fn drm_nodes_are_granted_write_file_and_nothing_else() {
+        let drm: Vec<_> = grants().into_iter().filter(|(path, _)| path.starts_with("/dev")).collect();
+        assert_eq!(drm, vec![(PathBuf::from("/dev/dri"), BitFlags::from(AccessFs::WriteFile))]);
+    }
+
+    #[test]
+    fn a_write_file_grant_opens_existing_nodes_read_write_but_creates_nothing() {
+        let (base, nodes, _) = probe_dirs("write-file");
+        let node = nodes.join("renderD128");
+        std::fs::write(&node, b"").expect("create the stand-in node");
+        std::thread::spawn(move || {
+            restrict_writes_to(&[(nodes.clone(), AccessFs::WriteFile.into())])
+                .expect("Landlock must be enforced, not skipped");
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&node)
+                .expect("an existing node opens read-write, as the DRM open path does");
+            std::fs::read_dir(&nodes).expect("the directory stays listable");
+            assert_denied(&nodes.join("card9"));
         })
         .join()
         .expect("sandbox test thread");
