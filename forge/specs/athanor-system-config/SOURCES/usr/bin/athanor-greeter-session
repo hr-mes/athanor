@@ -26,4 +26,7 @@ fi
 # Without it the session's stderr goes nowhere greetd keeps, and when the greeter fails
 # all that survives is greetd's "greeter exited without creating a session", which says
 # that something went wrong and nothing about what.
-exec systemd-cat -t athanor-greeter cosmic-comp --no-xwayland /usr/bin/athanor-shell-rs --greeter
+#
+# The client is athanor-greeter-client, which runs the greeter UI in a sandbox and never
+# unconfined; the compositor itself stays outside it. The wrapper explains the model.
+exec systemd-cat -t athanor-greeter cosmic-comp --no-xwayland /usr/libexec/athanor-greeter-client
