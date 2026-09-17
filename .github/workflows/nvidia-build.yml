@@ -69,8 +69,9 @@ jobs:
           set -euo pipefail
           [[ $DEVEL_DIGEST =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "devel-digest is required when devel-artifact is empty, got '${DEVEL_DIGEST}'" >&2; exit 1; }
           [[ -n $REGISTRY ]] || { echo "registry is required when devel-artifact is empty" >&2; exit 1; }
-          echo "${GH_TOKEN}" | podman login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-          trap 'podman logout ghcr.io' EXIT
+          host=${REGISTRY%%/*}
+          echo "${GH_TOKEN}" | podman login "$host" -u "${GITHUB_ACTOR}" --password-stdin
+          trap 'podman logout "$host"' EXIT
           ctr=$(podman create "${REGISTRY}/azoth-devel@${DEVEL_DIGEST}" /kernel-devel)
           mkdir -p devel && podman cp "${ctr}:/." devel/ && podman rm "$ctr" > /dev/null
 
