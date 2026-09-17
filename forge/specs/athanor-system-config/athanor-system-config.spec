@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:29.fc43}
+Release:        %{?autorelease}%{!?autorelease:30.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -11,7 +11,7 @@ BuildArch:      noarch
 Requires: cosmic-comp greetd greenboot systemd-ukify nodejs
 # Core UI andDaemons
 Requires: athanor-shell-rs athanor-settings-rs athanor-daemon-rs
-Requires: athanor-store-rs xdg-desktop-portal-athanor
+Requires: xdg-desktop-portal-athanor
 # The eBPF monitor and the cloud agent are integrations the configuration is ready
 # for, not prerequisites of the configuration itself: weak dependencies.
 Recommends: athanor-sysmon-ebpf athanor-cloud-rs
@@ -83,6 +83,10 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) %attr(0600,root,root) /etc/usbguard/rules.d/10-athanor-baseline.conf
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-30
+- Drop the athanor-store-rs dependency: the store daemon installed Flatpaks for any
+  D-Bus caller without checking its polkit action and verified signatures against a
+  key the caller supplied. It leaves the image; cosmic-store is the store.
 * Sun Sep 13 2026 Athanor Forge <forge@athanor.os> - 1.0.0-29
 - Ship a USBGuard baseline policy in /etc/usbguard/rules.d. The preset enables
   usbguard.service and the only rule ever shipped, the rules.conf tmpfiles writes,
