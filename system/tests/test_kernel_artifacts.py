@@ -120,6 +120,31 @@ class Resolve(Tool):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.state_file()["state"], "kernel-missing")
 
+    def test_absent_devel_is_kernel_missing(self):
+        fx = published()
+        del fx["tags"][f"{REG}/azoth-devel:{NVR}"]
+        self.registry(fx)
+        r = self.run_script("resolve")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file()["state"], "kernel-missing")
+
+    def test_unsigned_devel_is_kernel_missing(self):
+        fx = published()
+        del fx["signatures"][f"{REG}/azoth-devel@{DEVEL}"]
+        self.registry(fx)
+        r = self.run_script("resolve")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file()["state"], "kernel-missing")
+
+    def test_kernel_tag_transport_error_fails(self):
+        fx = published()
+        fx["errors"].append(f"{REG}/azoth:{NVR}")
+        self.registry(fx)
+        r = self.run_script("resolve")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("i/o timeout", r.stderr)
+        self.assertIsNone(self.state_file())
+
     def test_transient_signature_error_is_not_folded_into_unsigned(self):
         fx = published()
         fx["signature_transient_errors"] = [f"{REG}/azoth@{KERNEL}"]
@@ -163,6 +188,28 @@ class Resolve(Tool):
         ref = f"{REG}/azoth-nvidia@{MODULE['open']}"
         fx["signatures"][ref] = KERNEL_BUILD
         fx["attestations"][ref] = [{"identity": KERNEL_BUILD, "predicate": predicate("open")}]
+        self.registry(fx)
+        r = self.run_script("resolve")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file()["state"], "modules-missing")
+        self.assertNotIn("nvidia_open_digest", self.state_file())
+
+    def test_module_signed_without_attestation_is_modules_missing(self):
+        fx = published()
+        ref = f"{REG}/azoth-nvidia@{MODULE['open']}"
+        fx["attestations"][ref] = []
+        self.registry(fx)
+        r = self.run_script("resolve")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file()["state"], "modules-missing")
+        self.assertNotIn("nvidia_open_digest", self.state_file())
+
+    def test_attestation_for_wrong_driver_is_modules_missing(self):
+        fx = published()
+        ref = f"{REG}/azoth-nvidia@{MODULE['open']}"
+        wrong = predicate("open")
+        wrong["driver"] = "legacy"
+        fx["attestations"][ref] = [{"identity": KMOD, "predicate": wrong}]
         self.registry(fx)
         r = self.run_script("resolve")
         self.assertEqual(r.returncode, 0, r.stderr)
