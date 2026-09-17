@@ -28,3 +28,8 @@ athanor-daemon-rs
 # athanor-dock has no unit since the COSMIC dock replaced it; the crate stays a library
 # of athanor-shell-rs, only its standalone binary leaves the image.
 athanor-dock
+# athanor-gatekeeper-rs is not fit to enable (independent review, 2026-09-17): its global
+# allocator ignores alignment, launch success is reported before any isolation boundary
+# runs, the fanotify group fd is inherited by sandboxed applications, and applications
+# run as root. It leaves the image until a dedicated redesign.
+athanor-gatekeeper-rs
