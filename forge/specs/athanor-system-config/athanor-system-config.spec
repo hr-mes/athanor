@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:36.fc43}
+Release:        %{?autorelease}%{!?autorelease:37.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -90,6 +90,11 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) %attr(0600,root,root) /etc/usbguard/rules.d/10-athanor-baseline.conf
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-37
+- athanor-desktop resets a component's failure count and restart delay only after a
+  run that lasted longer than 60 seconds. The window used to restart 60 seconds after
+  its first failure, so a crash loop cycled back to one-second restarts and logged
+  again every time instead of settling at the 60-second delay.
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-36
 - Narrow the greeter's system bus from all of logind to the three methods its power
   buttons call: org.freedesktop.login1.Manager Suspend, Reboot and PowerOff on
