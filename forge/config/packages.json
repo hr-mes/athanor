@@ -23,7 +23,6 @@
     "secure-boot",
     "lvfs-rs",
     "tetragon",
-    "scudo",
     "qa",
     "antigravity",
     "syft",
@@ -62,7 +61,6 @@
     "ide-bootstrap",
     "system-tweaks",
     "kernel-profile",
-    "scudo",
     "ripgrep-native"
   ],
   "custom_tier2": [
