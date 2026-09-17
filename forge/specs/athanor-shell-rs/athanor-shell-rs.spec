@@ -35,6 +35,8 @@ install -m 0755 target/release/athanor-shell-rs %{buildroot}/usr/bin/athanor-she
   os.athanor.Bedrock, is removed, and so is the --lock mode that shared it.
 - Fail closed on Landlock: the ruleset is a hard requirement and the shell exits when it
   cannot be enforced, instead of warning and running unconfined.
+- Apply Landlock first in main(), before the Tokio runtime or GTK start any thread,
+  and fail closed unless the process is single-threaded at that point.
 * Fri Sep 11 2026 Athanor Forge <forge@athanor.os> - 1.0.0-29
 - Landlock confines writes to the unit's writable set (configuration and state
   directories, runtime directory, /tmp) instead of denying reads outside /usr, /etc
