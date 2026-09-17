@@ -119,8 +119,9 @@ jobs:
           set -euo pipefail
           registry=$(bash system/kernel-artifacts.sh get registry)
           devel=$(bash system/kernel-artifacts.sh get devel_digest)
-          echo "${GH_TOKEN}" | podman login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-          trap 'podman logout ghcr.io' EXIT
+          host=${registry%%/*}
+          echo "${GH_TOKEN}" | podman login "$host" -u "${GITHUB_ACTOR}" --password-stdin
+          trap 'podman logout "$host"' EXIT
           ctr=$(podman create "${registry}/azoth-devel@${devel}" /kernel-devel)
           mkdir -p devel && podman cp "${ctr}:/." devel/ && podman rm "$ctr" > /dev/null
 
@@ -291,13 +292,15 @@ jobs:
       - name: Publish (nvidia-publish.sh)
         env:
           BUILDAH_ISOLATION: chroot
-          SYFT_REGISTRY_AUTH_AUTHORITY: ghcr.io
           SYFT_REGISTRY_AUTH_USERNAME: ${{ github.actor }}
           SYFT_REGISTRY_AUTH_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          echo "${GH_TOKEN}" | buildah login -u "${GITHUB_ACTOR}" --password-stdin ghcr.io
-          echo "${GH_TOKEN}" | cosign login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          host=$(bash system/kernel-artifacts.sh get registry)
+          host=${host%%/*}
+          export SYFT_REGISTRY_AUTH_AUTHORITY="$host"
+          echo "${GH_TOKEN}" | buildah login -u "${GITHUB_ACTOR}" --password-stdin "$host"
+          echo "${GH_TOKEN}" | cosign login "$host" -u "${GITHUB_ACTOR}" --password-stdin
           bash forge/specs/azoth/nvidia-publish.sh out
           cat nvidia-publish/summary.md >> "$GITHUB_STEP_SUMMARY"
 
