@@ -140,7 +140,7 @@ def check_workflows():
 
     # 1d. actionlint, se disponibile
     try:
-        p = subprocess.run(["actionlint", "-color=never"], cwd=ROOT,
+        p = subprocess.run(["actionlint", "-no-color", "-oneline"], cwd=ROOT,
                            capture_output=True, text=True, timeout=120)
         if p.returncode != 0:
             for line in (p.stdout or p.stderr).strip().split("\n")[:15]:
