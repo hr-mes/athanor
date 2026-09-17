@@ -31,11 +31,12 @@ systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP 
 # it execs systemctl below, and when the session ends the components lose the display,
 # exit, and the loop stops.
 #
-# A component that keeps failing is not restarted every second forever. The fifth exit
-# within 60 seconds is logged at err priority in the journal, naming the component --
-# a session with no locker is a session that never locks -- and from then on the delay
-# doubles at every exit, up to 60 seconds. Once 60 seconds pass without five exits, the
-# count and the delay start again from the beginning.
+# A component that keeps failing is not restarted every second forever. An exit after a
+# run shorter than 60 seconds counts as a failure; the fifth failure in a row is logged
+# at err priority in the journal, naming the component -- a session with no locker is a
+# session that never locks -- and from then on the delay doubles at every failure, up to
+# 60 seconds. Only a run that lasted longer than 60 seconds resets the count and the
+# delay: a component crash-looping on a long delay never looks healthy again.
 # ponytail: liveness by PID; a PID reused within one retry delay would keep the loop
 # alive until that process exits. A pidfd-based supervisor would close it if it matters.
 session_component() {
@@ -43,28 +44,28 @@ session_component() {
     shift
     delay=1
     failures=0
-    window_start=$(date +%s)
     while kill -0 "$anchor" 2> /dev/null; do
+        started=$(date +%s)
         if "$@"; then
             status=0
         else
             status=$?
         fi
         now=$(date +%s)
-        if [ $((now - window_start)) -gt 60 ]; then
-            window_start=$now
+        if [ $((now - started)) -gt 60 ]; then
             failures=0
             delay=1
-        fi
-        failures=$((failures + 1))
-        if [ "$failures" -ge 5 ]; then
-            if [ "$failures" -eq 5 ]; then
-                echo "$1 exited 5 times within 60 seconds (last status $status); retrying with backoff" |
-                    systemd-cat -p err -t athanor-desktop
-            fi
-            delay=$((delay * 2))
-            if [ "$delay" -gt 60 ]; then
-                delay=60
+        else
+            failures=$((failures + 1))
+            if [ "$failures" -ge 5 ]; then
+                if [ "$failures" -eq 5 ]; then
+                    echo "$1 failed 5 times in a row, each run shorter than 60 seconds (last status $status); retrying with backoff" |
+                        systemd-cat -p err -t athanor-desktop
+                fi
+                delay=$((delay * 2))
+                if [ "$delay" -gt 60 ]; then
+                    delay=60
+                fi
             fi
         fi
         echo "athanor-desktop: $1 exited with status $status, restarting in ${delay}s" >&2
