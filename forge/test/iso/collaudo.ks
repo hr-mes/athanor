@@ -78,13 +78,17 @@ mv /etc/fstab.athanor /etc/fstab
 # command line of this installation only; any other root file system gets nothing, since
 # ext4 and xfs refuse the option and would not mount.
 #
-# This %post runs chrooted into the new deployment (Anaconda's system root, /mnt/sysroot
-# seen from the installer). PrepareOSTreeMountTargetsTask bind-mounts the physical root,
-# the one holding /ostree/deploy, at /sysroot inside it, and Anaconda's own
-# ConfigureBootloader runs `ostree admin instutil set-kargs --merge` in this same chroot to
-# write root= and rootflags=subvol=. Without --sysroot, ostree would take / and reach the
-# repository only through the deployment's ostree -> sysroot/ostree link; naming /sysroot
-# addresses the physical root directly. set-kargs acts on the first deployment, the one
+# This %post runs chrooted into the new deployment, Anaconda's system root (/mnt/sysroot
+# in the installer environment). From the installer environment Anaconda creates the
+# sysroot and deploys the image with `ostree admin --sysroot=<physical root>` (init-fs,
+# os-init) and `ostree container image deploy --sysroot=<physical root>`, where the
+# physical root is /mnt/sysimage. Inside this chroot, PrepareOSTreeMountTargetsTask has
+# bind-mounted that physical root at /sysroot, so --sysroot=/sysroot names the same
+# sysroot those calls used. (Anaconda's own `ostree admin instutil set-kargs --merge`,
+# which writes root= and rootflags=subvol=, is the exception: ConfigureBootloader runs it
+# chrooted here without --sysroot and reaches the repository through the deployment's
+# ostree -> sysroot/ostree link; pyanaconda/modules/payloads/payload/rpm_ostree/
+# installation.py, branch fedora-43.) set-kargs acts on the first deployment, the one
 # just installed, and --merge appends the positional argument to its arguments: the
 # initrd's systemd-fstab-generator joins every rootflags=. The arguments belong to the
 # deployment, so bootc carries them into every later deployment.
