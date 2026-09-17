@@ -99,8 +99,10 @@ fn main() -> glib::ExitCode {
     // Disabilita lo scaling X11 frazionario per evitare blur
     std::env::set_var("GDK_SCALE", "1");
 
+    // Fail closed: the shell does not run without its Landlock confinement.
     if let Err(err) = crate::sys::sandbox::apply_landlock_sandbox() {
-        tracing::warn!(error = %err, "Impossibile applicare la policy Landlock");
+        tracing::error!(error = %err, "cannot apply the Landlock policy, refusing to run unconfined");
+        return glib::ExitCode::FAILURE;
     }
 
     let args = Args::parse();
