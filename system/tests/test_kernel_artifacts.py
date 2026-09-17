@@ -19,6 +19,12 @@ KERNEL = "sha256:" + "1" * 64
 DEVEL = "sha256:" + "2" * 64
 OTHER_KERNEL = "sha256:" + "9" * 64
 OTHER_NVR = "7.2.4-99.fc43.azoth.99"  # some other NVR the pins have since moved past
+OTHER_FEDORA_KERNEL_NVR = "7.2.4-99.fc43"  # a FEDORA_KERNEL_NVR pin an attestation can carry
+ATTESTED_OTHER_NVR = subprocess.run(
+    ["bash", str(ROOT / "forge/specs/azoth/nvr.sh"), "/dev/stdin"],
+    input=f"FEDORA_KERNEL_NVR={OTHER_FEDORA_KERNEL_NVR}\n", capture_output=True, text=True, check=True,
+).stdout.strip()  # the NVR nvr.sh derives from it, i.e. what attested_nvr() must report
+assert ATTESTED_OTHER_NVR != NVR, "OTHER_FEDORA_KERNEL_NVR must derive an NVR other than the real one"
 MODULE = {"open": "sha256:" + "3" * 64, "legacy": "sha256:" + "4" * 64}
 KERNEL_BUILD = "https://github.com/hr-mes/athanor/.github/workflows/kernel-build.yml@refs/heads/iso-v0"
 KMOD = "https://github.com/hr-mes/athanor/.github/workflows/nvidia-kmod.yml@refs/heads/iso-v0"
@@ -303,16 +309,46 @@ class Resolve(Tool):
         self.assertIsNone(self.state_file())
 
     def test_expect_kernel_digest_fails_on_a_real_error_reading_the_pins_moved_check(self):
-        # A registry outage while reading EXPECT's own config must not be folded into "the
-        # pins did not move": that would misreport a transient failure as a republish or a
-        # withdrawal instead of the real, distinct cause.
+        # A registry outage while checking whether EXPECT's own pins moved (the attestation
+        # check runs first) must not be folded into "they did not move": that would
+        # misreport a transient failure as a republish or a withdrawal instead of the real,
+        # distinct cause.
         fx = published()
         fx["errors"] = [f"{REG}/azoth@{OTHER_KERNEL}"]
         self.registry(fx)
         r = self.run_script("resolve", "--expect-kernel-digest", OTHER_KERNEL)
         self.assertEqual(r.returncode, 1)
-        self.assertIn("could not read its OCI config", r.stderr)
+        self.assertIn("could not verify its pins attestation", r.stderr)
         self.assertNotIn("republished or withdrawn", r.stderr)
+        self.assertIsNone(self.state_file())
+
+    def test_pins_moved_check_prefers_the_verified_attestation_over_the_label(self):
+        # The label disagrees (it still names the current NVR, i.e. "not moved"); the
+        # cosign-verified attestation is the one that must decide, and it says the pins
+        # moved on, so the stale expectation is dropped and this resolves to ready.
+        fx = published()
+        fx["attestations"][f"{REG}/azoth@{OTHER_KERNEL}"] = [
+            {"identity": KERNEL_BUILD, "predicate": {"pins": {"FEDORA_KERNEL_NVR": OTHER_FEDORA_KERNEL_NVR}}}
+        ]
+        fx["configs"] = {f"{REG}/azoth@{OTHER_KERNEL}": {"org.opencontainers.image.version": NVR}}
+        self.registry(fx)
+        r = self.run_script("resolve", "--expect-kernel-digest", OTHER_KERNEL)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file()["state"], "ready")
+
+    def test_pins_moved_check_falls_back_to_the_label_when_the_attestation_is_unverified(self):
+        # The attestation exists but was not signed by kernel-build.yml: it must not count,
+        # falling back to the label, which agrees with the current NVR (not moved), so this
+        # still dies exactly as an unrelated, stale digest should.
+        fx = published()
+        fx["attestations"][f"{REG}/azoth@{OTHER_KERNEL}"] = [
+            {"identity": KMOD, "predicate": {"pins": {"FEDORA_KERNEL_NVR": OTHER_FEDORA_KERNEL_NVR}}}
+        ]
+        fx["configs"] = {f"{REG}/azoth@{OTHER_KERNEL}": {"org.opencontainers.image.version": NVR}}
+        self.registry(fx)
+        r = self.run_script("resolve", "--expect-kernel-digest", OTHER_KERNEL)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("republished", r.stderr)
         self.assertIsNone(self.state_file())
 
     def test_pins_moved_past_the_expected_digest_resolves_normally_to_ready(self):
