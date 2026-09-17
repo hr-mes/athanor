@@ -13,6 +13,11 @@ Fixture keys:
                 timeout) whose message still starts with "no matching signatures:", the same
                 prefix a genuine identity mismatch uses; kernel-artifacts.sh must not fold
                 this into "unsigned"
+  attestation_errors
+                ["ref", ...]  transport failure for that reference, but only in
+                `cosign verify-attestation`: unlike `errors`, `skopeo inspect` and
+                `cosign verify` on the same ref still succeed, so a test can pin an outage to
+                the attestation check alone
   signatures    {"registry/repo@digest": "signing workflow identity"}
   attestations  {"registry/repo@digest": [{"identity": "...", "predicate": {...}}]}
   configs       {"registry/repo@digest": {label: value}}
@@ -71,6 +76,8 @@ def cosign(args, fx):
             return fail(f'Error: no matching signatures: failed to verify certificate identity: no matching CertificateIdentity found, last error: expected SAN value to match regex "{regex}", got "{identity}"')
         return 0
     if args[0] == "verify-attestation":
+        if ref in fx.get("attestation_errors", []):
+            return fail("Error: getting trusted root: GET https://tuf-repo-cdn.sigstore.dev/timestamp.json: 502 Bad Gateway")
         entries = [e for e in fx.get("attestations", {}).get(ref, []) if re.search(regex, e["identity"])]
         if not entries:
             return fail("Error: no matching attestations: \nerror during command execution: no matching attestations: ")
