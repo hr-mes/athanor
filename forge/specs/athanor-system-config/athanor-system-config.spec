@@ -2,13 +2,15 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:30.fc43}
+Release:        %{?autorelease}%{!?autorelease:31.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
 BuildArch:      noarch
 
 Requires: cosmic-comp greetd greenboot systemd-ukify nodejs
+# athanor-greeter-client builds the greeter's sandbox with bwrap.
+Requires: bubblewrap
 # Core UI andDaemons
 Requires: athanor-shell-rs
 Requires: xdg-desktop-portal-athanor
@@ -69,6 +71,7 @@ mkdir -p /etc/yum.repos.d
 %attr(0755,root,root) /usr/bin/athanor-usbguard-hook
 %attr(0755,root,root) /usr/bin/athanor-uki-enroll
 %attr(0755,root,root) /usr/libexec/athanor-snapshot-trigger.sh
+%attr(0755,root,root) /usr/libexec/athanor-greeter-client
 %dir /usr/lib/systemd/system/greetd.service.d
 /usr/lib/systemd/system/greetd.service.d/10-athanor-wantedby.conf
 /usr/lib/systemd/system/athanor-timewarp.service
@@ -83,6 +86,16 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) %attr(0600,root,root) /etc/usbguard/rules.d/10-athanor-baseline.conf
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-31
+- Confine the greeter UI from outside it. cosmic-comp now runs
+  /usr/libexec/athanor-greeter-client, which execs athanor-shell-rs --greeter under
+  bubblewrap: no capabilities, no_new_privs, private user, PID, IPC, UTS, cgroup and
+  network namespaces, read-only /usr and /etc, private /tmp, $HOME and
+  $XDG_RUNTIME_DIR, and only the compositor's Wayland socket, greetd's socket, the
+  system bus socket, the DRM nodes and the AccountsService avatars bound in. The
+  compositor stays unconfined in the logind session, and the wrapper refuses to start
+  the greeter when the sandbox cannot be built. This replaces the greetd.service
+  drop-in athanor-scudo shipped, whose restrictions reached every child of greetd.
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-30
 - Drop the athanor-store-rs dependency: the store daemon installed Flatpaks for any
   D-Bus caller without checking its polkit action and verified signatures against a

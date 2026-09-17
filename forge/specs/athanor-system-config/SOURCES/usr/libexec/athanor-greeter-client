@@ -1,0 +1,77 @@
+#!/usr/bin/sh
+# athanor-greeter-client - runs the greeter UI inside a sandbox built from outside it.
+#
+# Confinement model. greetd starts athanor-greeter-session in the greeter's logind
+# session; that script runs cosmic-comp, and cosmic-comp runs this wrapper as its only
+# client. The compositor stays unconfined: it takes the seat through logind and needs
+# the DRM and input devices the session was granted. Only the client that reads the
+# password is confined, and the confinement is applied here, before it executes, so
+# nothing in its own code has to cooperate:
+#
+#   - bubblewrap sets PR_SET_NO_NEW_PRIVS and, unprivileged, runs the client with no
+#     capabilities in a user namespace of its own, together with new PID, IPC, UTS,
+#     cgroup and network namespaces. The client has no network: every socket it talks
+#     to is a filesystem socket bound in below.
+#   - The filesystem is empty except for what is bound in: /usr and /etc read-only,
+#     sysfs read-only and the DRM nodes for rendering, the Wayland socket of this
+#     compositor, greetd's IPC socket ($GREETD_SOCK), the system bus socket (logind's
+#     suspend, reboot and power-off buttons) and the AccountsService avatars. /tmp,
+#     $HOME and $XDG_RUNTIME_DIR are private tmpfs mounts. No home directory, no /var.
+#   - --die-with-parent ends the client with the compositor, and --new-session keeps it
+#     off the compositor's terminal.
+#
+# Nested user namespaces stay allowed: gdk-pixbuf decodes images through glycin, whose
+# loaders run in bubblewrap sandboxes of their own.
+#
+# Fail closed: the greeter is only ever exec'd by bwrap. If a required socket is missing
+# or bwrap cannot build the sandbox, this script exits non-zero, cosmic-comp exits with
+# its client and greetd reports that the greeter failed. There is no unconfined path.
+
+set -eu
+
+: "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is not set}"
+: "${WAYLAND_DISPLAY:?WAYLAND_DISPLAY is not set: not started by the compositor}"
+: "${GREETD_SOCK:?GREETD_SOCK is not set: not started by greetd}"
+: "${HOME:?HOME is not set}"
+
+# WAYLAND_DISPLAY is a socket name relative to XDG_RUNTIME_DIR, or an absolute path.
+case "$WAYLAND_DISPLAY" in
+    /*) wayland_socket=$WAYLAND_DISPLAY ;;
+    *) wayland_socket=$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY ;;
+esac
+
+for socket in "$wayland_socket" "$GREETD_SOCK" /run/dbus/system_bus_socket; do
+    if [ ! -S "$socket" ]; then
+        echo "athanor-greeter-client: $socket is not a socket, refusing to start" >&2
+        exit 1
+    fi
+done
+
+# /dev/dri is absent on a machine with no DRM driver at all, where GTK renders in
+# software: its bind is optional, like the avatar and font cache directories.
+exec bwrap \
+    --unshare-all \
+    --die-with-parent \
+    --new-session \
+    --cap-drop ALL \
+    --ro-bind /usr /usr \
+    --symlink usr/bin /bin \
+    --symlink usr/sbin /sbin \
+    --symlink usr/lib /lib \
+    --symlink usr/lib64 /lib64 \
+    --ro-bind /etc /etc \
+    --proc /proc \
+    --dev /dev \
+    --dev-bind-try /dev/dri /dev/dri \
+    --ro-bind /sys /sys \
+    --tmpfs /tmp \
+    --ro-bind-try /var/cache/fontconfig /var/cache/fontconfig \
+    --ro-bind-try /var/lib/AccountsService/icons /var/lib/AccountsService/icons \
+    --symlink ../run /var/run \
+    --ro-bind /run/dbus/system_bus_socket /run/dbus/system_bus_socket \
+    --ro-bind "$GREETD_SOCK" "$GREETD_SOCK" \
+    --tmpfs "$HOME" \
+    --perms 0700 --tmpfs "$XDG_RUNTIME_DIR" \
+    --ro-bind "$wayland_socket" "$wayland_socket" \
+    --chdir / \
+    -- /usr/bin/athanor-shell-rs --greeter
