@@ -24,8 +24,16 @@ jobs:
           tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
       - name: actionlint
         run: /tmp/actionlint -no-color -shellcheck= -pyflakes=
-      - name: Structural checks (scripts/verify.py workflows)
-        run: python3 scripts/verify.py workflows
+      # Ubuntu ships no ksvalidator, so the tool comes from PyPI into a throwaway
+      # virtualenv, pinned like actionlint above rather than floating on latest.
+      - name: Install pykickstart 3.78 (ksvalidator)
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/pykickstart
+          /tmp/pykickstart/bin/pip install --quiet pykickstart==3.78
+          echo /tmp/pykickstart/bin >> "$GITHUB_PATH"
+      - name: Structural checks (scripts/verify.py workflows, kickstart)
+        run: python3 scripts/verify.py workflows kickstart
       - name: Kernel profile manifest and checker (kernel_profile.py check, unit tests)
         run: |
           set -euo pipefail

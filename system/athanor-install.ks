@@ -30,7 +30,11 @@ ostreecontainer --url=ghcr.io/hr-mes/athanor-system:latest --transport=registry
 # creates. No user is declared here, so Anaconda asks the installer to create one.
 rootpw --lock
 
-firewall --enabled --default=drop --service=ssh
+# Anaconda's `firewall` command has no `--default`: an unknown option is a parse error,
+# so the directive it was meant to harden aborted the whole installation instead. The
+# default zone firewalld ships already refuses unsolicited inbound traffic, and
+# `--service=ssh` is what opens the single port Athanor wants reachable.
+firewall --enabled --service=ssh
 services --enabled=sshd,systemd-homed
 
 # Disk layout is the installer's choice: no clearpart/part/autopart here, so Anaconda

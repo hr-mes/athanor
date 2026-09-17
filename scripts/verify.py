@@ -155,7 +155,43 @@ def check_workflows():
 
 
 # --------------------------------------------------------------------------- #
-# 2. polkit — ogni azione applicata dal codice deve essere dichiarata
+# 2. kickstart — una direttiva che Anaconda non riconosce ferma l'installazione
+# --------------------------------------------------------------------------- #
+
+# La sintassi che l'Anaconda spedito sull'ISO sa leggere. L'ISO è Fedora 43: alzalo
+# insieme alla base, non oltre, perché una direttiva introdotta dopo passerebbe qui
+# e fallirebbe sul supporto reale.
+KICKSTART_SYNTAX = "F43"
+
+
+@check("kickstart", f"I kickstart sono sintassi valida per l'Anaconda di {KICKSTART_SYNTAX}")
+def check_kickstart():
+    r = Result()
+
+    for ks in sorted(walk(ROOT, ".ks")):
+        # Senza --followincludes un %include viene accettato senza essere letto: è
+        # quanto serve, perché collaudo.ks ne ha uno che esiste solo sul supporto di
+        # installazione (/run/install/repo) e non nel checkout.
+        try:
+            p = subprocess.run(["ksvalidator", "--version", KICKSTART_SYNTAX, str(ks)],
+                               cwd=ROOT, capture_output=True, text=True, timeout=60)
+        except FileNotFoundError:
+            r.note("ksvalidator non installato — `dnf install pykickstart`, "
+                   "senza di lui nessuno controlla i kickstart prima dell'installazione")
+            return r
+        except Exception as e:
+            r.note(f"ksvalidator non eseguito: {e}")
+            return r
+
+        if p.returncode != 0:
+            detail = " ".join(p.stderr.split()) or " ".join(p.stdout.split())
+            r.fail(f"{rel(ks)}: {detail}")
+
+    return r
+
+
+# --------------------------------------------------------------------------- #
+# 3. polkit — ogni azione applicata dal codice deve essere dichiarata
 # --------------------------------------------------------------------------- #
 
 @check("polkit", "Ogni action-id polkit applicata dal codice è dichiarata in un .policy")
@@ -201,7 +237,7 @@ def check_polkit():
 
 
 # --------------------------------------------------------------------------- #
-# 3. percorsi runtime — niente artefatti letti da target/ o stato in /tmp
+# 4. percorsi runtime — niente artefatti letti da target/ o stato in /tmp
 # --------------------------------------------------------------------------- #
 
 @check("paths", "Nessun artefatto runtime da target/, nessuno stato privilegiato in /tmp")
@@ -222,7 +258,7 @@ def check_paths():
 
 
 # --------------------------------------------------------------------------- #
-# 4. packaging — un crate che compila e basta non è nel prodotto
+# 5. packaging — un crate che compila e basta non è nel prodotto
 # --------------------------------------------------------------------------- #
 
 def has_binary_target(crate_dir):
@@ -295,7 +331,7 @@ def check_shipped():
 
 
 # --------------------------------------------------------------------------- #
-# 5. documentazione — i link devono risolvere e non essere assoluti
+# 6. documentazione — i link devono risolvere e non essere assoluti
 # --------------------------------------------------------------------------- #
 
 @check("docs", "I link nella documentazione risolvono e sono portabili")
@@ -323,7 +359,7 @@ def check_docs():
 
 
 # --------------------------------------------------------------------------- #
-# 6. panic — il budget attuale è 1 unwrap in 60k righe. Difendilo.
+# 7. panic — il budget attuale è 1 unwrap in 60k righe. Difendilo.
 # --------------------------------------------------------------------------- #
 
 # Valori misurati sul repo il 2026-09-02. Sono un cricchetto: si abbassano,
@@ -362,7 +398,7 @@ def check_panics():
 
 
 # --------------------------------------------------------------------------- #
-# 7. polkit, il lato codice — il subject deve essere il CHIAMANTE
+# 8. polkit, il lato codice — il subject deve essere il CHIAMANTE
 # --------------------------------------------------------------------------- #
 
 @check("polkit-subject", "Il subject polkit identifica il chiamante, e i default sono raggiungibili")
@@ -409,7 +445,7 @@ def check_polkit_subject():
 
 
 # --------------------------------------------------------------------------- #
-# 8. spec RPM — la sorgente di `install` deve esistere da dove gira %install
+# 9. spec RPM — la sorgente di `install` deve esistere da dove gira %install
 # --------------------------------------------------------------------------- #
 
 @check("specs", "Le spec installano da percorsi che esistono dalla loro working directory")
