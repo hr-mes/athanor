@@ -8,6 +8,12 @@
 #                                       the three states; 1 on a registry, Rekor, network or data
 #                                       error, or when azoth:<nvr> is not D (republished since)
 #   require-ready                       resolve, then exit 1 unless state=ready
+#   cycle --event E [--before B] [--after A] [--sha S] [--head H]
+#                                       after resolve, for an Orchestrator run (O4): append
+#                                       cycle=build or cycle=defer; exit 1 when the kernel is
+#                                       missing and no other cycle owns it
+#   check-plan --base REV --head REV    after resolve, for System Image Check (O7): append
+#                                       check_gpus and check_delta; exit 1 for a failing row
 #   get KEY                             print the value of KEY; exit 1 when the file lacks it
 #   has KEY                             exit 0 when KEY has a non-empty value
 #   digest REF                          the digest of REF, empty when the tag does not exist
@@ -19,7 +25,8 @@
 # The file is $KERNEL_ARTIFACTS_DIR/kernel-artifacts.env (default: kernel-artifacts/ at the
 # repository root). KERNEL_REGISTRY is the registry and owner (default ghcr.io/ followed by
 # GITHUB_REPOSITORY_OWNER, else hr-mes); GITHUB_SERVER_URL and GITHUB_REPOSITORY name the
-# workflows whose signatures are trusted. Needs skopeo, cosign and jq.
+# workflows whose signatures are trusted. cycle and check-plan run git in the repository
+# checkout that is the current directory. Needs skopeo, cosign and jq for the registry.
 set -euo pipefail
 shopt -s inherit_errexit
 
@@ -46,12 +53,21 @@ declare -A IDENTITY=(
 # is transient (a Rekor or cert-chain fetch failure), and an unanchored match would swallow
 # that outage as a plain "unsigned" verdict instead of failing (O3).
 UNVERIFIED='no signatures found|no matching signatures: *$|no matching attestations: *$|no matching CertificateIdentity'
+# The push paths of .github/workflows/kernel-build.yml (a unit test keeps them equal).
+KERNEL_BUILD_PATHS=('forge/specs/azoth/*' '.github/workflows/kernel-build.yml' '.github/workflows/nvidia-build.yml')
+# The files .github/workflows/kernel-bump.yml regenerates with the pins, except
+# system/Containerfile: a base bump is reviewed with its package delta (O8).
+NVIDIA_PIN_FILES=(forge/specs/azoth/pins.env forge/specs/azoth/KERNEL.md forge/specs/azoth/nvidia/sources.sha256 system/nvidia/locks/open.lock system/nvidia/locks/legacy.lock)
+KERNEL_PIN_FILES=("${NVIDIA_PIN_FILES[@]}" forge/specs/azoth/SOURCES/sources.sha256 forge/specs/azoth/builder/Containerfile forge/specs/azoth/boot/Containerfile forge/specs/azoth/nvidia/Containerfile)
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 usage() { sed -n '2,/^set -euo/{/^set -euo/d;s/^# \{0,1\}//;p}' "$SELF" >&2; exit 2; }
 die() { echo "kernel-artifacts: $*" >&2; exit 1; }
+annotate() { # annotate notice|warning MESSAGE
+  if [[ ${GITHUB_ACTIONS:-} == true ]]; then echo "::$1 title=Kernel artifacts::$2"; else echo "kernel-artifacts: $1: $2"; fi
+}
 retry() { bash "$ROOT/forge/scripts/retry.sh" "$@"; }
 ask() { retry bash "$SELF" probe "$@"; }
 identity() { [[ -n ${IDENTITY[${1:-}]:-} ]] || usage; echo "${IDENTITY[$1]}"; }
@@ -164,6 +180,126 @@ resolve() {
   write "$state" "${lines[@]}"
 }
 
+changed_files() { # changed_files BASE HEAD
+  git cat-file -e "$1^{commit}" 2> /dev/null || retry git fetch --no-tags --depth=1 origin "$1"
+  git diff --name-only "$1" "$2"
+}
+
+matches_any() { # matches_any PATH PATTERN...
+  local path=$1 pattern
+  shift
+  for pattern in "$@"; do
+    # shellcheck disable=SC2053 # the right-hand side is a glob on purpose
+    [[ $path == $pattern ]] && return 0
+  done
+  return 1
+}
+
+kernel_build_touched() { # kernel_build_touched BASE HEAD: yes or no
+  local files file
+  files=$(changed_files "$1" "$2")
+  while IFS= read -r file; do
+    if [[ -n $file ]] && matches_any "$file" "${KERNEL_BUILD_PATHS[@]}"; then
+      echo yes
+      return 0
+    fi
+  done <<< "$files"
+  echo no
+}
+
+cycle() {
+  local event='' before='' after='' sha='' head='' state nvr decision=build touched
+  while [[ $# -gt 0 ]]; do
+    [[ $# -ge 2 ]] || usage
+    case $1 in
+      --event) event=$2 ;;
+      --before) before=$2 ;;
+      --after) after=$2 ;;
+      --sha) sha=$2 ;;
+      --head) head=$2 ;;
+      *) usage ;;
+    esac
+    shift 2
+  done
+  state=$(get state)
+  nvr=$(get nvr)
+  if [[ $state != ready ]]; then
+    case $event in
+      push)
+        if [[ -z $before || $before =~ ^0+$ ]]; then
+          [[ $state == modules-missing ]] || die "azoth:$nvr is not published, and a push without a previous commit (new branch, force push) cannot tell whether Kernel Build owns it"
+        else
+          touched=$(kernel_build_touched "$before" "$after")
+          if [[ $touched == yes ]]; then
+            decision=defer
+            annotate notice "$state for azoth:$nvr, and this push starts Kernel Build, which dispatches the Orchestrator for it: no image in this run"
+          else
+            [[ $state == modules-missing ]] || die "azoth:$nvr is not published and this push does not start Kernel Build"
+          fi
+        fi
+        ;;
+      workflow_dispatch)
+        if [[ $state == kernel-missing ]]; then
+          [[ -n $sha && $sha != "$head" ]] || die "azoth:$nvr is not published"
+          decision=defer
+          annotate notice "azoth:$nvr is not published and the branch moved from $sha to $head: the newer push has its own cycle"
+        fi
+        ;;
+      schedule)
+        [[ $state == modules-missing ]] || die "azoth:$nvr is not published"
+        ;;
+      *) die "cycle: unknown event '$event'" ;;
+    esac
+  fi
+  echo "cycle=$decision" >> "$FILE"
+  echo "kernel-artifacts: cycle=$decision"
+}
+
+check_plan() {
+  local base='' head='' state nvr files file keys key only_kernel_pins=true only_nvidia_pins=true nvidia_moved=false other_moved=false gpus delta
+  while [[ $# -gt 0 ]]; do
+    [[ $# -ge 2 ]] || usage
+    case $1 in
+      --base) base=$2 ;;
+      --head) head=$2 ;;
+      *) usage ;;
+    esac
+    shift 2
+  done
+  [[ -n $base && -n $head ]] || usage
+  state=$(get state)
+  nvr=$(get nvr)
+  files=$(changed_files "$base" "$head")
+  while IFS= read -r file; do
+    [[ -n $file ]] || continue
+    matches_any "$file" "${KERNEL_PIN_FILES[@]}" || only_kernel_pins=false
+    matches_any "$file" "${NVIDIA_PIN_FILES[@]}" || only_nvidia_pins=false
+  done <<< "$files"
+  keys=$(git diff -U0 "$base" "$head" -- forge/specs/azoth/pins.env | sed -n 's/^[-+]\([A-Z_][A-Z0-9_]*\)=.*/\1/p' | sort -u)
+  while IFS= read -r key; do
+    [[ -n $key ]] || continue
+    if [[ $key == NVIDIA_* ]]; then nvidia_moved=true; else other_moved=true; fi
+  done <<< "$keys"
+  case $state in
+    ready)
+      gpus='none nvidia nvidia-legacy' delta=true
+      ;;
+    kernel-missing)
+      [[ $only_kernel_pins == true && -n $keys ]] || die "azoth:$nvr is not published: a pin bump mixed with other changes cannot be checked, move the pins in their own pull request"
+      gpus='' delta=false
+      annotate warning "azoth:$nvr is not published yet: Kernel Build on this pull request proves the kernel and the modules build and boot; the images are built after the merge"
+      ;;
+    modules-missing)
+      [[ $only_nvidia_pins == true && $nvidia_moved == true && $other_moved == false ]] || die "the NVIDIA modules of azoth:$nvr are not published: with unchanged NVIDIA pins publishing them is the Orchestrator's job (bootstrap or interrupted publication), and NVIDIA pins move in their own pull request"
+      gpus=none delta=true
+      annotate warning "the NVIDIA modules of the new pins are not published yet: only the default image is built; the variants are built and gated after the merge"
+      ;;
+    *) die "$FILE: unknown state '$state'" ;;
+  esac
+  printf '%s\n' "check_gpus=$gpus" "check_delta=$delta" >> "$FILE"
+  echo "kernel-artifacts: check_gpus='$gpus' check_delta=$delta"
+}
+
 [[ $# -ge 1 ]] || usage
 command=$1
 shift
@@ -175,6 +311,8 @@ case $command in
     state=$(get state)
     [[ $state == ready ]] || die "state=$state: the kernel of the pins and both NVIDIA module branches must be published, signed and attested"
     ;;
+  cycle) cycle "$@" ;;
+  check-plan) check_plan "$@" ;;
   get) [[ $# -eq 1 ]] || usage; get "$1" ;;
   has) [[ $# -eq 1 ]] || usage; [[ -f $FILE ]] && grep -q "^$1=." "$FILE" ;;
   digest) [[ $# -eq 1 ]] || usage; ask digest "$1" ;;

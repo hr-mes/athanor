@@ -293,5 +293,170 @@ class Resolve(Tool):
         self.assertEqual(self.run_script("has", "nvidia_legacy_digest").returncode, 1)
 
 
+class Repo(Tool):
+    """A git repository with a bare origin and a shallow clone, as actions/checkout leaves it."""
+
+    def setUp(self):
+        super().setUp()
+        self.origin = self.dir / "origin.git"
+        self.work = self.dir / "work"
+        self.git("init", "-q", "--bare", "-b", "iso-v0", str(self.origin), cwd=self.dir)
+        self.git("clone", "-q", str(self.origin), str(self.work), cwd=self.dir)
+        self.commit({"README.md": "x\n", "forge/specs/azoth/pins.env": "".join(f"{k}={v}\n" for k, v in PINS.items())})
+
+    def git(self, *args, cwd=None):
+        return subprocess.run(["git", *args], cwd=cwd or self.work, env=self.env, check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(self, files):
+        for rel, text in files.items():
+            path = self.work / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "change")
+        self.git("push", "-q", "origin", "HEAD:iso-v0")
+        return self.git("rev-parse", "HEAD")
+
+    def shallow(self):
+        """A depth-1 clone of origin, like the checkout of a push event."""
+        clone = self.dir / "shallow"
+        self.git("clone", "-q", "--depth=1", "-b", "iso-v0", f"file://{self.origin}", str(clone), cwd=self.dir)
+        return clone
+
+    def state(self, state, **extra):
+        self.artifacts.mkdir(exist_ok=True)
+        lines = {"state": state, "nvr": NVR, "registry": REG, **extra}
+        (self.artifacts / "kernel-artifacts.env").write_text("".join(f"{k}={v}\n" for k, v in lines.items()))
+
+    def pin_change(self, **pins):
+        text = "".join(f"{k}={pins.get(k, v)}\n" for k, v in PINS.items())
+        return {"forge/specs/azoth/pins.env": text}
+
+
+class Cycle(Repo):
+    def cycle(self, *args, cwd=None):
+        return self.run_script("cycle", *args, cwd=cwd or self.shallow())
+
+    def test_kernel_build_paths_match_the_workflow(self):
+        text = (ROOT / ".github/workflows/kernel-build.yml").read_text()
+        block = re.search(r"^  push:\n(?:    .*\n)*?    paths:\n((?:      - .*\n)+)", text, re.M).group(1)
+        paths = [line.strip()[2:].replace("**", "*") for line in block.splitlines()]
+        script = re.search(r"^KERNEL_BUILD_PATHS=\((.*)\)$", SCRIPT.read_text(), re.M).group(1)
+        self.assertEqual(paths, re.findall(r"'([^']+)'", script))
+
+    def test_ready_builds(self):
+        self.state("ready")
+        before = self.git("rev-parse", "HEAD")
+        after = self.commit({"system/x": "1\n"})
+        r = self.cycle("--event", "push", "--before", before, "--after", after)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file()["cycle"], "build")
+
+    def test_push_starting_kernel_build_defers_a_missing_kernel(self):
+        self.state("kernel-missing")
+        before = self.git("rev-parse", "HEAD")
+        after = self.commit({**self.pin_change(FEDORA_KERNEL_NVR="7.2.6-100.fc43"), "system/x": "1\n"})
+        r = self.cycle("--event", "push", "--before", before, "--after", after)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file()["cycle"], "defer")
+        self.assertIn("Kernel Build", r.stdout)
+
+    def test_push_starting_kernel_build_defers_missing_modules(self):
+        self.state("modules-missing", kernel_digest=KERNEL)
+        before = self.git("rev-parse", "HEAD")
+        after = self.commit({".github/workflows/kernel-build.yml": "name: x\n", "system/x": "1\n"})
+        r = self.cycle("--event", "push", "--before", before, "--after", after)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file()["cycle"], "defer")
+
+    def test_push_outside_kernel_build_with_missing_kernel_fails(self):
+        self.state("kernel-missing")
+        before = self.git("rev-parse", "HEAD")
+        after = self.commit({"system/x": "1\n"})
+        r = self.cycle("--event", "push", "--before", before, "--after", after)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("does not start Kernel Build", r.stderr)
+        self.assertNotIn("cycle", self.state_file())
+
+    def test_push_outside_kernel_build_with_missing_modules_builds(self):
+        self.state("modules-missing", kernel_digest=KERNEL)
+        before = self.git("rev-parse", "HEAD")
+        after = self.commit({"system/x": "1\n"})
+        r = self.cycle("--event", "push", "--before", before, "--after", after)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file()["cycle"], "build")
+
+    def test_push_without_previous_commit_and_missing_kernel_fails(self):
+        self.state("kernel-missing")
+        after = self.commit({"system/x": "1\n"})
+        r = self.cycle("--event", "push", "--before", "0" * 40, "--after", after)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("previous commit", r.stderr)
+
+    def test_dispatch_superseded_by_a_newer_push_defers(self):
+        self.state("kernel-missing")
+        r = self.cycle("--event", "workflow_dispatch", "--sha", "a" * 40, "--head", "b" * 40)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file()["cycle"], "defer")
+
+    def test_dispatch_at_head_with_missing_kernel_fails(self):
+        self.state("kernel-missing")
+        r = self.cycle("--event", "workflow_dispatch", "--sha", "a" * 40, "--head", "a" * 40)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("is not published", r.stderr)
+
+    def test_manual_dispatch_with_missing_modules_builds(self):
+        self.state("modules-missing", kernel_digest=KERNEL)
+        r = self.cycle("--event", "workflow_dispatch", "--head", "a" * 40)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file()["cycle"], "build")
+
+    def test_schedule_with_missing_kernel_fails(self):
+        self.state("kernel-missing")
+        self.assertEqual(self.cycle("--event", "schedule").returncode, 1)
+
+
+class CheckPlan(Repo):
+    def plan(self, files):
+        self.commit(files)
+        return self.run_script("check-plan", "--base", "HEAD^1", "--head", "HEAD", cwd=self.work)
+
+    def test_ready_builds_three_images_with_the_delta(self):
+        self.state("ready")
+        r = self.plan({"system/x": "1\n"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((self.state_file()["check_gpus"], self.state_file()["check_delta"]), ("none nvidia nvidia-legacy", "true"))
+
+    def test_kernel_pin_bump_skips_every_build(self):
+        self.state("kernel-missing")
+        r = self.plan({**self.pin_change(FEDORA_KERNEL_NVR="7.2.6-100.fc43"), "forge/specs/azoth/SOURCES/sources.sha256": "h\n", "forge/specs/azoth/KERNEL.md": "k\n"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((self.state_file()["check_gpus"], self.state_file()["check_delta"]), ("", "false"))
+        self.assertIn("warning", r.stdout)
+
+    def test_kernel_pin_bump_mixed_with_other_changes_fails(self):
+        self.state("kernel-missing")
+        r = self.plan({**self.pin_change(FEDORA_KERNEL_NVR="7.2.6-100.fc43"), "system/Containerfile": "FROM x\n"})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("own pull request", r.stderr)
+
+    def test_nvidia_pin_bump_builds_the_default_image(self):
+        self.state("modules-missing", kernel_digest=KERNEL)
+        r = self.plan({**self.pin_change(NVIDIA_OPEN_VERSION="615.71.09"), "system/nvidia/locks/open.lock": "l\n"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((self.state_file()["check_gpus"], self.state_file()["check_delta"]), ("none", "true"))
+
+    def test_missing_modules_with_unchanged_pins_fail(self):
+        self.state("modules-missing", kernel_digest=KERNEL)
+        r = self.plan({"system/x": "1\n"})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("Orchestrator", r.stderr)
+
+    def test_nvidia_and_kernel_pins_together_with_missing_modules_fail(self):
+        self.state("modules-missing", kernel_digest=KERNEL)
+        r = self.plan(self.pin_change(NVIDIA_OPEN_VERSION="615.71.09", CACHYOS_PATCHES_COMMIT="f" * 40))
+        self.assertEqual(r.returncode, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
