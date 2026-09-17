@@ -1,4 +1,6 @@
-use landlock::{AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI};
+use landlock::{
+    AccessFs, CompatLevel, Compatible, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI,
+};
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -16,11 +18,18 @@ use std::path::{Path, PathBuf};
 /// `$XDG_CONFIG_HOME/athanor`, and left the shell unable to read the configuration it
 /// had just written (theme.css "Permission denied" at every start, and the desktop
 /// widgets rewriting widgets.json in a loop until systemd-oomd killed the process).
+///
+/// The ruleset is a hard requirement: a kernel without Landlock, or one that cannot
+/// enforce every requested right, is an error rather than a best-effort no-op, so the
+/// caller can refuse to run unconfined.
 pub fn apply_landlock_sandbox() -> Result<(), Box<dyn std::error::Error>> {
     let abi = ABI::V1;
     let write_access = AccessFs::from_write(abi);
 
-    let mut ruleset = Ruleset::default().handle_access(write_access)?.create()?;
+    let mut ruleset = Ruleset::default()
+        .set_compatibility(CompatLevel::HardRequirement)
+        .handle_access(write_access)?
+        .create()?;
 
     for path in writable_paths() {
         if path.exists() {
@@ -75,5 +84,24 @@ mod tests {
         assert!(paths.contains(&PathBuf::from("/var/home/tester/.local/state/athanor")));
         assert!(paths.contains(&PathBuf::from("/run/user/1000")));
         assert_eq!(paths.len(), 4);
+    }
+
+    #[test]
+    fn sandbox_is_enforced_on_writes_outside_the_allowed_set() {
+        // Landlock confines the calling thread and its future children only, so the
+        // restriction stays inside this thread and the rest of the test binary is free.
+        std::thread::spawn(|| {
+            apply_landlock_sandbox().expect("Landlock must be enforced, not skipped");
+
+            let denied = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("landlock-probe");
+            let err = std::fs::write(&denied, b"x").expect_err("write outside the set must fail");
+            assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+
+            let allowed = PathBuf::from("/tmp").join(format!("landlock-probe-{}", std::process::id()));
+            std::fs::write(&allowed, b"x").expect("write under /tmp must succeed");
+            std::fs::remove_file(&allowed).expect("cleanup under /tmp must succeed");
+        })
+        .join()
+        .expect("sandbox test thread");
     }
 }
