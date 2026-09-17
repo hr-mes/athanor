@@ -10,7 +10,9 @@ jobs:
   lint:
     name: 🔎 Lint workflows (actionlint + scripts/verify.py)
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # The ISO acceptance suite drives a fake guest over a socket in real time and takes
+    # about a minute on its own, which left no room under the previous five.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install actionlint 1.7.9 (checksum-verified, kept off PATH)
@@ -33,3 +35,13 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B -m unittest discover -s system/nvidia/tests -v
+      # Run directly rather than through unittest discovery: this suite holds no
+      # TestCase, so `unittest discover` collects nothing from it and would report a
+      # green step having run no check at all. Its own main() runs the cases in order
+      # against one temporary directory and exits non-zero on the first that fails.
+      # The cases that need a unix socket, or unprivileged user namespaces for the
+      # kernel-argument probe, say so and skip where the runner has neither.
+      - name: ISO acceptance verdict and console (unit tests)
+        run: |
+          set -euo pipefail
+          python3 -B forge/test/iso/test_verdict.py

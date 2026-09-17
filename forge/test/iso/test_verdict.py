@@ -608,6 +608,10 @@ def test_karg_probe_answers_from_the_guest(tmp: pathlib.Path) -> None:
     carrying `ignore=rootflags=compress=zstd:1x` contains the argument and does not
     have it, and a probe that answered OK there would make the gate meaningless.
     """
+    if shutil.which("unshare") is None:
+        print("  skip test_karg_probe_answers_from_the_guest: no unshare here")
+        return
+
     sys.path.insert(0, str(HERE))
     import console
 
@@ -637,7 +641,7 @@ def test_karg_probe_answers_from_the_guest(tmp: pathlib.Path) -> None:
                 "-rm",
                 "sh",
                 "-c",
-                f"mount --bind {work}/cmdline /proc/cmdline;"
+                f"mount --bind {work}/cmdline /proc/cmdline &&"
                 f' PATH={work}/bin:$PATH FAKE_FSTYPE="{fstype}" sh {work}/probe.sh',
             ],
             capture_output=True,
