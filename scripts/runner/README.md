@@ -14,9 +14,16 @@ host itself.
   `snapshot=on`: nothing the job writes to the system disk survives it.
 - QEMU passes the configuration to the guest as the systemd credential `jitconfig`
   (`fw_cfg`); `actions-runner.service` in the guest runs the job. The end of the job is
-  decided on the host: when GitHub removes the just-in-time registration, `vm.sh` sends
-  an ACPI power-off through QMP and terminates the guest if it has not stopped within
-  two minutes. The service restarts `vm.sh`, which boots a clean guest for the next job.
+  decided on the host: `vm.sh` polls the registration every 30 s and, once GitHub has
+  removed it, sends an ACPI power-off through QMP and terminates the guest if it has not
+  stopped within two minutes. The service restarts `vm.sh`, which boots a clean guest
+  for the next job.
+- The poll never trusts a single answer from GitHub to end a running job: a transport
+  failure (DNS, a reset connection, a timeout) or a 429/5xx is retried a few times with
+  a short backoff, and only a definitive 404 powers the guest off. If the API stays
+  unreachable across many polls, `vm.sh` only logs a warning and leaves the guest
+  running — its own `RuntimeMaxSec` (8 h in the unit) is the backstop, since killing a
+  running job over a network blip is worse than a late shutdown.
 - Two extra disks: `cache.raw` persists across jobs (podman storage, `~/.cache/azoth`),
   `scratch.raw` is recreated empty before every job (the work directory).
 - The GitHub token is a service credential encrypted with the host key and the TPM2
