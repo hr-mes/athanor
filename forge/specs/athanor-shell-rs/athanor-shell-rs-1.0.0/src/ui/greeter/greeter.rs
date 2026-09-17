@@ -230,8 +230,8 @@ fn format_italian_date(now: &chrono::DateTime<chrono::Local>) -> String {
     format!("{}, {} {}", weekday, now.day(), month)
 }
 
-pub fn build_ui(app: &Application, is_lockscreen: bool) {
-    let title = if is_lockscreen { "Athanor Lockscreen" } else { "Athanor Greeter" };
+pub fn build_ui(app: &Application) {
+    let title = "Athanor Greeter";
     let window = ApplicationWindow::builder()
         .application(app)
         .title(title)
@@ -240,7 +240,7 @@ pub fn build_ui(app: &Application, is_lockscreen: bool) {
     window.init_layer_shell();
     window.set_layer(Layer::Overlay);
     window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::Exclusive);
-    window.set_namespace(if is_lockscreen { "lockscreen" } else { "greeter" });
+    window.set_namespace("greeter");
 
     window.set_anchor(Edge::Top, true);
     window.set_anchor(Edge::Bottom, true);
@@ -369,7 +369,7 @@ pub fn build_ui(app: &Application, is_lockscreen: bool) {
         .css_classes(["greeter-user-name"])
         .build();
 
-    let badge_text = if is_lockscreen { "BLOCCO SCHERMO • WAYLAND" } else { "WAYLAND • NIRI" };
+    let badge_text = "WAYLAND • NIRI";
     let badge_label = Label::builder()
         .label(badge_text)
         .halign(Align::Center)
@@ -478,7 +478,7 @@ pub fn build_ui(app: &Application, is_lockscreen: bool) {
             let app_quit = app_ref.clone();
 
             glib::MainContext::default().spawn_local(async move {
-                let res = authenticate(&password, is_lockscreen).await;
+                let res = authenticate(&password).await;
                 match res {
                     Ok(_) => {
                         app_quit.quit();

@@ -2,7 +2,7 @@
 # Il crate vive nel workspace: la spec compila il checkout in place, non un tarball.
 Name:           athanor-shell-rs
 Version:        1.0.0
-Release:        29%{?dist}
+Release:        30%{?dist}
 Summary:        Athanor OS Native Rust GTK4 Shell
 
 License:        MIT
@@ -29,6 +29,10 @@ install -m 0755 target/release/athanor-shell-rs %{buildroot}/usr/bin/athanor-she
 /usr/bin/athanor-shell-rs
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-30
+- The greeter hands the password to greetd alone: the SecretEnroller call on the
+  session bus, which gave the plaintext password to whichever process owned
+  os.athanor.Bedrock, is removed, and so is the --lock mode that shared it.
 * Fri Sep 11 2026 Athanor Forge <forge@athanor.os> - 1.0.0-29
 - Landlock confines writes to the unit's writable set (configuration and state
   directories, runtime directory, /tmp) instead of denying reads outside /usr, /etc

@@ -29,8 +29,6 @@ struct Args {
     #[arg(long)]
     greeter: bool,
     #[arg(long)]
-    lock: bool,
-    #[arg(long)]
     spotlight: bool,
     #[arg(long)]
     launcher: bool,
@@ -188,16 +186,16 @@ fn main() -> glib::ExitCode {
     }
 
 
-    // If greeter or lock mode is requested explicitly, run standalone authentication app
-    if args.greeter || args.lock {
-        let is_lock = args.lock;
-        let app_id = if is_lock { "os.athanor.Lockscreen" } else { "os.athanor.Greeter" };
+    // The greeter authenticates through greetd's IPC alone. There is no lock mode: a
+    // screen locker cannot open a greetd session from inside a user session, and the
+    // desktop's own locker covers it.
+    if args.greeter {
         let app = Application::builder()
-            .application_id(app_id)
+            .application_id("os.athanor.Greeter")
             .build();
         app.connect_activate(move |app| {
             crate::theme::init_css();
-            crate::ui::greeter::build_ui(app, is_lock);
+            crate::ui::greeter::build_ui(app);
         });
         return app.run_with_args(&Vec::<String>::new());
     }

@@ -114,23 +114,7 @@ pub fn discover_target_user() -> UserInfo {
     }
 }
 
-pub fn unlock_keyring_automatic(password: &str, username: &str) {
-    tracing::info!("[Athanor Greeter] Keyring unlock requested for user: {}", username);
-    if let Ok(conn) = zbus::blocking::Connection::session() {
-        if let Ok(proxy) = crate::ipc::system_proxies::SecretEnrollerProxyBlocking::new(&conn) {
-            if password.is_empty() {
-                if let Ok(decrypted_secret) = proxy.decrypt_secret(username) {
-                    let _ = proxy.unlock_keyring(username, &decrypted_secret);
-                }
-            } else {
-                let _ = proxy.enroll_secret(username, password);
-                let _ = proxy.unlock_keyring(username, password);
-            }
-        }
-    }
-}
-
-pub async fn authenticate_interactive<F>(password: &str, is_lockscreen: bool, status_cb: &F) -> Result<(), String>
+pub async fn authenticate_interactive<F>(password: &str, status_cb: &F) -> Result<(), String>
 where
     F: Fn(&str),
 {
@@ -173,24 +157,20 @@ where
                 }
             }
             Response::Success => {
-                if is_lockscreen {
-                    unlock_keyring_automatic(password, &username);
-                    return Ok(());
-                } else {
-                    unlock_keyring_automatic(password, &username);
-                    let req = Request::StartSession {
-                        cmd: vec![session_cmd],
-                        env: vec![
-                            "XDG_SESSION_TYPE=wayland".to_string(),
-                            "XDG_CURRENT_DESKTOP=Athanor".to_string(),
-                        ],
-                    };
-                    let start_resp = send_request(&mut stream, &req)?;
-                    match start_resp {
-                        Response::Success => return Ok(()),
-                        Response::Error { description, .. } => return Err(description),
-                        _ => return Err("Risposta inattesa dal comando StartSession".to_string()),
-                    }
+                // The password goes to greetd and nowhere else: PAM, run by greetd for the
+                // session it is about to start, is what unlocks the keyring.
+                let req = Request::StartSession {
+                    cmd: vec![session_cmd],
+                    env: vec![
+                        "XDG_SESSION_TYPE=wayland".to_string(),
+                        "XDG_CURRENT_DESKTOP=Athanor".to_string(),
+                    ],
+                };
+                let start_resp = send_request(&mut stream, &req)?;
+                match start_resp {
+                    Response::Success => return Ok(()),
+                    Response::Error { description, .. } => return Err(description),
+                    _ => return Err("Risposta inattesa dal comando StartSession".to_string()),
                 }
             }
             Response::Error { description, .. } => return Err(description),
@@ -199,6 +179,6 @@ where
     Err("Timeout conversazione PAM (troppi passaggi di autenticazione)".to_string())
 }
 
-pub async fn authenticate(password: &str, is_lockscreen: bool) -> Result<(), String> {
-    authenticate_interactive(password, is_lockscreen, &|_| {}).await
+pub async fn authenticate(password: &str) -> Result<(), String> {
+    authenticate_interactive(password, &|_| {}).await
 }
