@@ -61,6 +61,11 @@ class BuildImage(unittest.TestCase):
         r, args = self.build("none")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertFalse(any(a.startswith("NVIDIA_") for a in args))
+        # A regression check, not just a smoke test: the default build still reads its own
+        # digest plumbing from the file (a pre-digest build-image.sh would pass the two
+        # assertions above without ever calling kernel-artifacts.sh at all).
+        for expected in (f"AZOTH_NVR={NVR}", "KERNEL_REGISTRY=ghcr.io/hr-mes", f"io.athanor.azoth.digest={KERNEL}"):
+            self.assertIn(expected, args)
 
     def test_variant_without_its_module_digest_is_refused(self):
         self.artifacts_file(state="modules-missing", nvidia_legacy_digest=None)
