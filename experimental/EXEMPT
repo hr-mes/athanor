@@ -12,3 +12,8 @@ athanor-init-oracle
 athanor-sysmon-ebpf
 athanor-mdm-rs
 athanor-greeter
+# Out of the system image since 2026-09-17: the source stays, the RPM does not ship.
+# athanor-store-rs ran `flatpak install` for any D-Bus caller without the polkit check
+# its policy declares, and verified package signatures against a caller-supplied key;
+# cosmic-store covers the store until it is redesigned.
+athanor-store-rs
