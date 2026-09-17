@@ -33,8 +33,8 @@
 #     shell treats those services as absent.
 #   - The session bus is filtered the same way, for accessibility: the greeter may own
 #     its GApplication name and talk to org.a11y.Bus, which hands out the address of the
-#     AT-SPI bus, and the directory holding that bus's socket is bound read-only, so a
-#     screen reader can reach the greeter. The greetd user's session bus comes from the
+#     AT-SPI bus, and that bus's socket alone is bound read-only, so a screen reader can
+#     reach the greeter. The greetd user's session bus comes from the
 #     user manager logind starts for the greeter session; where there is none, the
 #     greeter runs without accessibility and says so in the journal.
 #   - --die-with-parent ends the client with the compositor, and --new-session keeps it
@@ -109,10 +109,19 @@ if [ -S "$dbus_dir/session" ]; then
     else
         atspi_socket=
     fi
+    # Only the socket file is bound, and only from at-spi-bus-launcher's own directory: a
+    # read-only bind still accepts connect(), so binding a directory, or a socket
+    # anywhere else in the runtime directory, could hand the greeter the unfiltered
+    # session bus next to it.
+    case "$atspi_socket" in
+        "$XDG_RUNTIME_DIR"/at-spi/*/* | "$XDG_RUNTIME_DIR"/at-spi/*..*) atspi_socket= ;;
+        "$XDG_RUNTIME_DIR"/at-spi/?*) ;;
+        *) atspi_socket= ;;
+    esac
     if [ -S "$atspi_socket" ]; then
-        set -- "$@" --ro-bind "${atspi_socket%/*}" "${atspi_socket%/*}"
+        set -- "$@" --ro-bind "$atspi_socket" "$atspi_socket"
     else
-        echo "athanor-greeter-client: no AT-SPI bus, the greeter runs without accessibility" >&2
+        echo "athanor-greeter-client: no AT-SPI bus socket in $XDG_RUNTIME_DIR/at-spi, the greeter runs without accessibility" >&2
     fi
 else
     echo "athanor-greeter-client: no session bus at $session_bus, the greeter runs without accessibility" >&2
