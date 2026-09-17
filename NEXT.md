@@ -224,7 +224,15 @@ athanor-recovery-ui`: un solo compositore per greeter, sessione e recovery. Buil
   unit utente di `athanor-system-services` (1.0.1-10) voluta da `athanor-session.target`,
   con la stessa sandbox delle unit di shell e dock, che spariscono. `athanor-shell-rs`
   resta in immagine solo per il greeter; `athanor-settings-rs` resta per le pagine
-  zero-trust e per il passo Settings del collaudo, che non cambia. La sessione annuncia
+  zero-trust e per il passo Settings del collaudo, che non cambia. *Aggiornamento
+  2026-09-17:* `athanor-settings-rs` è uscita dall'immagine per motivi di sicurezza
+  (firma CRDT con chiave generata a ogni scrittura, token Cloudflare sulla riga di comando
+  di curl), e da allora il passo Settings del collaudo avvia `cosmic-settings`. La sonda
+  verifica che il nome `com.system76.CosmicSettings` sia posseduto sul bus di sessione, che
+  la unit sia ancora attiva 20 s dopo e che il suo journal non contenga panic, abort o core
+  dump; **non** verifica la finestra, che resta visibile solo nello screenshot. Il gate
+  torna alla nostra Settings, con un controllo sul toplevel Wayland, quando l'applicazione
+  sarà riprogettata. La sessione annuncia
   `XDG_CURRENT_DESKTOP=Athanor:COSMIC`. Con questo decadono: il backend IPC su protocolli
   cosmic della Tappa 6 (il pannello COSMIC li parla già), la disconnessione Wayland su Esc
   (era in gtk4-layer-shell, che il pannello non usa), il widget Hardware finto, il redraw
