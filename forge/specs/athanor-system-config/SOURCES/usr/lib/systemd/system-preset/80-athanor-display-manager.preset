@@ -1,0 +1,6 @@
+# cosmic-greeter is installed for its session screen locker only. Fedora's
+# 85-display-manager.preset enables its display-manager unit, which would compete with
+# greetd.service for display-manager.service; the first matching preset line wins, so
+# this file sorts before it.
+disable cosmic-greeter.service
+disable cosmic-greeter-daemon.service
