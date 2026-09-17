@@ -41,6 +41,19 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - name: Reclaim what earlier jobs left on the cache disk
+        # The podman storage lives on the cache disk, which outlives this guest, so the
+        # leftovers of earlier jobs pile up there: images, and the containers buildah
+        # leaves behind, which podman calls external and which hold those images. They are
+        # cleared here, before this job builds anything, because at this point nothing in
+        # the storage belongs to a build in flight and a failure is a real problem.
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          podman system prune --force --all --external
+          df -h /var/lib/runner/cache
+
       - name: Login to GHCR
         # system/Containerfile binds ghcr.io/hr-mes/athanor-forge-tier{0..3}-repo:latest
         # and pulls ghcr.io/hr-mes/azoth-nvidia:<nvr>-{open,legacy}: the build needs a
@@ -79,14 +92,9 @@ jobs:
           TMPDIR: ${{ runner.temp }}
         run: |
           set -euo pipefail
-          # The build leaves the containers of its stages behind in the storage, and they hold
-          # the intermediate images: a prune refuses to touch an image a container still uses.
-          # Those are buildah containers, which podman calls external, so `podman rm --all`
-          # does not see them and only `system prune --external` clears them. The storage is
-          # on the cache disk, which outlives the guest, so this has to happen every time.
-          podman rm --all --force
-          podman system prune --force --external
+          # Only what this job tagged: the storage keeps the rest until the next job prunes
+          # it on the way in, because a build that is still running holds images no prune
+          # can take, and this step must not end a green check with a housekeeping error.
           for name in athanor-system athanor-system-nvidia athanor-system-nvidia-legacy; do
-            if podman image exists "localhost/$name:check"; then podman rmi "localhost/$name:check"; fi
+            if podman image exists "localhost/$name:check"; then podman rmi --force "localhost/$name:check"; fi
           done
-          podman image prune -f
