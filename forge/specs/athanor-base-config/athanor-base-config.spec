@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-base-config
 Version:        43.0.0
-Release:        4%{?dist}
+Release:        5%{?dist}
 Summary:        Athanor OS Base Configuration (Systemd, Branding, GPG)
 
 License:        MIT
@@ -71,6 +71,7 @@ rm -rf %{buildroot}/etc/tmpfiles.d
 /usr/lib/bootc/kargs.d/04-confidential-compute.toml
 /usr/lib/bootc/kargs.d/05-dma-protection.toml
 /usr/lib/bootc/kargs.d/06-mte-lam.toml
+/usr/lib/bootc/kargs.d/07-btrfs-root.toml
 /etc/grub.d/01_athanor_grub_auth
 /usr/lib/dracut/dracut.conf.d/*
 /usr/lib/systemd/system-preset/*
@@ -82,6 +83,13 @@ rm -rf %{buildroot}/etc/tmpfiles.d
 /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/override.conf
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 43.0.0-5
+- Mount the btrfs root with compress=zstd:1 through rootflags= in
+  kargs.d/07-btrfs-root.toml. The installer now removes the / line Anaconda writes to
+  /etc/fstab, which systemd-remount-fs cannot apply to a composefs root, and that line
+  was the only place the option lived; the initrd never applied it.
+- Drop "disable systemd-remount-fs.service" from the preset: the unit has no [Install]
+  section, so the line never had an effect.
 * Wed Sep 16 2026 Athanor Forge <forge@athanor.os> - 43.0.0-4
 - Drop the nvidia-powerd/nvidia-persistenced preset enables and the nvidia-persistenced
   sysusers entry: the vendor packages own them in the NVIDIA images, and the default image
