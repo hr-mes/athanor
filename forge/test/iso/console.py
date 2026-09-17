@@ -299,27 +299,37 @@ SESSION_DIAGNOSTICS = (
 # COSMIC Settings: athanor-settings-rs left the image. A process that merely exists is
 # not the question -- run 34581940472 answered on the process alone and its screenshot
 # showed no window yet. COSMIC Settings is not a GTK application and exports no window
-# object, so the guest waits up to a minute for it to claim its application name on the
-# session bus, which libcosmic's single-instance startup does before it opens the window,
-# and then reports whether the unit is still active five seconds later. The name proves
-# the application got through its start-up; the screenshot taken on the answer is what
-# shows the window.
+# object, and nothing in the image lists Wayland toplevels (wayland-info prints globals
+# only), so the window itself cannot be asked for. The guest waits up to a minute for
+# the application to claim its name on the session bus, which libcosmic's
+# single-instance start-up does before it opens the window, then watches for twenty
+# seconds -- the interval after which run 34581940472 still had no window -- and answers
+# ALIVE only if the unit is still active and its journal holds no Rust panic and no
+# abort or core dump. The screenshot taken on the answer is what shows the window.
 SETTINGS_UNIT = b"athanor-settings-probe"
 SETTINGS_APP = b"com.system76.CosmicSettings"
+SETTINGS_WATCH = b"20"
+SETTINGS_CRASH = b"panicked at|code=dumped|status=6/ABRT"
 SETTINGS_PROBE = (
     b"systemd-run --user --quiet --unit=" + SETTINGS_UNIT + b" cosmic-settings;"
     b" w=; for i in $(seq 60); do busctl --user status "
     + SETTINGS_APP
-    + b" >/dev/null 2>&1 && { w=$i; break; }; sleep 1; done; sleep 5;"
-    b' if [ -n "$w" ] && systemctl --user -q is-active ' + SETTINGS_UNIT + b".service;"
+    + b" >/dev/null 2>&1 && { w=$i; break; }; sleep 1; done; sleep "
+    + SETTINGS_WATCH
+    + b"; c=$(journalctl --user -b -q --no-pager -u "
+    + SETTINGS_UNIT
+    + b".service | grep -acE '"
+    + SETTINGS_CRASH
+    + b"');"
+    b' if [ -n "$w" ] && [ "$c" = 0 ] && systemctl --user -q is-active ' + SETTINGS_UNIT + b".service;"
     b" then printf 'SETTINGS_%s name-after:%ss\\n' ALIVE \"$w\";"
-    b" else printf 'SETTINGS_%s name-after:%s %s\\n' DEAD \"${w:-never}\""
+    b" else printf 'SETTINGS_%s name-after:%s crashes:%s %s\\n' DEAD \"${w:-never}\" \"$c\""
     b' "$(systemctl --user show '
     + SETTINGS_UNIT
     + b".service -p ActiveState -p Result -p ExecMainStatus --value | tr '\\n' ' ')\"; fi"
 )
-# A minute of looking for the bus name, five seconds of watching, and a margin.
-SETTINGS_PROBE_WAIT = 75.0
+# A minute of looking for the bus name, twenty seconds of watching, and a margin.
+SETTINGS_PROBE_WAIT = 90.0
 
 # What to ask when Settings did not stay up: the unit's own account of itself, what it
 # wrote before it went, and the stack if systemd-coredump caught it.
