@@ -385,6 +385,20 @@ class Resolve(Tool):
         self.assertIn("republished", r.stderr)
         self.assertIsNone(self.state_file())
 
+    def test_pins_moved_check_fails_on_a_malformed_attested_fedora_kernel_nvr(self):
+        # A signed but garbled FEDORA_KERNEL_NVR must not silently run through nvr.sh into
+        # some unpredictable string that happens to differ from the current NVR, quietly
+        # dropping the expectation instead of a loud, obvious failure.
+        fx = published()
+        fx["attestations"][f"{REG}/azoth@{OTHER_KERNEL}"] = [
+            {"identity": KERNEL_BUILD, "predicate": {"pins": {"FEDORA_KERNEL_NVR": "not-a-valid-nvr"}}}
+        ]
+        self.registry(fx)
+        r = self.run_script("resolve", "--expect-kernel-digest", OTHER_KERNEL)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("does not look like one", r.stderr)
+        self.assertIsNone(self.state_file())
+
     def test_pins_moved_past_the_expected_digest_resolves_normally_to_ready(self):
         # The current NVR's tag exists (KERNEL, untouched, fully ready) but the caller's
         # OTHER_KERNEL was resolved for a since-superseded NVR: the expectation no longer
