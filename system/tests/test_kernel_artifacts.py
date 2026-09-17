@@ -443,6 +443,24 @@ class Cycle(Repo):
         r = self.cycle("--event", "workflow_dispatch", "--sha", "a" * 7, "--head", "a" * 7 + "0" * 33)
         self.assertNotEqual(r.returncode, 0)
 
+    def test_cycle_write_replaces_a_stale_decision(self):
+        self.state("modules-missing", kernel_digest=KERNEL)
+        before = self.git("rev-parse", "HEAD")
+        after = self.commit({"system/x": "1\n"})
+        r1 = self.cycle("--event", "push", "--before", before, "--after", after)
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        self.assertEqual(self.state_file()["cycle"], "build")
+
+        after2 = self.commit({".github/workflows/kernel-build.yml": "name: x\n"})
+        clone2 = self.dir / "shallow2"
+        self.git("clone", "-q", "--depth=1", "-b", "iso-v0", f"file://{self.origin}", str(clone2), cwd=self.dir)
+        r2 = self.run_script("cycle", "--event", "push", "--before", after, "--after", after2, cwd=clone2)
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+
+        text = (self.artifacts / "kernel-artifacts.env").read_text()
+        self.assertEqual(text.count("cycle="), 1)
+        self.assertEqual(self.run_script("get", "cycle").stdout.strip(), "defer")
+
 
 class CheckPlan(Repo):
     def plan(self, files):
