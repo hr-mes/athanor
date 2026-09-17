@@ -415,6 +415,26 @@ class Cycle(Repo):
         self.state("kernel-missing")
         self.assertEqual(self.cycle("--event", "schedule").returncode, 1)
 
+    def test_push_without_previous_commit_and_missing_modules_builds(self):
+        self.state("modules-missing", kernel_digest=KERNEL)
+        after = self.commit({"system/x": "1\n"})
+        r = self.cycle("--event", "push", "--before", "0" * 40, "--after", after)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file()["cycle"], "build")
+
+    def test_schedule_with_missing_modules_builds(self):
+        self.state("modules-missing", kernel_digest=KERNEL)
+        r = self.cycle("--event", "schedule")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.state_file()["cycle"], "build")
+
+    def test_unfetchable_base_commit_fails(self):
+        self.state("kernel-missing")
+        before = "f" * 40  # well-formed, but no such commit exists anywhere
+        after = self.commit({"system/x": "1\n"})
+        r = self.cycle("--event", "push", "--before", before, "--after", after)
+        self.assertNotEqual(r.returncode, 0)
+
     def test_cycle_rejects_an_unknown_event(self):
         self.state("ready")
         r = self.cycle("--event", "bogus", "--before", "a" * 40, "--after", "b" * 40)
@@ -509,6 +529,23 @@ class CheckPlan(Repo):
         self.state("kernel-missing")
         r = self.plan(self.pin_change(NVIDIA_OPEN_VERSION="615.71.09"))
         self.assertEqual(r.returncode, 1)
+
+    def test_kernel_pin_files_match_the_bump_workflow(self):
+        """kernel-bump.yml regenerates exactly KERNEL_PIN_FILES plus system/Containerfile
+        (O8): its bump-pins artifact plus the two manifest `cp` targets, so the copy cannot
+        drift from what check-plan trusts to recognize a pure pin bump."""
+        script = SCRIPT.read_text()
+        nvidia_line = re.search(r"^NVIDIA_PIN_FILES=\(.*\)$", script, re.M).group(0)
+        kernel_line = re.search(r"^KERNEL_PIN_FILES=\(.*\)$", script, re.M).group(0)
+        bash = nvidia_line + "\n" + kernel_line + "\nprintf '%s\\n' \"${KERNEL_PIN_FILES[@]}\"\n"
+        out = subprocess.run(["bash", "-c", bash], capture_output=True, text=True, check=True)
+        kernel_pin_files = set(out.stdout.split())
+
+        text = (ROOT / ".github/workflows/kernel-bump.yml").read_text()
+        block = re.search(r"name: bump-pins\n(?:.*\n)*?          path: \|\n((?:            .*\n)+)", text).group(1)
+        check_paths = {line.strip() for line in block.splitlines()} - {"body.md"}
+        cp_targets = set(re.findall(r"^\s*cp \S+ (\S+)$", text, re.M))
+        self.assertEqual(check_paths | cp_targets, kernel_pin_files | {"system/Containerfile"})
 
 
 if __name__ == "__main__":
