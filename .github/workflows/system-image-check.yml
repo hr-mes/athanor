@@ -51,9 +51,11 @@ jobs:
           TMPDIR: ${{ runner.temp }}
         run: |
           set -euo pipefail
-          # --external takes no other option, so the external containers go first and the
-          # images they were holding go in the second pass.
-          podman system prune --force --external
+          # The containers buildah leaves behind are external to podman: they hold images
+          # and `system prune --external` walks away from the ones an interrupted build
+          # left locked, so they are removed by name before the images are pruned.
+          mapfile -t stale < <(podman ps --all --external --format '{{.ID}}')
+          [[ ${#stale[@]} -eq 0 ]] || podman rm --force "${stale[@]}"
           podman system prune --force --all
           df -h /var/lib/runner/cache
 
