@@ -124,6 +124,15 @@ write() { # write STATE LINE...: replace the file in one step
   echo "kernel-artifacts: state=$1"
 }
 
+set_kv() { # set_kv KEY=VALUE...: idempotently set each key in $FILE, replacing a stale value
+  local pattern status=0
+  pattern=$(printf '%s\n' "$@" | sed -E 's/^([^=]+)=.*/^\1=/' | paste -sd'|' -)
+  grep -vE "$pattern" "$FILE" > "$FILE.tmp" || status=$?
+  [[ $status -eq 0 || $status -eq 1 ]] || die "$FILE: could not filter the keys of a previous run"
+  printf '%s\n' "$@" >> "$FILE.tmp"
+  mv "$FILE.tmp" "$FILE"
+}
+
 module_verdict() { # module_verdict REF BRANCH KERNEL_DIGEST DEVEL_DIGEST: verified or unverified
   local signed predicates pins
   signed=$(ask signed "$1" modules)
@@ -262,7 +271,7 @@ cycle() {
         ;;
     esac
   fi
-  echo "cycle=$decision" >> "$FILE"
+  set_kv "cycle=$decision"
   echo "kernel-artifacts: cycle=$decision"
 }
 
@@ -307,7 +316,7 @@ check_plan() {
       ;;
     *) die "$FILE: unknown state '$state'" ;;
   esac
-  printf '%s\n' "check_gpus=$gpus" "check_delta=$delta" >> "$FILE"
+  set_kv "check_gpus=$gpus" "check_delta=$delta"
   echo "kernel-artifacts: check_gpus='$gpus' check_delta=$delta"
 }
 
