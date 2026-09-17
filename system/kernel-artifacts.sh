@@ -41,7 +41,11 @@ declare -A IDENTITY=(
 )
 # cosign v3 reports a missing or foreign signature or attestation with these messages. Any
 # other failure (registry, Rekor, TUF, network) is an error, never a missing artifact.
-UNVERIFIED='no signatures found|no matching signatures|no matching attestations: *$|no matching CertificateIdentity'
+# "no matching signatures" and "no matching attestations" are anchored to the end of the
+# line: cosign appends the last per-signature error to that same prefix when the real cause
+# is transient (a Rekor or cert-chain fetch failure), and an unanchored match would swallow
+# that outage as a plain "unsigned" verdict instead of failing (O3).
+UNVERIFIED='no signatures found|no matching signatures: *$|no matching attestations: *$|no matching CertificateIdentity'
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
