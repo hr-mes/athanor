@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:33.fc43}
+Release:        %{?autorelease}%{!?autorelease:34.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -90,6 +90,15 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) %attr(0600,root,root) /etc/usbguard/rules.d/10-athanor-baseline.conf
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-34
+- Give the sandboxed greeter back what it used. The session bus of the greetd user is
+  filtered through the same xdg-dbus-proxy (own os.athanor.Greeter, talk to
+  org.a11y.Bus) and the AT-SPI bus socket directory is bound read-only, so a screen
+  reader can reach the greeter; without a session bus the greeter starts without
+  accessibility and logs it. Also bound when present: the udev database, the NVIDIA
+  device nodes of the -nvidia variants (nvidiactl, nvidia-modeset, nvidia-uvm,
+  nvidia-uvm-tools, nvidia<N>) and theme.css from the greeter's configuration
+  directory and /var/lib/athanor.
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-33
 - Filter the greeter's system bus. The sandbox bound the real system bus socket, so the
   process that reads the password could make every call polkit grants an active local

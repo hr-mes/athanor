@@ -27,6 +27,12 @@
 #     nothing else: the suspend, reboot and power-off buttons are the greeter's only
 #     system bus calls. Everything else the shell's shared start-up code asks of the
 #     system bus is refused, and the shell treats those services as absent.
+#   - The session bus is filtered the same way, for accessibility: the greeter may own
+#     its GApplication name and talk to org.a11y.Bus, which hands out the address of the
+#     AT-SPI bus, and the directory holding that bus's socket is bound read-only, so a
+#     screen reader can reach the greeter. The greetd user's session bus comes from the
+#     user manager logind starts for the greeter session; where there is none, the
+#     greeter runs without accessibility and says so in the journal.
 #   - --die-with-parent ends the client with the compositor, and --new-session keeps it
 #     off the compositor's terminal.
 #
@@ -67,18 +73,53 @@ dbus_dir=$XDG_RUNTIME_DIR/athanor-greeter-dbus
 rm -rf "$dbus_dir"
 mkdir -m 0700 "$dbus_dir"
 mkfifo "$dbus_dir/ready"
-xdg-dbus-proxy --fd=3 \
-    unix:path=/run/dbus/system_bus_socket "$dbus_dir/system" \
-    --filter --talk=org.freedesktop.login1 \
-    3> "$dbus_dir/ready" &
+set -- unix:path=/run/dbus/system_bus_socket "$dbus_dir/system" \
+    --filter --talk=org.freedesktop.login1
+session_bus=$XDG_RUNTIME_DIR/bus
+if [ -S "$session_bus" ]; then
+    set -- "$@" "unix:path=$session_bus" "$dbus_dir/session" \
+        --filter --own=os.athanor.Greeter --talk=org.a11y.Bus
+fi
+xdg-dbus-proxy --fd=3 "$@" 3> "$dbus_dir/ready" &
 exec 4< "$dbus_dir/ready"
-if [ "$(head -c 1 <&4)" != x ] || [ ! -S "$dbus_dir/system" ]; then
+if [ "$(head -c 1 <&4)" != x ] || [ ! -S "$dbus_dir/system" ] ||
+    { [ -S "$session_bus" ] && [ ! -S "$dbus_dir/session" ]; }; then
     echo "athanor-greeter-client: xdg-dbus-proxy did not start, refusing to start" >&2
     exit 1
 fi
 
+# The binds that depend on this machine and this session, collected in the positional
+# parameters and appended to the fixed ones below.
+set --
+if [ -S "$dbus_dir/session" ]; then
+    set -- "$@" --ro-bind "$dbus_dir/session" "$session_bus" \
+        --setenv DBUS_SESSION_BUS_ADDRESS "unix:path=$session_bus"
+    # Asking for the address starts the AT-SPI bus when it is not running yet, so its
+    # socket exists before the sandbox is built.
+    if atspi_address=$(busctl --timeout=5 --address="unix:path=$session_bus" call \
+        org.a11y.Bus /org/a11y/bus org.a11y.Bus GetAddress); then
+        atspi_socket=$(printf '%s\n' "$atspi_address" | sed -n 's/^s "unix:path=\([^,"]*\).*/\1/p')
+    else
+        atspi_socket=
+    fi
+    if [ -S "$atspi_socket" ]; then
+        set -- "$@" --ro-bind "${atspi_socket%/*}" "${atspi_socket%/*}"
+    else
+        echo "athanor-greeter-client: no AT-SPI bus, the greeter runs without accessibility" >&2
+    fi
+else
+    echo "athanor-greeter-client: no session bus at $session_bus, the greeter runs without accessibility" >&2
+fi
+# The NVIDIA driver's device nodes, for the -nvidia image variants: the control and
+# modeset nodes by name, one numbered node per GPU. A node that does not exist is skipped.
+for node in /dev/nvidiactl /dev/nvidia-modeset /dev/nvidia-uvm /dev/nvidia-uvm-tools /dev/nvidia[0-9]*; do
+    set -- "$@" --dev-bind-try "$node" "$node"
+done
+
 # /dev/dri is absent on a machine with no DRM driver at all, where GTK renders in
-# software: its bind is optional, like the avatar and font cache directories.
+# software: its bind is optional, like the udev database, the avatar and font cache
+# directories and the theme files. theme.css is read from $XDG_CONFIG_HOME/athanor, or
+# $HOME/.config/athanor, and from /var/lib/athanor when there is no home at all.
 exec bwrap \
     --unshare-all \
     --die-with-parent \
@@ -94,15 +135,20 @@ exec bwrap \
     --dev /dev \
     --dev-bind-try /dev/dri /dev/dri \
     --ro-bind /sys /sys \
+    --ro-bind-try /run/udev /run/udev \
     --tmpfs /tmp \
     --ro-bind-try /var/cache/fontconfig /var/cache/fontconfig \
     --ro-bind-try /var/lib/AccountsService/icons /var/lib/AccountsService/icons \
+    --ro-bind-try /var/lib/athanor/theme.css /var/lib/athanor/theme.css \
     --symlink ../run /var/run \
     --ro-bind "$dbus_dir/system" /run/dbus/system_bus_socket \
     --ro-bind "$GREETD_SOCK" "$GREETD_SOCK" \
     --tmpfs "$HOME" \
+    --ro-bind-try "${XDG_CONFIG_HOME:-$HOME/.config}/athanor/theme.css" \
+    "${XDG_CONFIG_HOME:-$HOME/.config}/athanor/theme.css" \
     --perms 0700 --tmpfs "$XDG_RUNTIME_DIR" \
     --ro-bind "$wayland_socket" "$wayland_socket" \
+    "$@" \
     --sync-fd 4 \
     --chdir / \
     -- /usr/bin/athanor-shell-rs --greeter
