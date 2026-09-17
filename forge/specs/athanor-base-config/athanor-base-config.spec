@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-base-config
 Version:        43.0.0
-Release:        7%{?dist}
+Release:        8%{?dist}
 Summary:        Athanor OS Base Configuration (Systemd, Branding, GPG)
 
 License:        MIT
@@ -82,6 +82,10 @@ rm -rf %{buildroot}/etc/tmpfiles.d
 /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/override.conf
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 43.0.0-8
+- Disable mcelog.service, which base-atomic ships, through the preset. The kernel
+  reports machine checks on every vendor; mcelog is deprecated upstream and fails on
+  AMD family 17h and later.
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 43.0.0-7
 - Remove kargs.d/07-btrfs-root.toml. A rootflags=compress=zstd:1 applied to every
   installation would keep an ext4 or xfs root from mounting; the installer now adds the
