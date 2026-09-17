@@ -51,7 +51,10 @@ jobs:
           TMPDIR: ${{ runner.temp }}
         run: |
           set -euo pipefail
-          podman system prune --force --all --external
+          # --external takes no other option, so the external containers go first and the
+          # images they were holding go in the second pass.
+          podman system prune --force --external
+          podman system prune --force --all
           df -h /var/lib/runner/cache
 
       - name: Login to GHCR
