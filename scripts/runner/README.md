@@ -13,8 +13,10 @@ host itself.
   (`generate-jitconfig`), valid for one job only, and boots the base image with
   `snapshot=on`: nothing the job writes to the system disk survives it.
 - QEMU passes the configuration to the guest as the systemd credential `jitconfig`
-  (`fw_cfg`); `actions-runner.service` in the guest runs the job and powers the guest
-  off. The service restarts `vm.sh`, which boots a clean guest for the next job.
+  (`fw_cfg`); `actions-runner.service` in the guest runs the job. The end of the job is
+  decided on the host: when GitHub removes the just-in-time registration, `vm.sh` sends
+  an ACPI power-off through QMP and terminates the guest if it has not stopped within
+  two minutes. The service restarts `vm.sh`, which boots a clean guest for the next job.
 - Two extra disks: `cache.raw` persists across jobs (podman storage, `~/.cache/azoth`),
   `scratch.raw` is recreated empty before every job (the work directory).
 - The GitHub token is a service credential encrypted with the host key and the TPM2
@@ -25,7 +27,7 @@ host itself.
   contributor.
 
 Pins and sizing are in `runner.env`: Fedora Cloud Base and actions/runner by SHA-256,
-12 vCPUs and 20 GB, CPU and I/O weights that leave the desktop responsive.
+12 vCPUs and 16 GB, CPU and I/O weights that leave the desktop responsive.
 
 ## Install
 

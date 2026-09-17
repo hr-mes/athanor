@@ -84,7 +84,11 @@ write_files:
       Environment=HOME=/home/runner XDG_RUNTIME_DIR=/run/user/1001
       ImportCredential=jitconfig
       ExecStart=/usr/local/libexec/actions-runner-start
-      # One job, then the VM powers off and vm.sh boots a clean one.
+      # The runner output also on the serial console, which the host keeps in its log.
+      StandardOutput=journal+console
+      StandardError=journal+console
+      # One job, then the VM powers off and vm.sh boots a clean one; vm.sh also powers
+      # the guest off itself once GitHub removes the just-in-time registration.
       SuccessAction=poweroff
       FailureAction=poweroff
 
