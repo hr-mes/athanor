@@ -66,22 +66,30 @@ mv /etc/fstab.athanor /etc/fstab
 # command line of this installation only; any other root file system gets nothing, since
 # ext4 and xfs refuse the option and would not mount.
 #
-# This %post runs chrooted into the new deployment, Anaconda's system root (/mnt/sysroot
-# in the installer environment). From the installer environment Anaconda creates the
-# sysroot and deploys the image with `ostree admin --sysroot=<physical root>` (init-fs,
-# os-init) and `ostree container image deploy --sysroot=<physical root>`, where the
-# physical root is /mnt/sysimage. Inside this chroot, PrepareOSTreeMountTargetsTask has
-# bind-mounted that physical root at /sysroot, so --sysroot=/sysroot names the same
-# sysroot those calls used. (Anaconda's own `ostree admin instutil set-kargs --merge`,
-# which writes root= and rootflags=subvol=, is the exception: ConfigureBootloader runs it
-# chrooted here without --sysroot and reaches the repository through the deployment's
-# ostree -> sysroot/ostree link; pyanaconda/modules/payloads/payload/rpm_ostree/
-# installation.py, branch fedora-43.) set-kargs acts on the first deployment, the one
-# just installed, and --merge appends the positional argument to its arguments: the
-# initrd's systemd-fstab-generator joins every rootflags=. The arguments belong to the
-# deployment, so bootc carries them into every later deployment.
+# The command must run without --sysroot. `ostree admin instutil set-kargs` then resolves
+# the sysroot to /, which in this chroot is the deployment, and finds the deployment it
+# has to edit by reading boot/loader.<bootversion>/entries -- the real /boot, which
+# PrepareOSTreeMountTargetsTask bind-mounts into the deployment before the scripts run.
+# Naming --sysroot=/sysroot instead fails: the same task binds the physical root there
+# with a plain --bind (recurse=False), and a non-recursive bind does not carry the /boot
+# mount of the physical root, so /sysroot/boot is an empty directory, ostree reads no
+# bootloader entry and reports "Unable to find a deployment in sysroot". That aborted
+# every install in ISO acceptance run 35280318314; it is reproducible outside an
+# installer against any sysroot whose boot/ holds no loader entries. Anaconda's own
+# ConfigureBootloader issues the identical call, chrooted into this same system root and
+# without --sysroot (pyanaconda/modules/payloads/payload/rpm_ostree/installation.py,
+# branch fedora-43).
+#
+# %post scripts run after that task: the boss queues RunScriptsWithTask(KS_SCRIPT_POST)
+# in the configuration queue, which follows the installation queue carrying the payload's
+# post-install tasks (pyanaconda/modules/boss/installation.py, branch fedora-43). So the
+# arguments ConfigureBootloader wrote -- root=, rootflags=subvol=, rw -- are already on
+# the deployment, --merge keeps them and appends this one, and the initrd's
+# systemd-fstab-generator joins every rootflags=. Nothing rewrites the entries after the
+# scripts. The arguments belong to the deployment, so bootc carries them into every
+# later deployment.
 root_fstype=$(stat -f -c %T /sysroot)
 if [ "$root_fstype" = btrfs ]; then
-    ostree admin instutil set-kargs --sysroot=/sysroot --merge rootflags=compress=zstd:1
+    ostree admin instutil set-kargs --merge rootflags=compress=zstd:1
 fi
 %end
