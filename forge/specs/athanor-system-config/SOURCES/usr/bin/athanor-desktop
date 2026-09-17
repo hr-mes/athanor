@@ -37,21 +37,37 @@ systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP 
 # session that never locks -- and from then on the delay doubles at every failure, up to
 # 60 seconds. Only a run that lasted longer than 60 seconds resets the count and the
 # delay: a component crash-looping on a long delay never looks healthy again.
+#
+# The supervisor itself must not die: a dead supervisor is a locker that is never
+# restarted. It runs in a background subshell that inherits `set -e`, so errexit is
+# turned off inside it and every status that matters is tested explicitly. Time is read
+# from /proc/uptime, a monotonic clock read by a shell builtin, and a failed read counts
+# the run as short. When systemd-cat cannot write the err entry, the message goes to
+# stderr, which the compositor's own systemd-cat carries to the journal.
 # ponytail: liveness by PID; a PID reused within one retry delay would keep the loop
 # alive until that process exits. A pidfd-based supervisor would close it if it matters.
+uptime_seconds() {
+    if read -r seconds _ < /proc/uptime; then
+        echo "${seconds%.*}"
+    else
+        echo 0
+    fi
+}
+
 session_component() {
+    set +e
     anchor=$1
     shift
     delay=1
     failures=0
     while kill -0 "$anchor" 2> /dev/null; do
-        started=$(date +%s)
+        started=$(uptime_seconds)
         if "$@"; then
             status=0
         else
             status=$?
         fi
-        now=$(date +%s)
+        now=$(uptime_seconds)
         if [ $((now - started)) -gt 60 ]; then
             failures=0
             delay=1
@@ -59,8 +75,10 @@ session_component() {
             failures=$((failures + 1))
             if [ "$failures" -ge 5 ]; then
                 if [ "$failures" -eq 5 ]; then
-                    echo "$1 failed 5 times in a row, each run shorter than 60 seconds (last status $status); retrying with backoff" |
-                        systemd-cat -p err -t athanor-desktop
+                    message="$1 failed 5 times in a row, each run shorter than 60 seconds (last status $status); retrying with backoff"
+                    if ! printf '%s\n' "$message" | systemd-cat -p err -t athanor-desktop; then
+                        printf 'athanor-desktop: %s\n' "$message" >&2
+                    fi
                 fi
                 delay=$((delay * 2))
                 if [ "$delay" -gt 60 ]; then
