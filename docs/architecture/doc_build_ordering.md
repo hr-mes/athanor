@@ -1,6 +1,6 @@
 # Build ordering: kernel, NVIDIA modules, system images
 
-Status: **approved on 2026-09-17** (the maintainer delegated the review; approved after the amendments to O2, O3 and section 6 below). It amends `doc_kernel_build.md` (section 10, publication of `azoth-nvidia`) and `doc_system_image.md` (S6, S8); section 5 lists the changes those documents take.
+Status: **approved on 2026-09-17** (the maintainer delegated the review; approved after amendments to O2, O3, O7, a new O8, section 3 and section 6). It amends `doc_kernel_build.md` (section 10, publication of `azoth-nvidia`) and `doc_system_image.md` (S6, S8); section 5 lists the changes those documents take.
 
 ## 1. Context
 
@@ -61,7 +61,8 @@ A daily scheduled Orchestrator follows the same rule: it builds only on publishe
 
 **O7. System Image Check on PRs.** The check calls the same `system/kernel-artifacts.sh`.
 
-- **Kernel or NVIDIA pins moved:** the modules for them cannot exist before the merge. The check builds the default image, skips the two variants and adds a warning annotation that names the missing tags.
+- **Kernel NVR moved:** `azoth:<nvr>` is published only after the merge, so no image can be built. The check skips all three builds and the package delta, and adds a warning annotation naming the missing kernel. Kernel Build on the PR still proves the kernel and the modules build and boot.
+- **Only an NVIDIA version moved:** the kernel exists but the new module tags cannot. The check builds the default image, skips the two variants and adds a warning annotation naming the missing tags.
 - **Anything else:** it builds all three, as today.
 
 **O8. Bootstrap.** The change set touches `kernel-build.yml`, so its merge triggers Kernel Build and the Orchestrator together.
