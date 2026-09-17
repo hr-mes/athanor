@@ -16,7 +16,6 @@
     "bibata",
     "dart-sass",
     "shell-rs",
-    "daemon-rs",
     "doctor",
     "cliphist",
     "backup",
@@ -80,7 +79,6 @@
   ],
   "custom_tier3": [
     "shell-rs",
-    "daemon-rs",
     "doctor",
     "system-services",
     "desktop-ui",
