@@ -305,7 +305,9 @@ check_plan() {
       gpus='none nvidia nvidia-legacy' delta=true
       ;;
     kernel-missing)
-      [[ $only_kernel_pins == true && -n $keys ]] || die "azoth:$nvr is not published: a pin bump mixed with other changes cannot be checked, move the pins in their own pull request"
+      # only_kernel_pins alone would also be true when the diff moves NVIDIA pins alone: that
+      # never explains a missing kernel, so this row requires an actual kernel pin to move too.
+      [[ $only_kernel_pins == true && $other_moved == true ]] || die "azoth:$nvr is not published: a pin bump mixed with other changes cannot be checked, move the pins in their own pull request"
       gpus='' delta=false
       annotate warning "azoth:$nvr is not published yet: Kernel Build on this pull request proves the kernel and the modules build and boot; the images are built after the merge"
       ;;
