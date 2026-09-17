@@ -2,15 +2,16 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:32.fc43}
+Release:        %{?autorelease}%{!?autorelease:33.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
 BuildArch:      noarch
 
 Requires: cosmic-comp greetd greenboot systemd-ukify nodejs
-# athanor-greeter-client builds the greeter's sandbox with bwrap.
-Requires: bubblewrap
+# athanor-greeter-client builds the greeter's sandbox with bwrap and filters its system
+# bus through xdg-dbus-proxy.
+Requires: bubblewrap xdg-dbus-proxy
 # athanor-desktop runs the session's screen locker and idle daemon.
 Requires: cosmic-greeter cosmic-idle
 # Core UI andDaemons
@@ -89,6 +90,14 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) %attr(0600,root,root) /etc/usbguard/rules.d/10-athanor-baseline.conf
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-33
+- Filter the greeter's system bus. The sandbox bound the real system bus socket, so the
+  process that reads the password could make every call polkit grants an active local
+  session. athanor-greeter-client now starts xdg-dbus-proxy outside the sandbox with
+  --filter --talk=org.freedesktop.login1, the only system service the greeter calls,
+  binds its socket in place of the bus, waits for the proxy's readiness byte on --fd
+  and refuses to start the greeter when the proxy or its socket is missing. The proxy
+  exits with the sandbox, which holds the other end of that descriptor (--sync-fd).
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-32
 - Lock the session on idle. cosmic-idle was installed and never started, and no screen
   locker was installed. athanor-desktop now runs cosmic-greeter, which is COSMIC's
