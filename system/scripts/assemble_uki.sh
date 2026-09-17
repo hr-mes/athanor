@@ -37,10 +37,15 @@ fi
 depmod "${QUALIFIED_KERNEL}"
 
 echo "Generating Initramfs..."
+# The account databases are split on this image: /etc/group and /etc/passwd hold the
+# local entries, /usr/lib/group and /usr/lib/passwd the system ones (disk, lp, kvm, ...),
+# joined by nss-altfiles. dracut already carries /usr/lib/group and libnss_altfiles, but
+# it copies /etc/nsswitch.conf only in host-only mode; without it glibc in the initrd
+# reads /etc/group alone, and udev and tmpfiles report the system groups as unknown.
 dracut --no-hostonly --kver "${QUALIFIED_KERNEL}" --reproducible --compress "zstd -T0 -15" -v \
     --strip --omit-drivers "nouveau" \
     --add ostree --add fido2 --add tpm2-tss --add systemd-pcrphase \
-    --install "/etc/group" --install "/etc/passwd" \
+    --install "/etc/group" --install "/etc/passwd" --install "/etc/nsswitch.conf" \
     -f "/usr/lib/modules/${QUALIFIED_KERNEL}/initramfs.img"
 
 chmod 0644 "/usr/lib/modules/${QUALIFIED_KERNEL}/initramfs.img"
