@@ -1,80 +1,48 @@
-use std::os::unix::fs::OpenOptionsExt;
 use std::fs::File;
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use athanor_gatekeeper_rs::security::verify_file_fd_signature;
 
-const SECCOMP_POLICY_DIR: &str = "/etc/crosvm";
-const SECCOMP_POLICY_FILE: &str = "/etc/crosvm/strict.policy";
+/// Strict seccomp policy for the crosvm VMM. The package installs it read-only under
+/// `/usr`; the Gatekeeper never generates it at runtime, so no writable location can
+/// ever supply the policy crosvm enforces.
+const SECCOMP_POLICY_FILE: &str = "/usr/share/athanor-gatekeeper-rs/crosvm/strict.policy";
 
-/// Ensures that a strict seccomp BPF policy exists in `/etc/crosvm/strict.policy` (or fallback location),
-/// explicitly blocking dangerous system calls (`bpf`, `ptrace`, `userfaultfd`).
-pub fn ensure_seccomp_policy() -> String {
-    let policy_path = Path::new(SECCOMP_POLICY_FILE);
-    if !policy_path.exists() {
-        if let Err(e) = std::fs::create_dir_all(SECCOMP_POLICY_DIR) {
-            eprintln!("[Level 11 Micro-VM Hypervisor] Warning: Could not create {}: {}", SECCOMP_POLICY_DIR, e);
-        }
-        let policy_content = r#"# Athanor OS Strict Seccomp BPF Policy for CrosVM MicroVM Enclaves
-# Explicitly block dangerous syscalls inside VM sandbox context: bpf, ptrace, userfaultfd
-bpf: return 1
-ptrace: return 1
-userfaultfd: return 1
-# Allow baseline system calls required for application execution
-read: 1
-write: 1
-openat: 1
-close: 1
-fstat: 1
-mmap: 1
-mprotect: 1
-munmap: 1
-brk: 1
-rt_sigaction: 1
-rt_sigprocmask: 1
-ioctl: 1
-pread64: 1
-pwrite64: 1
-statfs: 1
-exit_group: 1
-futex: 1
-epoll_wait: 1
-epoll_ctl: 1
-epoll_create1: 1
-eventfd2: 1
-timerfd_create: 1
-timerfd_settime: 1
-clone: 1
-clone3: 1
-"#;
-        if let Err(e) = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(policy_path)
-            .and_then(|mut f| std::io::Write::write_all(&mut f, policy_content.as_bytes()))
-        {
-            eprintln!("[Level 11 Micro-VM Hypervisor] Warning: Failed writing seccomp policy to {}: {}", SECCOMP_POLICY_FILE, e);
-            let fallback_dir = Path::new("/tmp/crosvm");
-            if let Err(err) = std::fs::create_dir_all(fallback_dir) {
-                tracing::error!("Failed to create fallback_dir {:?}: {:?}", fallback_dir, err);
-            }
-            let fallback_path = fallback_dir.join("strict.policy");
-            if let Err(err) = std::fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(&fallback_path)
-                .and_then(|mut f| std::io::Write::write_all(&mut f, policy_content.as_bytes()))
-            {
-                tracing::error!("Failed to write fallback policy at {:?}: {:?}", fallback_path, err);
-            }
-            return fallback_path.to_string_lossy().to_string();
-        }
+/// Verifies that the seccomp policy at `path` can only have been written by a trusted
+/// principal: the file must be a regular file (not a symlink), and the file and every
+/// parent directory must be owned by root or by `owner_uid` and must not be writable by
+/// group or others. Any deviation is an error, so the caller fails closed.
+pub fn verify_seccomp_policy(path: &Path, owner_uid: u32) -> anyhow::Result<()> {
+    if !path.is_absolute() {
+        anyhow::bail!("Seccomp policy path {:?} is not absolute", path);
     }
-    SECCOMP_POLICY_FILE.to_string()
+    let meta = std::fs::symlink_metadata(path)
+        .map_err(|e| anyhow::anyhow!("Cannot stat seccomp policy {:?}: {}", path, e))?;
+    if !meta.file_type().is_file() {
+        anyhow::bail!("Seccomp policy {:?} is not a regular file", path);
+    }
+    check_trusted_inode(path, &meta, owner_uid)?;
+
+    for dir in path.ancestors().skip(1) {
+        let meta = std::fs::symlink_metadata(dir)
+            .map_err(|e| anyhow::anyhow!("Cannot stat directory {:?}: {}", dir, e))?;
+        if !meta.file_type().is_dir() {
+            anyhow::bail!("{:?} in the seccomp policy path is not a directory", dir);
+        }
+        check_trusted_inode(dir, &meta, owner_uid)?;
+    }
+    Ok(())
+}
+
+fn check_trusted_inode(path: &Path, meta: &std::fs::Metadata, owner_uid: u32) -> anyhow::Result<()> {
+    if meta.uid() != 0 && meta.uid() != owner_uid {
+        anyhow::bail!("{:?} is owned by uid {}, expected root", path, meta.uid());
+    }
+    if meta.mode() & 0o022 != 0 {
+        anyhow::bail!("{:?} is writable by group or others (mode {:o})", path, meta.mode() & 0o7777);
+    }
+    Ok(())
 }
 
 /// Level 11 Micro-VM Hypervisor Isolation (Hardware Compartmentalization)
@@ -112,8 +80,10 @@ pub async fn spawn_microvm_isolated_app(target_path: &Path) -> Result<tokio::pro
         fd, proc_fd_path
     );
 
-    // Ensure strict seccomp policy exists for CrosVM sandbox
-    let seccomp_policy = ensure_seccomp_policy();
+    // The crosvm seccomp policy must come from a root-owned, non-writable location.
+    // The Gatekeeper runs as root, so root is the only trusted owner: fail closed otherwise.
+    verify_seccomp_policy(Path::new(SECCOMP_POLICY_FILE), 0)
+        .map_err(|e| anyhow::anyhow!("Refusing to launch: untrusted crosvm seccomp policy: {}", e))?;
 
     // Locate guest Kernel image for hardware virtualization
     let guest_kernel = if Path::new("/boot/vmlinuz-athanor").exists() {
@@ -128,7 +98,7 @@ pub async fn spawn_microvm_isolated_app(target_path: &Path) -> Result<tokio::pro
     let mem_mb = std::env::var("ATHANOR_MICROVM_MEM_MB").unwrap_or_else(|_| "512".to_string());
 
     // 1. Primary: Spawns inside a hardware-accelerated crosvm Micro-VM with strict seccomp & 512MB memory limits + ballooning
-    let crosvm_res = build_crosvm_command(&mem_mb, &seccomp_policy, parent, &proc_fd_path, guest_kernel).spawn();
+    let crosvm_res = build_crosvm_command(&mem_mb, SECCOMP_POLICY_FILE, parent, &proc_fd_path, guest_kernel).spawn();
 
     if let Ok(child) = crosvm_res {
         println!("[Level 11 Micro-VM Hypervisor] Hardware-isolated AppVM spawned via crosvm with strict 512MB memory limit & virtio-balloon.");
@@ -231,16 +201,88 @@ pub fn parse_mem_arg(args: &[String]) -> anyhow::Result<String> {
 mod tests {
     use super::*;
 
+    /// A fresh, uniquely named scratch directory for one test.
+    fn scratch_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("gatekeeper-{}-{}", name, uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).expect("create scratch dir");
+        dir
+    }
+
+    fn write_file(path: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(path, "bpf: return 1\n").expect("write file");
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).expect("chmod");
+    }
+
     #[test]
-    fn test_ensure_seccomp_policy_creates_valid_file() {
-        let policy_path_str = ensure_seccomp_policy();
-        let path = Path::new(&policy_path_str);
-        assert!(path.exists(), "Seccomp policy file must exist");
-        
-        let content = read_seccomp_policy(path).unwrap_or_default();
+    fn test_shipped_seccomp_policy_blocks_dangerous_syscalls() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/crosvm-strict.policy");
+        let content = read_seccomp_policy(Path::new(path)).expect("shipped policy is readable");
         assert!(content.contains("bpf: return 1"), "Policy must block bpf syscalls");
         assert!(content.contains("ptrace: return 1"), "Policy must block ptrace syscalls");
         assert!(content.contains("userfaultfd: return 1"), "Policy must block userfaultfd syscalls");
+    }
+
+    #[test]
+    fn test_seccomp_policy_owned_by_another_uid_is_refused() {
+        let dir = scratch_dir("owner");
+        let policy = dir.join("strict.policy");
+        write_file(&policy, 0o644);
+        // SAFETY: geteuid has no preconditions and cannot fail.
+        let euid = unsafe { libc::geteuid() };
+        let trusted_uid = if euid == 0 {
+            // Running as root: hand the file to an unprivileged uid.
+            std::os::unix::fs::chown(&policy, Some(65534), None).expect("chown");
+            0
+        } else {
+            euid + 1
+        };
+        let err = verify_seccomp_policy(&policy, trusted_uid).expect_err("foreign owner must be refused");
+        assert!(err.to_string().contains("owned by uid"), "unexpected error: {}", err);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_seccomp_policy_writable_by_others_is_refused() {
+        let dir = scratch_dir("mode");
+        let policy = dir.join("strict.policy");
+        write_file(&policy, 0o666);
+        // SAFETY: geteuid has no preconditions and cannot fail.
+        let euid = unsafe { libc::geteuid() };
+        let err = verify_seccomp_policy(&policy, euid).expect_err("writable policy must be refused");
+        assert!(err.to_string().contains("writable"), "unexpected error: {}", err);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_seccomp_policy_in_world_writable_directory_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch_dir("dir");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o777)).expect("chmod dir");
+        let policy = dir.join("strict.policy");
+        write_file(&policy, 0o644);
+        // SAFETY: geteuid has no preconditions and cannot fail.
+        let euid = unsafe { libc::geteuid() };
+        let err = verify_seccomp_policy(&policy, euid).expect_err("world-writable parent must be refused");
+        assert!(err.to_string().contains(&format!("{:?}", dir)), "unexpected error: {}", err);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_seccomp_policy_symlink_and_missing_file_are_refused() {
+        let dir = scratch_dir("link");
+        let link = dir.join("strict.policy");
+        std::os::unix::fs::symlink("/etc/passwd", &link).expect("symlink");
+        assert!(verify_seccomp_policy(&link, 0).is_err(), "symlinked policy must be refused");
+        assert!(verify_seccomp_policy(&dir.join("absent.policy"), 0).is_err(), "missing policy must be refused");
+        assert!(verify_seccomp_policy(Path::new("relative.policy"), 0).is_err(), "relative path must be refused");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_root_owned_read_only_file_is_accepted() {
+        // /etc/passwd and all its parents are root-owned and not group/world-writable.
+        verify_seccomp_policy(Path::new("/etc/passwd"), 0).expect("root-owned file must be accepted");
     }
 
     #[test]
@@ -248,7 +290,7 @@ mod tests {
         let parent = Path::new("/tmp");
         let proc_fd_path = "/proc/self/fd/3";
         let guest_kernel = "/boot/vmlinuz";
-        let policy = "/etc/crosvm/strict.policy";
+        let policy = SECCOMP_POLICY_FILE;
         let cmd = build_crosvm_command("512", policy, parent, proc_fd_path, guest_kernel);
         let std_cmd = cmd.as_std();
         let args: Vec<String> = std_cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
