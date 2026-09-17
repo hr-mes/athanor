@@ -85,7 +85,7 @@ and the same with `-legacy-<NVIDIA_LEGACY_VERSION>`. A republished kernel with t
 
 **`kernel-missing` at step 1.** The decision uses the commit range, not the Actions API, because a Kernel Build run for the same push may not exist yet when the Orchestrator starts.
 
-- **On a push:** when `before..after` touches Kernel Build's path filters, the run ends with a notice and no image, because Kernel Build owns that cycle and dispatches the Orchestrator. Otherwise it is red. A zero `before` (a new branch or a force push) is red.
+- **On a push:** when `before..after` touches Kernel Build's path filters, the run ends with a notice and no image, because Kernel Build owns that cycle and dispatches the Orchestrator. Otherwise it is red. A zero `before`, which GitHub sends for a new branch, is red.
 - **On a dispatch from Kernel Build:** it carries `sha`. If the branch HEAD has moved past it, the run ends with a notice, because the newer push has its own cycle. Otherwise `kernel-missing` is red.
 - **On the schedule:** red.
 
