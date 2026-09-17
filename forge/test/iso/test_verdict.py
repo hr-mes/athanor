@@ -51,6 +51,7 @@ def test_pass(tmp: pathlib.Path) -> None:
             ("installed", 100),
             ("kickstart-done", 110),
             ("profile-ok", 390),
+            ("karg-compress-ok", 395),
             ("greeter-alive", 400),
             ("session-alive", 460),
             ("settings-alive", 500),
@@ -59,6 +60,7 @@ def test_pass(tmp: pathlib.Path) -> None:
     assert code == 0, f"a complete run must pass, got {code}"
     assert "**PASS**" in report, report
     assert "kernel profile holds: profile-ok" in report, report
+    assert "btrfs compression karg: karg-compress-ok" in report, report
     assert "first boot to greeter: 300s" in report, report
     assert "greeter to session: 60s" in report, report
     assert "session to settings: 40s" in report, report
@@ -90,6 +92,7 @@ def test_profile_drift_fails(tmp: pathlib.Path) -> None:
             ("installed", 100),
             ("kickstart-done", 110),
             ("profile-drift", 390),
+            ("karg-compress-ok", 395),
             ("greeter-alive", 400),
             ("session-alive", 460),
             ("settings-alive", 500),
@@ -109,6 +112,7 @@ def test_profile_unreadable_fails(tmp: pathlib.Path) -> None:
             ("installed", 100),
             ("kickstart-done", 110),
             ("profile-unreadable", 390),
+            ("karg-compress-ok", 395),
             ("greeter-alive", 400),
             ("session-alive", 460),
             ("settings-alive", 500),
@@ -117,6 +121,81 @@ def test_profile_unreadable_fails(tmp: pathlib.Path) -> None:
     assert code != 0, "a run whose kernel profile could not be read passed"
     assert "**FAIL**" in report, report
     assert "kernel profile holds: NO" in report, report
+
+
+def test_karg_missing_fails(tmp: pathlib.Path) -> None:
+    """A btrfs root that booted without rootflags=compress=zstd:1 is a failed install,
+    however well the desktop came up.
+
+    The argument is set by the installer's %post and by nothing else, so its absence
+    means that %post did not do its job -- which is exactly what happened in run
+    35280318314, where the call aborted the installation outright. A quieter breakage
+    that merely skipped the argument would leave a machine mounting its root
+    uncompressed for good, and every other check in this gate would still be green.
+    """
+    code, report = verdict(
+        tmp,
+        [
+            ("installed", 100),
+            ("kickstart-done", 110),
+            ("profile-ok", 390),
+            ("karg-compress-missing", 395),
+            ("greeter-alive", 400),
+            ("session-alive", 460),
+            ("settings-alive", 500),
+        ],
+    )
+    assert code != 0, "a btrfs root without the compression karg passed"
+    assert "**FAIL**" in report, report
+    assert "btrfs compression karg: NO" in report, report
+
+
+def test_karg_unreadable_fails(tmp: pathlib.Path) -> None:
+    """A guest that could not say what its root filesystem is has not answered the
+    question, and an unanswered question is not a pass. /sysroot is the physical root on
+    every system this ISO installs; one where it cannot be stat'ed is not that system."""
+    code, report = verdict(
+        tmp,
+        [
+            ("installed", 100),
+            ("kickstart-done", 110),
+            ("profile-ok", 390),
+            ("karg-compress-unreadable", 395),
+            ("greeter-alive", 400),
+            ("session-alive", 460),
+            ("settings-alive", 500),
+        ],
+    )
+    assert code != 0, "a run that could not read its root filesystem passed"
+    assert "**FAIL**" in report, report
+    assert "btrfs compression karg: NO" in report, report
+
+
+def test_karg_not_applicable_passes(tmp: pathlib.Path) -> None:
+    """On a root that is not btrfs the installer sets nothing, on purpose: ext4 and xfs
+    refuse the option and would not mount. The run must pass and say so rather than
+    report a missing argument that was never meant to be there.
+
+    The acceptance VM installs on btrfs today (collaudo.ks autopart --type=btrfs), so
+    this case is the honesty of the check rather than a case it meets: the guest decides
+    which answer applies, from its own /sysroot, and the gate cannot be made green by a
+    filesystem the test assumed.
+    """
+    code, report = verdict(
+        tmp,
+        [
+            ("installed", 100),
+            ("kickstart-done", 110),
+            ("profile-ok", 390),
+            ("karg-compress-not-applicable", 395),
+            ("greeter-alive", 400),
+            ("session-alive", 460),
+            ("settings-alive", 500),
+        ],
+    )
+    assert code == 0, f"a non-btrfs root must pass without the karg, got {code}"
+    assert "**PASS**" in report, report
+    assert "btrfs compression karg: karg-compress-not-applicable" in report, report
 
 
 def test_greeter_without_session_fails(tmp: pathlib.Path) -> None:
@@ -466,6 +545,9 @@ def test_console_logs_in_opens_settings_and_stops(tmp: pathlib.Path) -> None:
         conn.sendall(b"athanor login: ")
         typed = typed_until(conn, b"PROFILE_%s", 20)
         conn.sendall(b"PROFILE_OK\r\n")
+        if b"KARG_%s" not in typed:
+            typed += typed_until(conn, b"KARG_%s", 20)
+        conn.sendall(b"KARG_OK btrfs\r\n")
         if b"GREETER_%s" not in typed:
             typed_until(conn, b"GREETER_%s", 20)
         conn.sendall(b"GREETER_ALIVE c5\r\n")
@@ -500,6 +582,7 @@ def test_console_logs_in_opens_settings_and_stops(tmp: pathlib.Path) -> None:
     )
     for expected in (
         "profile-ok",
+        "karg-compress-ok",
         "greeter-alive",
         "login-sent",
         "session-alive",
@@ -511,6 +594,67 @@ def test_console_logs_in_opens_settings_and_stops(tmp: pathlib.Path) -> None:
     assert "idle-timeout" not in phases, "it should not have waited out the idle window"
 
 
+def test_karg_probe_answers_from_the_guest(tmp: pathlib.Path) -> None:
+    """The question the guest is actually asked, run as a shell command.
+
+    Everything above checks what the verdict does with an answer; this checks that the
+    answer is the right one. The probe is run verbatim, with the two things it reads
+    replaced: a `stat` on PATH that reports whichever root filesystem the case wants,
+    and a file bind-mounted over /proc/cmdline in a private mount namespace. That needs
+    unprivileged user namespaces, which is what the acceptance runner has; where they
+    are unavailable the case is skipped rather than failed, as the socket cases are.
+
+    The substring case is the point of `grep -qxF` over a token list: a command line
+    carrying `ignore=rootflags=compress=zstd:1x` contains the argument and does not
+    have it, and a probe that answered OK there would make the gate meaningless.
+    """
+    sys.path.insert(0, str(HERE))
+    import console
+
+    work = tmp / "probe"
+    shutil.rmtree(work, ignore_errors=True)
+    (work / "bin").mkdir(parents=True)
+    (work / "bin" / "stat").write_text(
+        '#!/bin/sh\n[ -n "$FAKE_FSTYPE" ] || exit 1\nprintf "%s\\n" "$FAKE_FSTYPE"\n'
+    )
+    (work / "bin" / "stat").chmod(0o755)
+    (work / "probe.sh").write_bytes(console.KARG_PROBE + b"\n")
+
+    base = "BOOT_IMAGE=/vmlinuz root=UUID=x rootflags=subvol=root rw"
+    cases = (
+        ("btrfs", base + " " + console.KARG_COMPRESS.decode(), "KARG_OK btrfs"),
+        ("btrfs", base, "KARG_MISSING btrfs"),
+        ("btrfs", base + " ignore=" + console.KARG_COMPRESS.decode() + "x",
+         "KARG_MISSING btrfs"),
+        ("xfs", base, "KARG_NOTBTRFS xfs"),
+        ("", base, "KARG_UNREADABLE"),
+    )
+    for fstype, cmdline, expected in cases:
+        (work / "cmdline").write_text(cmdline + "\n")
+        proc = subprocess.run(
+            [
+                "unshare",
+                "-rm",
+                "sh",
+                "-c",
+                f"mount --bind {work}/cmdline /proc/cmdline;"
+                f' PATH={work}/bin:$PATH FAKE_FSTYPE="{fstype}" sh {work}/probe.sh',
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0 and not proc.stdout:
+            print(
+                "  skip test_karg_probe_answers_from_the_guest:"
+                f" no unprivileged namespaces here ({proc.stderr.strip()[:60]})"
+            )
+            return
+        answer = proc.stdout.splitlines()[0]
+        assert answer == expected, f"{fstype or 'unreadable'}: {answer!r} != {expected!r}"
+        if "MISSING" in expected:
+            assert cmdline in proc.stdout, "a missing karg must print the command line"
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as name:
         tmp = pathlib.Path(name)
@@ -520,6 +664,10 @@ def main() -> int:
             test_session_without_settings_fails,
             test_profile_drift_fails,
             test_profile_unreadable_fails,
+            test_karg_missing_fails,
+            test_karg_unreadable_fails,
+            test_karg_not_applicable_passes,
+            test_karg_probe_answers_from_the_guest,
             test_greetd_starting_is_not_a_greeter,
             test_installed_but_no_greeter,
             test_text_login_is_not_a_greeter,

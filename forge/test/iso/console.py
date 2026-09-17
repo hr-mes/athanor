@@ -66,6 +66,13 @@ MARKERS = (
     (b"PROFILE_OK", "profile-ok"),
     (b"PROFILE_DRIFT", "profile-drift"),
     (b"PROFILE_UNREADABLE", "profile-unreadable"),
+    # The guest's own answer to KARG_PROBE below: whether the compression argument the
+    # installer's %post puts on a btrfs root reached the command line this system booted
+    # with, or whether the root is not btrfs and the question does not arise.
+    (b"KARG_OK", "karg-compress-ok"),
+    (b"KARG_MISSING", "karg-compress-missing"),
+    (b"KARG_NOTBTRFS", "karg-compress-not-applicable"),
+    (b"KARG_UNREADABLE", "karg-compress-unreadable"),
     # The guest's own answer to GREETER_PROBE below: a greeter session that is still
     # there, with the shell inside it, after it has had time to die.
     (b"GREETER_ALIVE", "greeter-alive"),
@@ -240,6 +247,41 @@ PROFILE_PROBE = (
 # A handful of file reads, and a margin for the report on drift or on an unreadable profile.
 PROFILE_PROBE_WAIT = 10.0
 
+# Ask the guest whether the argument the installer's %post adds on a btrfs root actually
+# reached the command line it booted with. Nothing else in this test would notice its
+# absence: the desktop comes up either way, and the only symptom is a root mounted
+# uncompressed for the life of the machine. The %post that sets it broke once already --
+# run 35280318314 aborted every install on it -- and it broke silently as far as this
+# test was concerned.
+#
+# The filesystem is read from /sysroot rather than from /, because / on a booted ostree
+# system is the composefs overlay and reports itself as one; /sysroot is the physical
+# root, the same path the installer's %post stats to decide whether to set the argument
+# at all. So the probe asks its question of exactly what that decision was made on.
+#
+# Three outcomes, and the guest decides which: OK, the root is btrfs and the argument is
+# there; MISSING, the root is btrfs and it is not, which fails the run and prints the
+# command line that came back instead; NOTBTRFS, the root is some other filesystem, where
+# the installer sets nothing on purpose and the run may pass without it. A fourth answer
+# covers a guest that cannot be asked: a /sysroot that cannot be stat'ed answers
+# UNREADABLE and fails, because on this system that path is the physical root and a guest
+# that cannot say what it is has not answered the question.
+# The command line is compared token by token, `tr` and `grep -qxF`, so no argument that
+# merely contains this one can pass for it. As with the other probes the marker is
+# assembled by printf, so the console's echo of the typed line cannot pass for the answer.
+KARG_COMPRESS = b"rootflags=compress=zstd:1"
+KARG_PROBE = (
+    b'f=$(stat -f -c %T /sysroot 2>/dev/null); case "$f" in'
+    b" btrfs) if tr ' ' '\\n' < /proc/cmdline | grep -qxF '" + KARG_COMPRESS + b"';"
+    b" then printf 'KARG_%s %s\\n' OK \"$f\";"
+    b" else printf 'KARG_%s %s\\n' MISSING \"$f\"; cat /proc/cmdline; fi;;"
+    b" \"\") printf 'KARG_%s\\n' UNREADABLE;;"
+    b" *) printf 'KARG_%s %s\\n' NOTBTRFS \"$f\";;"
+    b" esac"
+)
+# Two file reads, and a margin for the command line printed when the argument is missing.
+KARG_PROBE_WAIT = 5.0
+
 # The password as QEMU's `sendkey` wants it, one key per command. QEMU names a letter key
 # by the letter, and letters are all the password has.
 GREETER_PASSWORD_KEYS = tuple(GUEST_PASSWORD.decode())
@@ -404,6 +446,8 @@ def main() -> int:
         time.sleep(DIAGNOSTIC_PAUSE * PACE)
         ask(PROFILE_PROBE, PROFILE_PROBE_WAIT)
         note("profile-asked")
+        ask(KARG_PROBE, KARG_PROBE_WAIT)
+        note("karg-asked")
         ask(GREETER_PROBE, GREETER_PROBE_WAIT)
         note("greeter-asked")
 
