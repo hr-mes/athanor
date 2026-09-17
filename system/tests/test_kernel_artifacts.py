@@ -503,6 +503,13 @@ class CheckPlan(Repo):
         r = self.plan(self.pin_change(NVIDIA_OPEN_VERSION="615.71.09", CACHYOS_PATCHES_COMMIT="f" * 40))
         self.assertEqual(r.returncode, 1)
 
+    def test_kernel_missing_with_only_nvidia_pins_moved_fails(self):
+        # only_kernel_pins is true (the diff touches only pins.env, a KERNEL_PIN_FILES member),
+        # but no kernel pin actually moved: that never explains a missing kernel.
+        self.state("kernel-missing")
+        r = self.plan(self.pin_change(NVIDIA_OPEN_VERSION="615.71.09"))
+        self.assertEqual(r.returncode, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
