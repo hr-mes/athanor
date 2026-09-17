@@ -1,6 +1,6 @@
 Name:           athanor-scudo
 Version:        1.0.0
-Release:        3%{?dist}
+Release:        4%{?dist}
 Summary:        Athanor OS Scudo Hardened Allocator Configuration
 
 License:        GPL-3.0-or-later
@@ -29,18 +29,16 @@ cat <<EOF > %{buildroot}%{_prefix}/lib/environment.d/10-scudo.conf
 SCUDO_OPTIONS="ZeroContents=1:PatternFillRet=1:DeallocationTypeMismatch=1:DeleteSizeMismatch=1"
 EOF
 
-# Declarative symlink configuration via tmpfiles.d
-mkdir -p %{buildroot}%{_prefix}/lib/tmpfiles.d
-cat <<EOF > %{buildroot}%{_prefix}/lib/tmpfiles.d/10-scudo.conf
-L+ /usr/lib64/libscudo.so - - - - /usr/lib64/clang/19/lib/linux/libclang_rt.scudo_standalone.so
-EOF
-
-
 %files
 %{_prefix}/lib/environment.d/10-scudo.conf
-%{_prefix}/lib/tmpfiles.d/10-scudo.conf
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-4
+- Remove tmpfiles.d/10-scudo.conf. Its L+ rule tried to create /usr/lib64/libscudo.so
+  at boot inside the read-only /usr, pointing at a clang 19 path that compiler-rt does
+  not install, and nothing loads libscudo by that name: no LD_PRELOAD is set and the
+  Gatekeeper is built without its scudo_ffi feature.
+
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-3
 - Remove the greetd.service drop-in. A unit's sandboxing is inherited by every process
   the unit starts, so its seccomp filters, bounding set and read-only /proc/sys and
