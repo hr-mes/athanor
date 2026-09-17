@@ -23,10 +23,14 @@
 #   - The system bus is not the real one. The process that reads the password would
 #     otherwise hold every call polkit grants an active local session (udisks2,
 #     NetworkManager, ...). xdg-dbus-proxy runs outside the sandbox, as the same user, and
-#     the greeter sees only its socket, which lets it talk to org.freedesktop.login1 and
-#     nothing else: the suspend, reboot and power-off buttons are the greeter's only
-#     system bus calls. Everything else the shell's shared start-up code asks of the
-#     system bus is refused, and the shell treats those services as absent.
+#     the greeter sees only its socket, which forwards three methods and nothing else:
+#     Suspend, Reboot and PowerOff of org.freedesktop.login1.Manager on
+#     /org/freedesktop/login1, the calls behind the greeter's power buttons. The rest of
+#     logind stays out of reach -- before anyone has authenticated, polkit's defaults for
+#     an active local session would otherwise let the greeter pick the boot loader entry
+#     or firmware setup for the next boot, take inhibitors or lock sessions. Everything
+#     else the shell's shared start-up code asks of the system bus is refused, and the
+#     shell treats those services as absent.
 #   - The session bus is filtered the same way, for accessibility: the greeter may own
 #     its GApplication name and talk to org.a11y.Bus, which hands out the address of the
 #     AT-SPI bus, and the directory holding that bus's socket is bound read-only, so a
@@ -74,7 +78,10 @@ rm -rf "$dbus_dir"
 mkdir -m 0700 "$dbus_dir"
 mkfifo "$dbus_dir/ready"
 set -- unix:path=/run/dbus/system_bus_socket "$dbus_dir/system" \
-    --filter --talk=org.freedesktop.login1
+    --filter \
+    --call=org.freedesktop.login1=org.freedesktop.login1.Manager.Suspend@/org/freedesktop/login1 \
+    --call=org.freedesktop.login1=org.freedesktop.login1.Manager.Reboot@/org/freedesktop/login1 \
+    --call=org.freedesktop.login1=org.freedesktop.login1.Manager.PowerOff@/org/freedesktop/login1
 session_bus=$XDG_RUNTIME_DIR/bus
 if [ -S "$session_bus" ]; then
     set -- "$@" "unix:path=$session_bus" "$dbus_dir/session" \
