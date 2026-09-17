@@ -6,7 +6,12 @@
 #   resolve [--expect-kernel-digest D]  write kernel-artifacts.env: state=ready, modules-missing
 #                                       or kernel-missing, then the verified digests. Exit 0 for
 #                                       the three states; 1 on a registry, Rekor, network or data
-#                                       error, or when azoth:<nvr> is not D (republished since)
+#                                       error, or when azoth:<nvr> is still D's own NVR but no
+#                                       longer resolves to D (republished or withdrawn since).
+#                                       When D's own org.opencontainers.image.version label
+#                                       names a different NVR than the current pins, the pins
+#                                       moved since D was resolved: state=kernel-missing, not
+#                                       an error (O5)
 #   require-ready                       resolve, then exit 1 unless state=ready
 #   cycle --event E [--before B] [--after A] [--sha S] [--head H]
 #                                       after resolve, for an Orchestrator run (O4): append
@@ -20,7 +25,8 @@
 #   signed REF kernel|modules           signed or unsigned, by the workflow that publishes it
 #   predicates REF modules              the custom predicates of REF, one JSON per line, or
 #                                       unverified
-#   probe digest|signed|predicates ...  one attempt of the three above (they retry it)
+#   probe digest|signed|predicates|config ...
+#                                       one attempt of the four above (they retry it)
 #
 # The file is $KERNEL_ARTIFACTS_DIR/kernel-artifacts.env (default: kernel-artifacts/ at the
 # repository root). KERNEL_REGISTRY is the registry and owner (default ghcr.io/ followed by
@@ -110,6 +116,17 @@ probe_predicates() {
   fi
 }
 
+probe_config() { # probe_config REF LABEL: the OCI config label, empty when the manifest or the label is absent
+  local out status=0
+  out=$(skopeo inspect --config "docker://$1" 2> "$TMP/err") || status=$?
+  if [[ $status -ne 0 ]]; then
+    grep -q 'manifest unknown' "$TMP/err" && return 0
+    cat "$TMP/err" >&2
+    return 1
+  fi
+  jq -r --arg label "$2" '(.config.Labels // {})[$label] // empty' <<< "$out"
+}
+
 get() {
   local line
   [[ -f $FILE ]] || die "$FILE does not exist: run kernel-artifacts.sh resolve first"
@@ -145,6 +162,15 @@ module_verdict() { # module_verdict REF BRANCH KERNEL_DIGEST DEVEL_DIGEST: verif
     then "verified" else "unverified" end' <<< "$predicates"
 }
 
+pins_moved() { # pins_moved NVR EXPECT: whether EXPECT's own OCI label names a different NVR than
+                # NVR, i.e. the pins moved on since EXPECT was resolved rather than NVR's own tag
+                # being mutated or withdrawn. An EXPECT with no readable label (gone from the
+                # registry entirely, or never labelled) answers false: never the benign case.
+  local expect_nvr
+  expect_nvr=$(ask config "$REGISTRY/azoth@$2" org.opencontainers.image.version)
+  [[ -n $expect_nvr && $expect_nvr != "$1" ]]
+}
+
 resolve() {
   local expect='' nvr kernel devel kernel_signed devel_signed branch version tag digest verdict state=ready
   while [[ $# -gt 0 ]]; do
@@ -159,15 +185,19 @@ resolve() {
   kernel=$(ask digest "$REGISTRY/azoth:$nvr")
   devel=$(ask digest "$REGISTRY/azoth-devel:$nvr")
   if [[ -z $kernel || -z $devel ]]; then
-    [[ -z $expect ]] || die "$REGISTRY/azoth:$nvr is no longer published, the caller resolved $expect: the kernel was republished or withdrawn since"
+    [[ -z $expect ]] || pins_moved "$nvr" "$expect" || die "$REGISTRY/azoth:$nvr is no longer published, the caller resolved $expect: the kernel was republished or withdrawn since"
     write kernel-missing "${lines[@]}"
     return 0
   fi
-  [[ -z $expect || $kernel == "$expect" ]] || die "$REGISTRY/azoth:$nvr is $kernel, the caller resolved $expect: the kernel was republished since"
+  if [[ -n $expect && $kernel != "$expect" ]]; then
+    pins_moved "$nvr" "$expect" || die "$REGISTRY/azoth:$nvr is $kernel, the caller resolved $expect: the kernel was republished since"
+    write kernel-missing "${lines[@]}"
+    return 0
+  fi
   kernel_signed=$(ask signed "$REGISTRY/azoth@$kernel" kernel)
   devel_signed=$(ask signed "$REGISTRY/azoth-devel@$devel" kernel)
   if [[ $kernel_signed != signed || $devel_signed != signed ]]; then
-    [[ -z $expect ]] || die "$REGISTRY/azoth:$nvr is no longer signed, the caller resolved $expect: the kernel was republished or its signature was revoked since"
+    [[ -z $expect ]] || pins_moved "$nvr" "$expect" || die "$REGISTRY/azoth:$nvr is no longer signed, the caller resolved $expect: the kernel was republished or its signature was revoked since"
     write kernel-missing "${lines[@]}"
     return 0
   fi
@@ -346,6 +376,7 @@ case $command in
       digest) [[ $# -eq 2 ]] || usage; probe_digest "$2" ;;
       signed) [[ $# -eq 3 ]] || usage; probe_signed "$2" "$3" ;;
       predicates) [[ $# -eq 3 ]] || usage; probe_predicates "$2" "$3" ;;
+      config) [[ $# -eq 3 ]] || usage; probe_config "$2" "$3" ;;
       *) usage ;;
     esac
     ;;
