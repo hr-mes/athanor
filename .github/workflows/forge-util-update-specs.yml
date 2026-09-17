@@ -22,11 +22,26 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
+      # A PAT: the GITHUB_TOKEN may not open pull requests, and a silent fallback to it
+      # is what made this workflow fail every night since September. Missing secret =
+      # a red run with a message, not a run that pretends to work.
+      - name: The token that opens the pull request
+        env:
+          SPECS_UPDATE_TOKEN: ${{ secrets.SPECS_UPDATE_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n ${SPECS_UPDATE_TOKEN} ]] || {
+            echo "SPECS_UPDATE_TOKEN is not set: this workflow opens a pull request and the" >&2
+            echo "default token is not allowed to. Create a fine-grained token with contents" >&2
+            echo "and pull-requests write on this repository and store it as that secret." >&2
+            exit 1
+          }
+
       - name: Checkout Repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          token: ${{ secrets.PAT_TOKEN || github.token }}
-          
+          token: ${{ secrets.SPECS_UPDATE_TOKEN }}
+
       - name: "🛡️ Zero-Trust Autonomous Dependency Injector"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -38,9 +53,9 @@ jobs:
         if: env.updates == 'true'
         uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7
         with:
-          token: ${{ secrets.PAT_TOKEN || github.token }}
+          token: ${{ secrets.SPECS_UPDATE_TOKEN }}
           commit-message: "chore(deps): auto-update spec versions and vendor offline tarballs (Zero-Trust)"
           title: "chore(deps): auto-update specs & vendor dependencies"
           branch: "chore/update-specs-zero-trust"
-          base: "main"
+          base: ${{ github.ref_name }}
           delete-branch: true
