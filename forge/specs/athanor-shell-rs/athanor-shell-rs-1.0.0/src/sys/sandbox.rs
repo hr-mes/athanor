@@ -38,6 +38,11 @@ pub fn ensure_single_threaded() -> Result<(), Box<dyn std::error::Error>> {
 /// caller can refuse to run unconfined. Call it before any other thread exists (see
 /// [`ensure_single_threaded`]).
 pub fn apply_landlock_sandbox() -> Result<(), Box<dyn std::error::Error>> {
+    restrict_writes_to(&writable_paths())
+}
+
+/// Restricts the calling thread, and the threads it creates, to writing beneath `paths`.
+fn restrict_writes_to(paths: &[PathBuf]) -> Result<(), Box<dyn std::error::Error>> {
     let abi = ABI::V1;
     let write_access = AccessFs::from_write(abi);
 
@@ -46,9 +51,9 @@ pub fn apply_landlock_sandbox() -> Result<(), Box<dyn std::error::Error>> {
         .handle_access(write_access)?
         .create()?;
 
-    for path in writable_paths() {
+    for path in paths {
         if path.exists() {
-            let path_fd = PathFd::new(&path)?;
+            let path_fd = PathFd::new(path)?;
             ruleset = ruleset.add_rule(PathBeneath::new(path_fd, write_access))?;
         }
     }
@@ -101,39 +106,48 @@ mod tests {
         assert_eq!(paths.len(), 4);
     }
 
+    /// Two sibling directories made for one test: `allowed` is granted, `denied` is not
+    /// and can never be beneath `allowed`, wherever the temporary directory lives.
+    fn probe_dirs(test: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let base = env::temp_dir().join(format!("athanor-landlock-{}-{test}", std::process::id()));
+        let (allowed, denied) = (base.join("allowed"), base.join("denied"));
+        std::fs::create_dir_all(&allowed).expect("create allowed dir");
+        std::fs::create_dir_all(&denied).expect("create denied dir");
+        (base, allowed, denied)
+    }
+
+    fn assert_denied(path: &Path) {
+        let err = std::fs::write(path, b"x").expect_err("write outside the set must fail");
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+    }
+
     #[test]
     fn sandbox_is_enforced_on_writes_outside_the_allowed_set() {
+        let (base, allowed, denied) = probe_dirs("enforced");
         // Landlock confines the calling thread and its future children only, so the
         // restriction stays inside this thread and the rest of the test binary is free.
-        std::thread::spawn(|| {
-            apply_landlock_sandbox().expect("Landlock must be enforced, not skipped");
-
-            let denied = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("landlock-probe");
-            let err = std::fs::write(&denied, b"x").expect_err("write outside the set must fail");
-            assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-
-            let allowed = PathBuf::from("/tmp").join(format!("landlock-probe-{}", std::process::id()));
-            std::fs::write(&allowed, b"x").expect("write under /tmp must succeed");
-            std::fs::remove_file(&allowed).expect("cleanup under /tmp must succeed");
+        std::thread::spawn(move || {
+            restrict_writes_to(&[allowed.clone()]).expect("Landlock must be enforced, not skipped");
+            assert_denied(&denied.join("probe"));
+            std::fs::write(allowed.join("probe"), b"x").expect("write in the allowed set must succeed");
         })
         .join()
         .expect("sandbox test thread");
+        std::fs::remove_dir_all(base).expect("cleanup outside the sandboxed thread");
     }
 
     #[test]
     fn threads_created_after_the_sandbox_inherit_it() {
-        std::thread::spawn(|| {
-            apply_landlock_sandbox().expect("Landlock must be enforced, not skipped");
-            std::thread::spawn(|| {
-                let denied = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("landlock-probe-child");
-                let err = std::fs::write(&denied, b"x").expect_err("a later thread must be confined");
-                assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
-            })
-            .join()
-            .expect("child thread");
+        let (base, allowed, denied) = probe_dirs("inherit");
+        std::thread::spawn(move || {
+            restrict_writes_to(&[allowed]).expect("Landlock must be enforced, not skipped");
+            std::thread::spawn(move || assert_denied(&denied.join("probe")))
+                .join()
+                .expect("child thread");
         })
         .join()
         .expect("sandbox test thread");
+        std::fs::remove_dir_all(base).expect("cleanup outside the sandboxed thread");
     }
 
     #[test]
