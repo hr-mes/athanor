@@ -73,6 +73,18 @@ fn init_telemetry() {
 
 #[tracing::instrument]
 fn main() -> glib::ExitCode {
+    // Confinement comes first, while this is the only thread in the process. Landlock
+    // restricts the calling thread and the threads it creates from then on; a thread
+    // that already exists -- a Tokio worker, a GLib worker -- would keep running
+    // unconfined. Nothing before this line may start a thread, and the check below
+    // fails closed if something did. Logging is not set up yet, so errors go to stderr.
+    if let Err(err) = crate::sys::sandbox::ensure_single_threaded()
+        .and_then(|()| crate::sys::sandbox::apply_landlock_sandbox())
+    {
+        eprintln!("athanor-shell-rs: cannot apply the Landlock policy, refusing to run unconfined: {err}");
+        return glib::ExitCode::FAILURE;
+    }
+
     init_telemetry();
     tracing::info!("Starting Athanor Shell...");
 
@@ -98,12 +110,6 @@ fn main() -> glib::ExitCode {
     std::env::set_var("GDK_BACKEND", "wayland");
     // Disabilita lo scaling X11 frazionario per evitare blur
     std::env::set_var("GDK_SCALE", "1");
-
-    // Fail closed: the shell does not run without its Landlock confinement.
-    if let Err(err) = crate::sys::sandbox::apply_landlock_sandbox() {
-        tracing::error!(error = %err, "cannot apply the Landlock policy, refusing to run unconfined");
-        return glib::ExitCode::FAILURE;
-    }
 
     let args = Args::parse();
     crate::ipc::init_system_controller();

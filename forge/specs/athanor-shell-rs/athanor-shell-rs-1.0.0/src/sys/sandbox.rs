@@ -4,6 +4,20 @@ use landlock::{
 use std::env;
 use std::path::{Path, PathBuf};
 
+/// Fails unless the calling process has exactly one thread.
+///
+/// Landlock confines the thread that calls `restrict_self` and the threads it creates
+/// afterwards, not threads that already exist. The sandbox is therefore only complete
+/// when it is applied while the process is still single-threaded, and this is checked
+/// against the kernel's own thread list rather than assumed.
+pub fn ensure_single_threaded() -> Result<(), Box<dyn std::error::Error>> {
+    let threads = std::fs::read_dir("/proc/self/task")?.count();
+    if threads != 1 {
+        return Err(format!("{threads} threads exist; Landlock would leave all but one unconfined").into());
+    }
+    Ok(())
+}
+
 /// Confines the process's writes with Landlock, mirroring the unit's sandbox.
 ///
 /// The unit (`athanor-shell.service`) already runs the shell with
@@ -21,7 +35,8 @@ use std::path::{Path, PathBuf};
 ///
 /// The ruleset is a hard requirement: a kernel without Landlock, or one that cannot
 /// enforce every requested right, is an error rather than a best-effort no-op, so the
-/// caller can refuse to run unconfined.
+/// caller can refuse to run unconfined. Call it before any other thread exists (see
+/// [`ensure_single_threaded`]).
 pub fn apply_landlock_sandbox() -> Result<(), Box<dyn std::error::Error>> {
     let abi = ABI::V1;
     let write_access = AccessFs::from_write(abi);
@@ -103,5 +118,30 @@ mod tests {
         })
         .join()
         .expect("sandbox test thread");
+    }
+
+    #[test]
+    fn threads_created_after_the_sandbox_inherit_it() {
+        std::thread::spawn(|| {
+            apply_landlock_sandbox().expect("Landlock must be enforced, not skipped");
+            std::thread::spawn(|| {
+                let denied = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("landlock-probe-child");
+                let err = std::fs::write(&denied, b"x").expect_err("a later thread must be confined");
+                assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+            })
+            .join()
+            .expect("child thread");
+        })
+        .join()
+        .expect("sandbox test thread");
+    }
+
+    #[test]
+    fn a_second_thread_fails_the_single_thread_check() {
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let other = std::thread::spawn(move || wait.recv());
+        assert!(ensure_single_threaded().is_err(), "a live second thread must be detected");
+        release.send(()).expect("release the second thread");
+        other.join().expect("second thread").expect("released");
     }
 }
