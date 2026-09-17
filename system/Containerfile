@@ -13,7 +13,7 @@ FROM ghcr.io/hr-mes/azoth-nvidia:${AZOTH_NVR}-legacy AS nvidia-modules-legacy
 # The vendor RPMs of both NVIDIA branches, verified by hash and GPG, with the shim and the
 # configuration package (system/nvidia/build-rpms.sh). A throwaway stage: rpm-build never
 # reaches an image.
-FROM registry.fedoraproject.org/fedora:43@sha256:9b8b763ff01cc0e0fe8775fd3fa286c6b008a119013d178e00444fbcc04ae9f2 AS nvidia-rpms
+FROM registry.fedoraproject.org/fedora:43@sha256:4d9424ff89c5e182c782d0419bf41b6e71d55f30d586ae3c60c837a52ae39c64 AS nvidia-rpms
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 COPY forge/specs/azoth/pins.env /src/forge/specs/azoth/pins.env
 COPY system/nvidia/ /src/system/nvidia/
