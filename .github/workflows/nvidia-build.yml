@@ -5,8 +5,9 @@ name: NVIDIA kmod build
 # Kernel Build calls it for the gate on PRs and pushes (the kernel-devel of the freshly
 # built artifact, or of the published image when the kernel is reused) and NVIDIA kmod
 # calls it for the signing and publication chain. A published kernel-devel is pulled by
-# the digest system/kernel-artifacts.sh verified, never by tag
-# (docs/architecture/doc_build_ordering.md, O5). Uploads the nvidia-<branch>-unsigned
+# the digest system/kernel-artifacts.sh verified, from the registry it was verified against
+# (docs/architecture/doc_build_ordering.md, O5), never by tag and never from a registry
+# guessed separately from github.repository_owner. Uploads the nvidia-<branch>-unsigned
 # artifacts.
 
 on:
@@ -20,12 +21,13 @@ on:
         description: "digest of the published azoth-devel:<nvr>, required when devel-artifact is empty"
         type: string
         default: ""
+      registry:
+        description: "registry system/kernel-artifacts.sh resolved devel-digest against (get registry), required when devel-artifact is empty"
+        type: string
+        default: ""
 
 permissions:
   contents: read
-
-env:
-  KERNEL_IMAGE: ghcr.io/${{ github.repository_owner }}/azoth
 
 jobs:
   build:
@@ -62,12 +64,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEVEL_DIGEST: ${{ inputs.devel-digest }}
+          REGISTRY: ${{ inputs.registry }}
         run: |
           set -euo pipefail
           [[ $DEVEL_DIGEST =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "devel-digest is required when devel-artifact is empty, got '${DEVEL_DIGEST}'" >&2; exit 1; }
+          [[ -n $REGISTRY ]] || { echo "registry is required when devel-artifact is empty" >&2; exit 1; }
           echo "${GH_TOKEN}" | podman login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           trap 'podman logout ghcr.io' EXIT
-          ctr=$(podman create "${KERNEL_IMAGE}-devel@${DEVEL_DIGEST}" /kernel-devel)
+          ctr=$(podman create "${REGISTRY}/azoth-devel@${DEVEL_DIGEST}" /kernel-devel)
           mkdir -p devel && podman cp "${ctr}:/." devel/ && podman rm "$ctr" > /dev/null
 
       - name: Run nvidia.sh build

@@ -45,6 +45,7 @@ jobs:
     outputs:
       state: ${{ steps.artifacts.outputs.state }}
       devel_digest: ${{ steps.artifacts.outputs.devel_digest }}
+      registry: ${{ steps.artifacts.outputs.registry }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
@@ -57,7 +58,7 @@ jobs:
         run: |
           set -euo pipefail
           bash system/kernel-artifacts.sh resolve --expect-kernel-digest "$KERNEL_DIGEST"
-          grep -E '^(state|devel_digest)=' kernel-artifacts/kernel-artifacts.env >> "$GITHUB_OUTPUT"
+          grep -E '^(state|devel_digest|registry)=' kernel-artifacts/kernel-artifacts.env >> "$GITHUB_OUTPUT"
 
       - name: Nothing to build
         if: ${{ steps.artifacts.outputs.state != 'modules-missing' }}
@@ -81,6 +82,7 @@ jobs:
     uses: ./.github/workflows/nvidia-build.yml
     with:
       devel-digest: ${{ needs.artifacts.outputs.devel_digest }}
+      registry: ${{ needs.artifacts.outputs.registry }}
 
   sign:
     needs: build
