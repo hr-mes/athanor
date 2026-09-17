@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:34.fc43}
+Release:        %{?autorelease}%{!?autorelease:35.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -90,6 +90,11 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) %attr(0600,root,root) /etc/usbguard/rules.d/10-athanor-baseline.conf
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-35
+- athanor-desktop no longer restarts a failing locker or idle daemon every second
+  forever: the fifth exit within 60 seconds is logged at err priority under
+  athanor-desktop, naming the component, and the restart delay then doubles up to 60
+  seconds, starting over once a minute passes without five exits.
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-34
 - Give the sandboxed greeter back what it used. The session bus of the greetd user is
   filtered through the same xdg-dbus-proxy (own os.athanor.Greeter, talk to
