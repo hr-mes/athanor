@@ -1,6 +1,6 @@
 # Build ordering: kernel, NVIDIA modules, system images
 
-Status: **approved on 2026-09-17.** The maintainer delegated the review. This second version replaces a first draft that an adversarial review found to fail open. The document amends:
+Status: **approved on 2026-09-17.** The maintainer delegated the review. This version passed two adversarial reviews. It replaces a first draft that the first review found to fail open, and takes the ten changes of the second review. The document amends:
 
 - `doc_kernel_build.md`, section 10 (publication of `azoth-nvidia`);
 - `doc_system_image.md`, S6 and S8.
@@ -41,9 +41,11 @@ No wrong image is published today: tier 0, `FROM` and the gate all fail closed. 
 
 **O1. One chain, one owner.** The Orchestrator is the only workflow that turns a kernel into modules and images.
 
-- **Push triggers:** the Orchestrator no longer triggers on pushes that touch only `forge/specs/azoth/**`.
-- **Kernel Build:** on a push, once `azoth:<nvr>` is published or reused, it dispatches the Orchestrator on the same ref instead of NVIDIA kmod.
-- **NVIDIA kmod:** becomes a reusable workflow (`workflow_call`) that the Orchestrator calls when the modules are missing. It keeps `workflow_dispatch` for manual runs.
+- **Push triggers:** the Orchestrator no longer triggers on pushes that touch only `forge/specs/azoth/**`. No DAG node hashes anything under that path: `kernel-forge` is external to the brain and to `fetch_repo_rpms.sh`. It does trigger on changes to `nvidia-kmod.yml` and `nvidia-build.yml`, which it now calls.
+- **Kernel Build:** on a push, it dispatches the Orchestrator on the same ref, passing the commit `sha`. It does so only when it published a new `azoth:<nvr>`, or when the script of O3 does not answer `ready`. A push under the kernel directory that changes nothing, such as a document, costs no image cycle.
+- **NVIDIA kmod:** becomes a reusable workflow (`workflow_call`) that the Orchestrator calls directly, not through `call-system-image.yml`. The chain Orchestrator → kmod → `nvidia-build.yml` uses three of the four nesting levels GitHub allows. Kmod keeps `workflow_dispatch` for manual runs.
+- **Permissions:** the Orchestrator grants `attestations: write`, which kmod's publication needs because a called workflow cannot exceed its caller, and `actions: read`.
+- **Secrets:** `MODULE_SIGNING_KEY` still resolves in the kmod job that declares `environment: signing`; no secret is inherited for it.
 
 A dispatch with `GITHUB_TOKEN` starts runs; `workflow_run` would fire only from the default branch, and `iso-v0` is the working branch.
 
@@ -56,48 +58,62 @@ and the same with `-legacy-<NVIDIA_LEGACY_VERSION>`. A republished kernel with t
 - **The predicate:** the custom predicate NVIDIA kmod signs records the digests of `azoth:<nvr>` and `azoth-devel:<nvr>` that it actually pulled, both by digest.
 - **Immutability:** a tag that exists with a valid signature and attestation is never overwritten. A tag that exists without them is left over from an interrupted run, and a new run may overwrite it.
 
-**O3. One script decides, with three answers.** `system/kernel-artifacts.sh` resolves the inputs of the current pins and writes them as digests to a file in a known directory, with one of three exit codes:
+**O3. One script decides.** `system/kernel-artifacts.sh` resolves the inputs of the current pins and writes a file in a known directory.
 
-| Exit | Meaning |
-|---|---|
-| 0 | the kernel and both module tags exist, are signed and carry an attestation matching the pins and the kernel digest |
-| 3 | the kernel exists and is signed, but a module tag is missing or has no valid signature or attestation |
-| 4 | the kernel is missing for the pinned NVR |
-| any other | an error (registry, Rekor, network, malformed data): the calling job fails |
-
+- **Contents of the file:** `state=ready`, `state=modules-missing` or `state=kernel-missing`, followed by the verified digests:
+  - `ready`: the kernel and both module tags exist, are signed, and carry an attestation matching the pins and the kernel digest;
+  - `modules-missing`: the kernel is signed, but a module tag is missing or has no valid signature or attestation;
+  - `kernel-missing`: `azoth:<nvr>` does not exist for the pinned NVR.
+- **Exit status:** 0 for all three states. Non-zero only for an error (registry, Rekor, network, malformed data), and the calling job then fails.
 - **Retries:** registry and Rekor calls go through `retry.sh`. A persistent outage is a red run, never a skip.
-- **Callers:** the Orchestrator (O4), NVIDIA kmod at its start (O5) and System Image Check (O7) call this one script. Kernel Build does not decide anything about modules any more.
+- **In the workflows:** a step runs the script and copies `state` into a job output, a two-line step with no decision logic.
+- **Callers:** the Orchestrator (O4), NVIDIA kmod at its start (O5), System Image Check (O7) and Kernel Build before dispatching (O1).
 
-**O4. The Orchestrator pipeline.** A job `kernel-artifacts` runs first, outside the `signing` environment, and everything that reads the kernel depends on it.
+**O4. The Orchestrator pipeline.** Four jobs in order, all before and outside the `signing` environment except where noted.
 
-- **Exit 0:** `build-repo` and `dag-system-image` run. Tier 0 pulls `azoth@<digest>` and `system/build-image.sh` passes the module digests as build arguments, all from the file of O3. The image is built from exactly what was verified.
-- **Exit 3:** the Orchestrator calls NVIDIA kmod with the kernel digest, then runs the script again and proceeds as for exit 0. One cycle asks for two approvals: the module signature and the image signature.
-- **Exit 4:** the run fails, unless a Kernel Build run for the same commit is queued or in progress (`gh run list`). In that case the run ends with a notice and no image, because Kernel Build dispatches the Orchestrator once the kernel is published (O1). This covers a push that touches both `forge/specs/azoth/**` and `system/**`.
-- **The input `has_changes`:** checked when the plan is written. If the brain can decide there is nothing to build on a dispatch from Kernel Build, the dispatch passes an input that forces the image job. Otherwise no input is added.
+1. **`kernel-artifacts`:** runs the script.
+2. **`nvidia-kmod`:** the reusable workflow, only when the state is `modules-missing`. It receives the kernel digest.
+3. **`kernel-artifacts-final`:** runs the script again and requires `ready`; any other state fails the run. It is the single source of the digests that later jobs use. A job cannot run twice, hence a separate job.
+4. **`build-repo`, then `dag-system-image`:**
+   - tier 0 pulls `azoth@<digest>`;
+   - `system/build-image.sh` passes the module digests as build arguments;
+   - everything comes from the file of step 3, so the image is built from exactly what was verified.
 
-**O5. NVIDIA kmod refuses redundant work.**
+**When the image jobs run:** when the brain's `has_changes` is true, or when step 1 did not answer `ready`, or when the dispatch sets the input `force_image`. Kernel Build always sets it.
 
-- **At its start:** kmod calls the script. With exit 0 it ends with a notice: no build, no approval.
-- **Kernel pinned by digest:** it builds against the kernel digest it was given, or the one the script resolved, not against a tag read later.
-- **After the approval:** if the pins moved since the dispatch, so that the kernel of the current HEAD is not published, it ends with a notice.
+- **Why the input is needed:** `forge/scripts/dag_orchestrator.py` sets `has_changes` from dirty DAG nodes only, and the kernel is external to the DAG. Without the input, a dispatched run after a pin bump would go green without an image.
+
+**`kernel-missing` at step 1.** The decision uses the commit range, not the Actions API, because a Kernel Build run for the same push may not exist yet when the Orchestrator starts.
+
+- **On a push:** when `before..after` touches Kernel Build's path filters, the run ends with a notice and no image, because Kernel Build owns that cycle and dispatches the Orchestrator. Otherwise it is red. A zero `before` (a new branch or a force push) is red.
+- **On a dispatch from Kernel Build:** it carries `sha`. If the branch HEAD has moved past it, the run ends with a notice, because the newer push has its own cycle. Otherwise `kernel-missing` is red.
+- **On the schedule:** red.
+
+**O5. NVIDIA kmod refuses redundant work and pins its inputs.**
+
+- **At its start:** kmod runs the script. With `ready` it ends with a notice: no build, no approval.
+- **Digest input:** kmod takes the kernel digest as an input, or uses the one the script resolved. `nvidia-build.yml`, the `sign` job and the `boot` job pull `azoth-devel` and `azoth` by digest instead of `:<nvr>`, in all three places.
+- **Pins moved since the dispatch:** if the kernel of the current HEAD is not published, kmod ends with a notice.
 
 **O6. Cancellation and retention.**
 
 - **The Orchestrator:** `cancel-in-progress: false`. GitHub keeps one pending run per group, so a newer push supersedes a waiting run but never cancels one that is running.
-- **NVIDIA kmod:** manual runs use a group without cancellation. When the Orchestrator calls kmod, kmod runs inside the Orchestrator's group.
-- **One pruner for `azoth-nvidia`:** only NVIDIA kmod prunes it, after publishing. It keeps every tag whose attestation matches a retained `azoth` release, and the tags referenced by the last published system images on each branch.
+- **NVIDIA kmod, workflow level:** it has no concurrency group, so a called kmod is never tied to the Orchestrator's group.
+- **NVIDIA kmod, publication:** the jobs from signing to publication, retention and verification share the job-level group `azoth-nvidia-publish` with `cancel-in-progress: false`. A manual run and a called run queue behind each other there, and neither can cut the other between push and signature.
+- **One pruner for `azoth-nvidia`:** only NVIDIA kmod prunes it, inside that group. It keeps every tag whose attestation matches a retained `azoth` release, and the tags referenced by the last published system images on each branch.
 - **`forge-ghcr-cleanup.yml`:** it excludes `azoth*`. Each package has one pruner.
 
-**O7. System Image Check on PRs.** It calls the script of O3.
+**O7. System Image Check on PRs.** It runs the script of O3.
 
-| Exit | What the check does |
+| State | What the check does |
 |---|---|
-| 0 | builds the three images |
-| 3 (only an NVIDIA version moved) | builds the default image, skips the two variants, adds a warning annotation naming the missing tags |
-| 4 (the kernel NVR moved) | skips every build and the package delta, adds a warning annotation. Kernel Build on the PR proves the kernel and the modules build and boot |
-| any other | the check fails |
+| `ready` | builds the three images |
+| `kernel-missing`, and the PR diff touches only the pin files (`forge/specs/azoth/pins.env` and the files the bump bot regenerates with it) | skips every build and the package delta, adds a warning annotation. Kernel Build on the PR proves the kernel and the modules build and boot |
+| `modules-missing`, and the PR diff moves only the NVIDIA pins | builds the default image, skips the two variants, adds a warning annotation |
+| `kernel-missing` or `modules-missing` in any other PR | fails. A pin bump mixed with other changes cannot be checked; the pins move in their own PR. With unchanged pins, missing modules mean the bootstrap or an interrupted publication: fixing that is the Orchestrator's job, not a reason to skip the variants |
+| error | fails |
 
-On a pin bump the variants are therefore built and gated only after the merge, in the Orchestrator, where they fail closed.
+On a pure pin bump the variants are therefore built and gated only after the merge, in the Orchestrator, where they fail closed.
 
 **O8. Bump PRs.**
 
@@ -109,23 +125,25 @@ On a pin bump the variants are therefore built and gated only after the merge, i
 - **Registry and owner:** the `FROM` lines this touches in `system/Containerfile` take them from an `ARG` with the current value as default. The script reads the same variables.
 - **Decisions stay out of YAML:** the workflows call the script and read its exit code and file. No decision logic is repeated in YAML.
 
-**O10. Bootstrap.** The change touches `kernel-build.yml`, so its merge triggers Kernel Build. Kernel Build dispatches the Orchestrator. The script answers 3, because no O2 tags exist yet. The Orchestrator calls NVIDIA kmod and then builds the images: acceptance test 2 without a pin bump. Images published before the change keep working, because they copied their modules at build time.
+**O10. Bootstrap.** The change touches `kernel-build.yml`, so its merge triggers Kernel Build, and the Orchestrator's own workflow files, so it triggers the Orchestrator too. Kernel Build dispatches the Orchestrator because the script does not answer `ready`, since no O2 tags exist yet. The Orchestrator run on the push stops with the notice of O4, because the range touches Kernel Build's paths. The dispatched run gets `modules-missing`. The Orchestrator calls NVIDIA kmod and then builds the images: acceptance test 2 without a pin bump. Images published before the change keep working, because they copied their modules at build time.
 
 ## 3. Resulting order
 
 | Event | Kernel Build | Orchestrator | Approvals |
 |---|---|---|---|
-| push to `system/**` or `forge/**` outside the kernel, pins unchanged | does not run | exit 0: builds | 1 |
-| kernel pin bump merged | builds, publishes, dispatches | not triggered by the push; the dispatched run gets exit 3, calls kmod, builds | 2 |
-| NVIDIA pin bump merged | reuses the kernel, dispatches | exit 3: calls kmod, builds | 2 |
-| push touching kernel and `system/**` | builds, dispatches | push run: exit 4 with Kernel Build running, notice. Dispatched run: exit 3 or 0 | 2 or 1 |
-| daily schedule | does not run | exit 0: builds. Exit 3: calls kmod. Exit 4 with no Kernel Build running: red | 1 or 2 |
-| registry or Rekor outage | — | red | — |
+| push to `system/**` or `forge/**` outside the kernel, pins unchanged | does not run | `ready`: builds | 1 |
+| kernel pin bump merged | builds, publishes, dispatches with `force_image` | not triggered by the push. The dispatched run: `modules-missing`, calls kmod, `ready`, builds | 2 |
+| NVIDIA pin bump merged | reuses the kernel; the script does not answer `ready`, so it dispatches | as above | 2 |
+| a document under `forge/specs/azoth/` | reuses the kernel, script `ready`, no dispatch | not triggered | 0 |
+| push touching kernel and `system/**` | builds, dispatches | push run: `kernel-missing` with the range in Kernel Build's paths, notice. Dispatched run as above | 2 or 1 |
+| daily schedule | does not run | `ready`: builds. `modules-missing`: calls kmod. `kernel-missing`: red | 1 or 2 |
+| registry or Rekor outage | red | red | — |
 | a module approval rejected | — | red at the kmod call | — |
 
 ## 4. Risks
 
 - **Approvals in the same run:** two approvals arrive minutes apart in the same run on a pin bump. Both are needed; rejecting either makes the run red.
+- **Unanswered approvals:** a run waiting for the `signing` approval holds its concurrency group for up to 30 days; `timeout-minutes` does not count that wait. An approval nobody answers stops image builds on that branch, and on a pin bump there are two such waits. Rejecting the pending approval is how to unblock it.
 - **Queueing:** `cancel-in-progress: false` means a long cycle delays the next one instead of being cut. GitHub keeps only the newest pending run.
 - **Variants on pin bumps:** they are tested only after the merge (O7).
 
@@ -147,4 +165,5 @@ Both deserve their own decision.
 2. The bootstrap of O10, and later a kernel pin bump: Kernel Build dispatches the Orchestrator, which calls NVIDIA kmod once and publishes the three images. No run is red and no human reruns anything.
 3. A manual NVIDIA kmod run for existing, attested tags ends with a notice, asks for no approval and leaves the digests unchanged.
 4. A kernel republished with the same NVR produces new module tags; the old ones stay untouched.
-5. `system/kernel-artifacts.sh` has tests for exits 0, 3, 4 and for a registry error, run in `call-lint.yml`.
+5. `system/kernel-artifacts.sh` has tests for the three states and for a registry error, run in `call-lint.yml`.
+6. A manual NVIDIA kmod run started while an Orchestrator run is publishing modules waits in `azoth-nvidia-publish` and never leaves an unsigned tag.
