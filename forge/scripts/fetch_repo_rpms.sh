@@ -33,21 +33,24 @@ readarray -t UPSTREAM_DESKTOP < <(jq -r '.upstream_desktop[] // empty' config/pa
 readarray -t UPSTREAM_MEDIA < <(jq -r '.upstream_media[] // empty' config/packages.json)
 readarray -t UPSTREAM_CLI < <(jq -r '.upstream_cli[] // empty' config/packages.json)
 
-# Per-tier package images. An entry without a tag means :latest. The kernel is
-# published by kernel-build.yml under the NVR derived from the pins (:latest exists
-# only for builds from main). The NVIDIA modules (azoth-nvidia:<nvr>-<branch>) are
-# not RPMs: system/Containerfile copies them from their image.
-KERNEL_NVR=$(bash "$(dirname "${BASH_SOURCE[0]}")/../specs/azoth/nvr.sh")
+# Per-tier package images. An entry without a tag means :latest. The kernel is the
+# azoth image of the pins by the digest system/kernel-artifacts.sh verified, never by tag
+# (docs/architecture/doc_build_ordering.md, O4): run its require-ready first. The NVIDIA
+# modules are not RPMs: system/Containerfile copies them from their image by digest.
+ARTIFACTS="$(dirname "${BASH_SOURCE[0]}")/../../system/kernel-artifacts.sh"
+KERNEL_STATE=$(bash "$ARTIFACTS" get state)
+[[ $KERNEL_STATE == ready ]] || { echo "[FATAL] kernel artifacts are ${KERNEL_STATE}, not ready: run system/kernel-artifacts.sh require-ready first" >&2; exit 1; }
+KERNEL_DIGEST=$(bash "$ARTIFACTS" get kernel_digest)
 
 # Packages published by a dedicated workflow, not the DAG, so no athanor-forge-<pkg>
 # image is ever built for them -- the same exclusion dag_orchestrator.py applies. The
-# kernel is here as azoth:<nvr> in tier 0; kernel-forge names it in custom_tier2 but
+# kernel is here as azoth@<digest> in tier 0; kernel-forge names it in custom_tier2 but
 # has no image of its own. Skipping them keeps the fatal-on-missing check below true
 # only for packages that really should have an image.
 is_external() { case "$1" in kernel|kernel-forge) return 0 ;; *) return 1 ;; esac; }
 
 TIER0_IMAGES=(
-  "azoth:${KERNEL_NVR}"
+  "azoth@${KERNEL_DIGEST}"
 )
 for pkg in "${CUSTOM_TIER0[@]}"; do
   [[ -n "$pkg" ]] && ! is_external "$pkg" && TIER0_IMAGES+=("athanor-forge-$pkg")

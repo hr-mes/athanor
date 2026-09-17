@@ -43,6 +43,7 @@ dynamic-matrix:
 fetch-repo-rpms owner="hr-mes":
     #!/usr/bin/env bash
     set -euo pipefail
+    bash ../system/kernel-artifacts.sh require-ready
     bash scripts/fetch_repo_rpms.sh "{{ owner }}"
 
 # Cleans up old and untagged container package versions on GHCR

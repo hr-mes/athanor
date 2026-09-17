@@ -7,11 +7,6 @@ on:
         description: "Content hash of the builder container image"
         required: true
         type: string
-      has_changes:
-        description: "Flag indicating if repository changes were detected"
-        required: false
-        type: boolean
-        default: true
     secrets:
       RPM_GPG_KEY:
         description: "GPG key for RPM signing"
@@ -30,7 +25,6 @@ jobs:
   build-repo:
     name: 📦 Aggregate Repositories & Deploy DNF/Flatpak Channel
     needs: [lint]
-    if: ${{ inputs.has_changes }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -39,6 +33,12 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Kernel artifacts verified by the Orchestrator
+        # fetch_repo_rpms.sh pulls azoth by the digest in this file (doc_build_ordering.md, O4).
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: kernel-artifacts
+          path: kernel-artifacts
       - name: ❄️ Install Nix (Bedrock Cache)
         uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
         with:
@@ -63,7 +63,7 @@ jobs:
             -e GITHUB_REPOSITORY_OWNER="${GITHUB_REPOSITORY_OWNER}" \
             -e RPM_GPG_KEY="${RPM_GPG_KEY}" \
             -e RPM_GPG_PASSPHRASE="${RPM_GPG_PASSPHRASE}" \
-            "ghcr.io/hr-mes/athanor-builder:${BUILDER_CONTENT_HASH}" \
+            "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/athanor-builder:${BUILDER_CONTENT_HASH}" \
             bash <<'EOF'
             set -e
             export BUILDAH_ISOLATION=chroot
@@ -163,7 +163,7 @@ jobs:
             -e EVENT_REPO_NAME="${EVENT_REPO_NAME}" \
             -e RPM_GPG_KEY="${RPM_GPG_KEY}" \
             -e RPM_GPG_PASSPHRASE="${RPM_GPG_PASSPHRASE}" \
-            "ghcr.io/hr-mes/athanor-builder:${BUILDER_CONTENT_HASH}" \
+            "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/athanor-builder:${BUILDER_CONTENT_HASH}" \
             bash <<'EOF'
             set -e
             if [ -n "${RPM_GPG_KEY}" ]; then
@@ -254,6 +254,12 @@ jobs:
           echo "DEFAULT_TAG=latest" >> "${GITHUB_ENV}"
       - name: 📥 Checkout Repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Kernel artifacts verified by the Orchestrator
+        # build-image.sh builds from the kernel and module digests in this file (O4).
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: kernel-artifacts
+          path: kernel-artifacts
       - name: ❄️ Install Nix (Bedrock Cache & Security Tools)
         uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
         with:
