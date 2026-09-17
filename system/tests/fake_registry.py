@@ -8,6 +8,11 @@ print against ghcr.io (observed 2026-09-17), because system/kernel-artifacts.sh 
 Fixture keys:
   tags          {"registry/repo:tag" or "registry/repo@digest": "sha256:..."}
   errors        ["ref", ...]  transport failure for that reference, in every tool
+  signature_transient_errors
+                ["ref", ...]  cosign verify fails with a transient error (a Rekor lookup
+                timeout) whose message still starts with "no matching signatures:", the same
+                prefix a genuine identity mismatch uses; kernel-artifacts.sh must not fold
+                this into "unsigned"
   signatures    {"registry/repo@digest": "signing workflow identity"}
   attestations  {"registry/repo@digest": [{"identity": "...", "predicate": {...}}]}
   configs       {"registry/repo@digest": {label: value}}
@@ -55,13 +60,15 @@ def cosign(args, fx):
     ref = args[-1]
     if ref in fx.get("errors", []):
         return fail("Error: getting trusted root: GET https://tuf-repo-cdn.sigstore.dev/timestamp.json: 502 Bad Gateway")
+    if ref in fx.get("signature_transient_errors", []) and args[0] == "verify":
+        return fail("Error: no matching signatures: rekor lookup: 502 Bad Gateway\nerror during command execution: no matching signatures: rekor lookup: 502 Bad Gateway")
     regex = args[args.index("--certificate-identity-regexp") + 1]
     if args[0] == "verify":
         identity = fx.get("signatures", {}).get(ref)
         if identity is None:
             return fail("Error: no signatures found\nerror during command execution: no signatures found", 10)
         if not re.search(regex, identity):
-            return fail(f'Error: no matching attestations: failed to verify certificate identity: no matching CertificateIdentity found, last error: expected SAN value to match regex "{regex}", got "{identity}"')
+            return fail(f'Error: no matching signatures: failed to verify certificate identity: no matching CertificateIdentity found, last error: expected SAN value to match regex "{regex}", got "{identity}"')
         return 0
     if args[0] == "verify-attestation":
         entries = [e for e in fx.get("attestations", {}).get(ref, []) if re.search(regex, e["identity"])]

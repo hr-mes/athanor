@@ -120,6 +120,15 @@ class Resolve(Tool):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.state_file()["state"], "kernel-missing")
 
+    def test_transient_signature_error_is_not_folded_into_unsigned(self):
+        fx = published()
+        fx["signature_transient_errors"] = [f"{REG}/azoth@{KERNEL}"]
+        self.registry(fx)
+        r = self.run_script("resolve")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("502 Bad Gateway", r.stderr)
+        self.assertIsNone(self.state_file())
+
     def test_registry_error_fails_and_leaves_no_file(self):
         self.registry(published())
         self.assertEqual(self.run_script("resolve").returncode, 0)
