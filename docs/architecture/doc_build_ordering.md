@@ -1,6 +1,6 @@
 # Build ordering: kernel, NVIDIA modules, system images
 
-Status: **draft for the maintainer's review, 2026-09-17**. It amends `doc_kernel_build.md` (section 10, publication of `azoth-nvidia`) and `doc_system_image.md` (S6, S8); section 5 lists the changes those documents take.
+Status: **approved on 2026-09-17** (the maintainer delegated the review; approved after the amendments to O2, O3 and section 6 below). It amends `doc_kernel_build.md` (section 10, publication of `azoth-nvidia`) and `doc_system_image.md` (S6, S8); section 5 lists the changes those documents take.
 
 ## 1. Context
 
@@ -30,10 +30,11 @@ No wrong image is published today: tier 0, `FROM` and the gate all fail closed. 
 
 **O2. NVIDIA kmod runs only when its output is missing.** Kernel Build's `nvidia` job checks whether both tags of O1 exist for the pinned kernel NVR and driver versions. The check uses a cosign signature and attestation, the same way `inputs` decides `reuse` for the kernel.
 
-- If both tags are present and attested, kmod is not dispatched: no rebuild and no signing approval.
+- **What "attested" means:** the custom predicate that NVIDIA kmod already signs carries the driver, its version and the kernel release string. It gains the digest of the `azoth:<nvr>` image the modules were built against. Kernel Build republishes `azoth:<nvr>` without changing the NVR when its attested inputs change. Modules built against the previous image would then carry the same release string but different symbol versions, so a digest mismatch counts as missing.
+- If both tags are present and their attestation matches the pinned versions and the current kernel digest, kmod is not dispatched: no rebuild and no signing approval.
 - A missing or unattested tag dispatches it, as today.
 
-**O3. The system image checks its inputs before it asks for a signature.** A new job in `call-system-image.yml` runs before `dag-system-image` and outside the `signing` environment. It calls a script under `system/`, `system/kernel-artifacts.sh`, which verifies that three signed images exist for the pins: `azoth:<nvr>` and both module tags of O1.
+**O3. The system image checks its inputs before it asks for a signature.** A new job in `call-system-image.yml` runs before `dag-system-image` and outside the `signing` environment. It calls a script under `system/`, `system/kernel-artifacts.sh`, which verifies that three signed images exist for the pins: `azoth:<nvr>` and both module tags of O1. The module tags must also carry the attestation of O2 for the current kernel digest.
 
 - **All present:** the build proceeds as today.
 - **Any missing:** the job writes a notice to the step summary naming the missing reference and saying that NVIDIA kmod will dispatch the Orchestrator once it has published. `dag-system-image` is skipped; the run does not go red and no signing approval is requested.
@@ -63,10 +64,19 @@ A daily scheduled Orchestrator follows the same rule: it builds only on publishe
 - **Kernel or NVIDIA pins moved:** the modules for them cannot exist before the merge. The check builds the default image, skips the two variants and adds a warning annotation that names the missing tags.
 - **Anything else:** it builds all three, as today.
 
+**O8. Bootstrap.** The change set touches `kernel-build.yml`, so its merge triggers Kernel Build and the Orchestrator together.
+
+- **Kernel Build:** finds no O1 tags and dispatches NVIDIA kmod, which publishes them and dispatches the Orchestrator.
+- **Orchestrator on the merge:** skips the image under O3.
+- **The images published before the change:** keep working. They copied their modules at build time, and nothing reads the old `<nvr>-<branch>` tags at runtime.
+
+The first run of the new scheme is therefore also its acceptance test 2 without a pin bump.
+
 ## 3. Risks
 
 - **Cancelled cycle.** The Orchestrator uses `cancel-in-progress`. O4's dispatch can cancel a cycle that is still running on the same ref, such as the push cycle while it waits for an approval. That cycle had skipped or was about to skip the image under O3, so nothing is lost. A cycle cancelled while pushing images leaves a partial publication; that risk exists today and O5 does not widen it.
 - **Registry growth.** Immutable tags accumulate: one pair per kernel NVR and driver version. Retention follows the policy `nvidia-kmod.yml` already applies to `azoth-nvidia`, extended to the new tag form.
+- **Variants untested before merge on a pin bump.** Under O7 a PR that moves a kernel or NVIDIA pin cannot build the two variants. Their build and `gate.sh` run in the dispatched cycle after the merge, and fail closed there. No broken image is published, but the failure appears after the merge instead of on the PR.
 - **Dispatch token.** `gh workflow run` with `GITHUB_TOKEN` needs `actions: write` in the `publish` job of NVIDIA kmod. No PAT is added.
 
 ## 4. Out of scope
@@ -89,4 +99,5 @@ A daily scheduled Orchestrator follows the same rule: it builds only on publishe
    - the dispatched cycle builds and publishes the three images;
    - no run is red.
 3. Rerunning NVIDIA kmod for tags that exist leaves their digests unchanged.
+3a. Republishing `azoth:<nvr>` with a new digest makes the next Kernel Build dispatch NVIDIA kmod (O2), and the O3 check refuses the old module tags until then.
 4. `system/kernel-artifacts.sh` has tests for present, missing and unsigned references, run in `call-lint.yml` next to the NVIDIA tests.
