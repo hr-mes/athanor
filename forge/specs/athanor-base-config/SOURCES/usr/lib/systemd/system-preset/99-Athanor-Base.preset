@@ -2,3 +2,5 @@ disable NetworkManager-wait-online.service
 disable systemd-networkd-wait-online.service
 disable plymouth-quit-wait.service
 disable systemd-udev-settle.service
+# Machine checks are reported by the kernel on every vendor; mcelog is deprecated upstream and fails on AMD family 17h+.
+disable mcelog.service
