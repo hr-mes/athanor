@@ -13,8 +13,11 @@ name: NVIDIA kmod
 # a copy signed by an enrolled Secure Boot-profile MOK must be rejected (EKEYREJECTED).
 # publish: nvidia-publish.sh, azoth-nvidia:<nvr>-k<12 hex of the kernel digest>-<branch>-<version>
 # with SBOM, signature and attestation, never overwriting a published tag; then the retention
-# and the verification. sign, boot and publish share the azoth-nvidia-publish concurrency
-# group and are never cancelled, so no two runs interleave a push and its signature. The
+# and the verification. publish alone holds the azoth-nvidia-publish concurrency group with
+# cancel-in-progress false, so a queued publish never interleaves a push and its signature
+# with another run's. sign and boot stay out of the group: neither of them pushes anything,
+# and sharing the group with them would let a competing run's sign seize it and cancel this
+# run's already-queued boot or publish, leaving modules built and unpublished. The
 # Orchestrator calls this workflow when the modules are missing; it also runs by hand. The
 # gate on PRs is the kmod job of Kernel Build.
 
@@ -83,9 +86,6 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    concurrency:
-      group: azoth-nvidia-publish
-      cancel-in-progress: false
     permissions:
       contents: read
       packages: read
@@ -175,9 +175,6 @@ jobs:
     needs: sign
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    concurrency:
-      group: azoth-nvidia-publish
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 

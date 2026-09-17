@@ -99,7 +99,7 @@ and the same with `-legacy-<NVIDIA_LEGACY_VERSION>`. A republished kernel with t
 
 - **The Orchestrator:** `cancel-in-progress: false`. GitHub keeps one pending run per group, so a newer push supersedes a waiting run but never cancels one that is running.
 - **NVIDIA kmod, workflow level:** it has no concurrency group, so a called kmod is never tied to the Orchestrator's group.
-- **NVIDIA kmod, publication:** the jobs from signing to publication, retention and verification share the job-level group `azoth-nvidia-publish` with `cancel-in-progress: false`. A manual run and a called run queue behind each other there, and neither can cut the other between push and signature.
+- **NVIDIA kmod, publication:** the `publish` job alone — push, signature, attestation, retention and verification — holds the job-level group `azoth-nvidia-publish` with `cancel-in-progress: false`. A manual run and a called run queue behind each other there. `sign` and `boot` stay out of the group: neither pushes anything, and giving them the same group would let a competing run's `sign` seize it and cancel this run's already-queued `boot` or `publish`, leaving modules built and unpublished.
 - **One pruner for `azoth-nvidia`:** only NVIDIA kmod prunes it, inside that group. It keeps every tag whose attestation matches a retained `azoth` release, and the tags referenced by the last published system images on each branch.
 - **`forge-ghcr-cleanup.yml`:** it excludes `azoth*`. Each package has one pruner.
 
