@@ -71,15 +71,18 @@ set -eu
 # options to the overlay mounted on /, the overlay refuses the reconfiguration, and the
 # unit fails on every boot (Fedora Atomic SIG issue 72, rhbz#2348934, bootc issue 971).
 # The root is mounted by the initrd from root= and rootflags= on the kernel command line,
-# so the line is removed; the btrfs mount options it carried are in the image's
-# /usr/lib/bootc/kargs.d/07-btrfs-root.toml. Those options assume the btrfs root of the
-# Athanor disk layout, so any other root file system is refused here rather than left to
-# fail its first mount.
-root_fstype=$(stat -f -c %T /)
-if [ "$root_fstype" != btrfs ]; then
-    echo "Athanor requires a btrfs root file system; the root is $root_fstype" >&2
-    exit 1
-fi
+# so the line is removed whatever the root file system is.
 awk '$1 ~ /^#/ || $2 != "/"' /etc/fstab > /etc/fstab.athanor
 mv /etc/fstab.athanor /etc/fstab
+# A btrfs root loses compress=zstd:1 with that line, so the option moves to the kernel
+# command line of this installation only; any other root file system gets nothing, since
+# ext4 and xfs refuse the option and would not mount. /sysroot is the physical root
+# Anaconda binds into this chroot, and `ostree admin instutil set-kargs --merge` is the
+# call Anaconda itself uses to write root= and rootflags=subvol=: positional arguments
+# are appended to the deployment's arguments, and the initrd joins every rootflags=. The
+# arguments belong to the deployment, so bootc carries them into every later deployment.
+root_fstype=$(stat -f -c %T /sysroot)
+if [ "$root_fstype" = btrfs ]; then
+    ostree admin instutil set-kargs --merge rootflags=compress=zstd:1
+fi
 %end
