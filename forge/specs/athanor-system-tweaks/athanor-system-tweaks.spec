@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-system-tweaks
 Version:        1.0.0
-Release:        4%{?dist}
+Release:        5%{?dist}
 Summary:        Athanor OS athanor-system-tweaks
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -47,6 +47,11 @@ cp -a %{_sourcedir}/etc/systemd/resolved.conf.d/99-dns-tls.conf %{buildroot}/etc
 /usr/lib/sysctl.d/99-network-security.conf
 /usr/lib/tmpfiles.d/99-azoth-sysfs.conf
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-5
+- Stop setting net.ipv4.tcp_congestion_control = bbr in 99-bore.conf. Azoth builds
+  BBRv3 in as the default congestion control; the setting loaded tcp_bbr.ko and
+  replaced BBRv3 with BBRv1.
+
 * Fri Jul 10 2026 Athanor Forge <forge@athanor.os> - 1.0.0-3
 - Added native sysctl tuning for BORE scheduler (99-bore.conf)
 
