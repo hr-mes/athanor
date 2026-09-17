@@ -167,7 +167,9 @@ module_verdict() { # module_verdict REF BRANCH KERNEL_DIGEST DEVEL_DIGEST: verif
 attested_nvr() { # attested_nvr REF: the NVR of REF's cosign-verified custom pins attestation,
                   # i.e. build-inputs.py's FEDORA_KERNEL_NVR run through nvr.sh's own formula.
                   # Empty when the attestation is missing, unverified, or predates that pin. A
-                  # real verification error dies here rather than being read as "no attestation".
+                  # real verification error dies here after printing why; since this runs inside
+                  # the command substitution of its own caller, that only ends this subshell, so
+                  # the caller must still check the substitution's own exit status to see it.
   local predicates fedora status=0
   predicates=$(ask predicates "$1" kernel) || status=$?
   [[ $status -eq 0 ]] || die "$1: could not verify its pins attestation to tell whether the pins moved on"
@@ -183,11 +185,13 @@ pins_moved() { # pins_moved NVR EXPECT: whether EXPECT names a different NVR tha
                 # attestation (attested_nvr); the org.opencontainers.image.version OCI label is
                 # only a fallback for when that attestation is missing or predates
                 # FEDORA_KERNEL_NVR, and unlike the attestation it is not itself verified.
-                # EXPECT with neither answers false: never the benign case. A real read error
-                # on either check dies here instead of being folded into that same false, which
-                # would misreport it as a republish or withdrawal.
+                # EXPECT with neither answers false: never the benign case. A real read error on
+                # either check exits non-zero instead of being folded into that same false,
+                # which would misreport it as a republish or withdrawal: attested_nvr's own die
+                # only ends its command substitution's subshell, so its exit status is checked
+                # explicitly here rather than trusted to propagate on its own.
   local expect_nvr status=0
-  expect_nvr=$(attested_nvr "$REGISTRY/azoth@$2")
+  expect_nvr=$(attested_nvr "$REGISTRY/azoth@$2") || exit 1
   if [[ -z $expect_nvr ]]; then
     expect_nvr=$(ask config "$REGISTRY/azoth@$2" org.opencontainers.image.version) || status=$?
     [[ $status -eq 0 ]] || die "$REGISTRY/azoth@$2: could not read its OCI config to tell whether the pins moved on"
