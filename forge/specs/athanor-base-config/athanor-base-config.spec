@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-base-config
 Version:        43.0.0
-Release:        6%{?dist}
+Release:        7%{?dist}
 Summary:        Athanor OS Base Configuration (Systemd, Branding, GPG)
 
 License:        MIT
@@ -71,7 +71,6 @@ rm -rf %{buildroot}/etc/tmpfiles.d
 /usr/lib/bootc/kargs.d/04-confidential-compute.toml
 /usr/lib/bootc/kargs.d/05-dma-protection.toml
 /usr/lib/bootc/kargs.d/06-mte-lam.toml
-/usr/lib/bootc/kargs.d/07-btrfs-root.toml
 /etc/grub.d/01_athanor_grub_auth
 /usr/lib/dracut/dracut.conf.d/*
 /usr/lib/systemd/system-preset/*
@@ -83,6 +82,10 @@ rm -rf %{buildroot}/etc/tmpfiles.d
 /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/override.conf
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 43.0.0-7
+- Remove kargs.d/07-btrfs-root.toml. A rootflags=compress=zstd:1 applied to every
+  installation would keep an ext4 or xfs root from mounting; the installer now adds the
+  option to the installed deployment only when its root is btrfs.
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 43.0.0-6
 - Remove athanor-journal-seal.service, its preset line and Seal=yes from
   99-immutable.conf. Fedora builds systemd without gcrypt, so journalctl has no
