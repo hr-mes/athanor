@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:35.fc43}
+Release:        %{?autorelease}%{!?autorelease:36.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -90,6 +90,12 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) %attr(0600,root,root) /etc/usbguard/rules.d/10-athanor-baseline.conf
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-36
+- Narrow the greeter's system bus from all of logind to the three methods its power
+  buttons call: org.freedesktop.login1.Manager Suspend, Reboot and PowerOff on
+  /org/freedesktop/login1. With --talk the unauthenticated greeter could also have
+  chosen the next boot entry or firmware setup, taken inhibitors or locked sessions
+  under polkit's defaults for an active local session.
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-35
 - athanor-desktop no longer restarts a failing locker or idle daemon every second
   forever: the fifth exit within 60 seconds is logged at err priority under
