@@ -4,14 +4,20 @@ name: NVIDIA kmod build
 # kernel-devel, on the self-hosted runner with the kernel toolchain. Reusable workflow:
 # Kernel Build calls it for the gate on PRs and pushes (the kernel-devel of the freshly
 # built artifact, or of the published image when the kernel is reused) and NVIDIA kmod
-# calls it for the signing and publication chain. Uploads the nvidia-<branch>-unsigned
+# calls it for the signing and publication chain. A published kernel-devel is pulled by
+# the digest system/kernel-artifacts.sh verified, never by tag
+# (docs/architecture/doc_build_ordering.md, O5). Uploads the nvidia-<branch>-unsigned
 # artifacts.
 
 on:
   workflow_call:
     inputs:
       devel-artifact:
-        description: "artifact holding kernel-devel-*.rpm; empty: the azoth-devel:<nvr> image published for the pins"
+        description: "artifact holding kernel-devel-*.rpm; empty: the published azoth-devel image named by devel-digest"
+        type: string
+        default: ""
+      devel-digest:
+        description: "digest of the published azoth-devel:<nvr>, required when devel-artifact is empty"
         type: string
         default: ""
 
@@ -47,20 +53,21 @@ jobs:
           name: ${{ inputs.devel-artifact }}
           path: devel
 
-      - name: Kernel-devel from the published image
-        # The NVR comes from the pins (nvr.sh): the kernel built against is the published
-        # one. Login with the job token: the package is public, but the podman of a
-        # self-hosted runner may hold stale ghcr credentials in auth.json, and ghcr answers
-        # 403 to the anonymous token. Logout at the end of the step, so none are left.
+      - name: Kernel-devel from the published image, by digest
+        # The caller resolved the digest with system/kernel-artifacts.sh. Login with the job
+        # token: the package is public, but the podman of a self-hosted runner may hold stale
+        # ghcr credentials in auth.json, and ghcr answers 403 to the anonymous token. Logout
+        # at the end of the step, so none are left.
         if: ${{ inputs.devel-artifact == '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEVEL_DIGEST: ${{ inputs.devel-digest }}
         run: |
           set -euo pipefail
-          nvr=$(bash forge/specs/azoth/nvr.sh)
+          [[ $DEVEL_DIGEST =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "devel-digest is required when devel-artifact is empty, got '${DEVEL_DIGEST}'" >&2; exit 1; }
           echo "${GH_TOKEN}" | podman login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           trap 'podman logout ghcr.io' EXIT
-          ctr=$(podman create "${KERNEL_IMAGE}-devel:${nvr}" /kernel-devel)
+          ctr=$(podman create "${KERNEL_IMAGE}-devel@${DEVEL_DIGEST}" /kernel-devel)
           mkdir -p devel && podman cp "${ctr}:/." devel/ && podman rm "$ctr" > /dev/null
 
       - name: Run nvidia.sh build
