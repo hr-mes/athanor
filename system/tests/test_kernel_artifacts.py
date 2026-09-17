@@ -302,22 +302,42 @@ class Resolve(Tool):
         self.assertIn("no longer published", r.stderr)
         self.assertIsNone(self.state_file())
 
-    def test_republished_kernel_reports_kernel_missing_when_the_pins_moved_to_another_nvr(self):
-        # The current NVR's tag exists (KERNEL, untouched) but the caller's OTHER_KERNEL was
-        # resolved for a since-superseded NVR: pins moved, not a same-tag republish.
+    def test_pins_moved_past_the_expected_digest_resolves_normally_to_ready(self):
+        # The current NVR's tag exists (KERNEL, untouched, fully ready) but the caller's
+        # OTHER_KERNEL was resolved for a since-superseded NVR: the expectation no longer
+        # applies to this resolution at all, which proceeds exactly as an unconstrained
+        # resolve would, reporting the real current digest, never the stale OTHER_KERNEL.
         fx = published()
         fx["configs"] = {f"{REG}/azoth@{OTHER_KERNEL}": {"org.opencontainers.image.version": OTHER_NVR}}
         self.registry(fx)
         r = self.run_script("resolve", "--expect-kernel-digest", OTHER_KERNEL)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.state_file(), {"state": "kernel-missing", "nvr": NVR, "registry": REG})
+        got = self.state_file()
+        self.assertEqual(got["state"], "ready")
+        self.assertEqual(got["kernel_digest"], KERNEL)
 
-    def test_expect_kernel_digest_reports_kernel_missing_when_the_pins_moved_and_the_new_kernel_is_unsigned(self):
+    def test_pins_moved_past_the_expected_digest_resolves_normally_to_modules_missing(self):
+        # Same as above, but the current NVR's own modules are not both published yet: the
+        # dropped expectation still falls through to an ordinary (non-ready) resolution,
+        # not to a forced kernel-missing.
+        fx = published(branches=("open",))
+        fx["configs"] = {f"{REG}/azoth@{OTHER_KERNEL}": {"org.opencontainers.image.version": OTHER_NVR}}
+        self.registry(fx)
+        r = self.run_script("resolve", "--expect-kernel-digest", OTHER_KERNEL)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = self.state_file()
+        self.assertEqual(got["state"], "modules-missing")
+        self.assertEqual(got["kernel_digest"], KERNEL)
+
+    def test_pins_moved_past_the_expected_digest_reports_kernel_missing_when_the_new_kernel_is_not_signed(self):
+        # The current NVR's own kernel exists but is not signed yet, exactly like a kernel
+        # bump caught mid-publish: once the stale, superseded expectation stops applying,
+        # this is kernel-missing through the ordinary "not ready" path, not a die().
         fx = published()
         del fx["signatures"][f"{REG}/azoth@{KERNEL}"]
-        fx["configs"] = {f"{REG}/azoth@{KERNEL}": {"org.opencontainers.image.version": OTHER_NVR}}
+        fx["configs"] = {f"{REG}/azoth@{OTHER_KERNEL}": {"org.opencontainers.image.version": OTHER_NVR}}
         self.registry(fx)
-        r = self.run_script("resolve", "--expect-kernel-digest", KERNEL)
+        r = self.run_script("resolve", "--expect-kernel-digest", OTHER_KERNEL)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.state_file()["state"], "kernel-missing")
 

@@ -7,11 +7,13 @@
 #                                       or kernel-missing, then the verified digests. Exit 0 for
 #                                       the three states; 1 on a registry, Rekor, network or data
 #                                       error, or when azoth:<nvr> is still D's own NVR but no
-#                                       longer resolves to D (republished or withdrawn since).
-#                                       When D's own org.opencontainers.image.version label
-#                                       names a different NVR than the current pins, the pins
-#                                       moved since D was resolved: state=kernel-missing, not
-#                                       an error (O5)
+#                                       longer resolves to D (republished or withdrawn since). D
+#                                       is resolved against the NVR it was verified for (its own
+#                                       attested pins, or the org.opencontainers.image.version
+#                                       label as a fallback); when the current pins name a
+#                                       different NVR, D no longer applies and this resolves
+#                                       exactly as an unconstrained caller would, never as an
+#                                       error just because the pins moved on (O5)
 #   require-ready                       resolve, then exit 1 unless state=ready
 #   cycle --event E [--before B] [--after A] [--sha S] [--head H]
 #                                       after resolve, for an Orchestrator run (O4): append
@@ -182,22 +184,26 @@ resolve() {
   rm -f "$FILE"
   nvr=$(bash "$ROOT/forge/specs/azoth/nvr.sh")
   local -a lines=("nvr=$nvr" "registry=$REGISTRY")
+  # An expectation binds to the NVR it was resolved for. When the pins have since moved to a
+  # different NVR, it no longer applies to this resolution at all: drop it and resolve exactly
+  # as an unconstrained caller would (O5). Every path below still reports only the
+  # freshly-verified digest of the CURRENT nvr, never $expect, so a caller is still never told
+  # ready about a different kernel even with the expectation dropped.
+  if [[ -n $expect ]] && pins_moved "$nvr" "$expect"; then
+    expect=''
+  fi
   kernel=$(ask digest "$REGISTRY/azoth:$nvr")
   devel=$(ask digest "$REGISTRY/azoth-devel:$nvr")
   if [[ -z $kernel || -z $devel ]]; then
-    [[ -z $expect ]] || pins_moved "$nvr" "$expect" || die "$REGISTRY/azoth:$nvr is no longer published, the caller resolved $expect: the kernel was republished or withdrawn since"
+    [[ -z $expect ]] || die "$REGISTRY/azoth:$nvr is no longer published, the caller resolved $expect: the kernel was republished or withdrawn since"
     write kernel-missing "${lines[@]}"
     return 0
   fi
-  if [[ -n $expect && $kernel != "$expect" ]]; then
-    pins_moved "$nvr" "$expect" || die "$REGISTRY/azoth:$nvr is $kernel, the caller resolved $expect: the kernel was republished since"
-    write kernel-missing "${lines[@]}"
-    return 0
-  fi
+  [[ -z $expect || $kernel == "$expect" ]] || die "$REGISTRY/azoth:$nvr is $kernel, the caller resolved $expect: the kernel was republished since"
   kernel_signed=$(ask signed "$REGISTRY/azoth@$kernel" kernel)
   devel_signed=$(ask signed "$REGISTRY/azoth-devel@$devel" kernel)
   if [[ $kernel_signed != signed || $devel_signed != signed ]]; then
-    [[ -z $expect ]] || pins_moved "$nvr" "$expect" || die "$REGISTRY/azoth:$nvr is no longer signed, the caller resolved $expect: the kernel was republished or its signature was revoked since"
+    [[ -z $expect ]] || die "$REGISTRY/azoth:$nvr is no longer signed, the caller resolved $expect: the kernel was republished or its signature was revoked since"
     write kernel-missing "${lines[@]}"
     return 0
   fi
