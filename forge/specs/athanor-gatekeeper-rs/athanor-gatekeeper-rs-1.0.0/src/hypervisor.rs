@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::os::unix::fs::MetadataExt;
-use std::os::unix::io::AsRawFd;
+use std::io::{Seek, SeekFrom};
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::Path;
 use athanor_gatekeeper_rs::security::verify_file_fd_signature;
 
@@ -8,6 +9,41 @@ use athanor_gatekeeper_rs::security::verify_file_fd_signature;
 /// `/usr`; the Gatekeeper never generates it at runtime, so no writable location can
 /// ever supply the policy crosvm enforces.
 const SECCOMP_POLICY_FILE: &str = "/usr/share/athanor-gatekeeper-rs/crosvm/strict.policy";
+
+/// Guest kernel images usable for a MicroVM, in order of preference.
+const GUEST_KERNELS: [&str; 3] = ["/boot/vmlinuz-athanor", "/boot/vmlinuz", "/boot/vmlinuz-linux"];
+
+/// Host paths hidden from a Bubblewrap compartment behind an empty tmpfs.
+const MASKED_PATHS: [&str; 3] = ["/etc/pki/secureboot", "/etc/pki/uki", "/run/secrets"];
+
+/// The isolation boundary an approved application was launched inside.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IsolationBoundary {
+    /// Hardware-isolated MicroVM run by crosvm.
+    Crosvm,
+    /// Hardware-isolated MicroVM run by cloud-hypervisor.
+    CloudHypervisor,
+    /// Bubblewrap compartment with every namespace unshared, network included.
+    Bubblewrap,
+}
+
+impl std::fmt::Display for IsolationBoundary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            IsolationBoundary::Crosvm => "crosvm MicroVM",
+            IsolationBoundary::CloudHypervisor => "cloud-hypervisor MicroVM",
+            IsolationBoundary::Bubblewrap => "bubblewrap compartment (network unshared)",
+        })
+    }
+}
+
+/// An application running inside an established isolation boundary.
+pub struct IsolatedApp {
+    /// The boundary process (VMM or bwrap) that contains the application.
+    pub child: tokio::process::Child,
+    /// Which boundary contains the application.
+    pub boundary: IsolationBoundary,
+}
 
 /// Verifies that the seccomp policy at `path` can only have been written by a trusted
 /// principal: the file must be a regular file (not a symlink), and the file and every
@@ -46,17 +82,23 @@ fn check_trusted_inode(path: &Path, meta: &std::fs::Metadata, owner_uid: u32) ->
 }
 
 /// Level 11 Micro-VM Hypervisor Isolation (Hardware Compartmentalization)
-/// Spawns untrusted applications inside a hardware-accelerated Micro-VM using `crosvm`
-/// with guest Kernel isolation, falling back to `cloud-hypervisor`, `firecracker`, or `bwrap`.
+/// Launches an approved application inside the strongest available isolation boundary:
+/// a `crosvm` or `cloud-hypervisor` MicroVM when a guest kernel is present, otherwise a
+/// Bubblewrap compartment with every namespace unshared, network included.
+///
+/// Returns an error when no boundary can be established; the application is never run
+/// outside one. The result names the boundary in use.
 ///
 /// TOCTOU-Safe Implementation: Opens the file as a file descriptor (`File::open`) first,
-/// verifies the FD contents/signature, and executes via `/proc/self/fd/{fd}` to prevent
-/// symlink race conditions.
-pub async fn spawn_microvm_isolated_app(target_path: &Path) -> Result<tokio::process::Child, anyhow::Error> {
+/// verifies the FD contents/signature, and hands that same descriptor to the boundary.
+pub async fn spawn_microvm_isolated_app(target_path: &Path) -> Result<IsolatedApp, anyhow::Error> {
     let parent = match target_path.parent() {
         Some(p) if p != Path::new("/") => p,
         _ => anyhow::bail!("Parent path does not exist or is root ('/'), refusing root FS mount"),
     };
+    let app_name = target_path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("Target path {:?} has no file name", target_path))?;
 
     // TOCTOU Fix Step 1: Open the target executable file as a File descriptor first
     let mut file = File::open(target_path).map_err(|e| {
@@ -74,9 +116,12 @@ pub async fn spawn_microvm_isolated_app(target_path: &Path) -> Result<tokio::pro
             anyhow::bail!("PQC signature verification failed for file descriptor {}", fd);
         }
     }
+    // The compartment copies the executable from this descriptor: start from its beginning.
+    file.seek(SeekFrom::Start(0))
+        .map_err(|e| anyhow::anyhow!("Failed to rewind file descriptor {}: {}", fd, e))?;
 
     println!(
-        "[Level 11 Micro-VM Hypervisor] Intercepting execution. Launching hardware-isolated AppVM via crosvm for FD {} ({})",
+        "[Level 11 Micro-VM Hypervisor] Intercepting execution. Launching isolated app for FD {} ({})",
         fd, proc_fd_path
     );
 
@@ -85,74 +130,93 @@ pub async fn spawn_microvm_isolated_app(target_path: &Path) -> Result<tokio::pro
     verify_seccomp_policy(Path::new(SECCOMP_POLICY_FILE), 0)
         .map_err(|e| anyhow::anyhow!("Refusing to launch: untrusted crosvm seccomp policy: {}", e))?;
 
-    // Locate guest Kernel image for hardware virtualization
-    let guest_kernel = if Path::new("/boot/vmlinuz-athanor").exists() {
-        "/boot/vmlinuz-athanor"
-    } else if Path::new("/boot/vmlinuz").exists() {
-        "/boot/vmlinuz"
-    } else {
-        "/boot/vmlinuz-linux"
-    };
-
-    // TOCTOU Fix Step 3: Execute via /proc/self/fd/{fd} instead of path string
     let mem_mb = std::env::var("ATHANOR_MICROVM_MEM_MB").unwrap_or_else(|_| "512".to_string());
+    let mut candidates = Vec::new();
 
-    // 1. Primary: Spawns inside a hardware-accelerated crosvm Micro-VM with strict seccomp & 512MB memory limits + ballooning
-    let crosvm_res = build_crosvm_command(&mem_mb, SECCOMP_POLICY_FILE, parent, &proc_fd_path, guest_kernel).spawn();
-
-    if let Ok(child) = crosvm_res {
-        println!("[Level 11 Micro-VM Hypervisor] Hardware-isolated AppVM spawned via crosvm with strict 512MB memory limit & virtio-balloon.");
-        return Ok(child);
+    // A MicroVM without a guest kernel is no boundary at all: only offer the VMMs when one exists.
+    match GUEST_KERNELS.iter().copied().find(|k| Path::new(k).is_file()) {
+        Some(guest_kernel) => {
+            candidates.push((
+                IsolationBoundary::Crosvm,
+                build_crosvm_command(&mem_mb, SECCOMP_POLICY_FILE, parent, &proc_fd_path, guest_kernel),
+            ));
+            candidates.push((
+                IsolationBoundary::CloudHypervisor,
+                build_cloud_hypervisor_command(&mem_mb, &proc_fd_path, guest_kernel),
+            ));
+        }
+        None => println!("[Level 11 Micro-VM Hypervisor] No guest kernel found, MicroVM boundaries unavailable."),
     }
+    candidates.push((IsolationBoundary::Bubblewrap, build_bwrap_command(fd, Path::new(app_name))));
 
-    // 2. Secondary: Cloud-hypervisor Micro-VM fallback
-    println!("[Level 11 Micro-VM Hypervisor] crosvm execution bypassed/unavailable. Trying cloud-hypervisor...");
-    let cloud_res = tokio::process::Command::new("cloud-hypervisor")
-        .arg("--cpus").arg("boot=2")
+    let app = launch_first_available(candidates).await?;
+    println!("[Level 11 Micro-VM Hypervisor] Application launched inside {}.", app.boundary);
+    Ok(app)
+}
+
+/// Spawns the first boundary whose command starts, in order. Fails with every spawn
+/// error when none does, so the caller never reports an unisolated launch as success.
+pub async fn launch_first_available(
+    candidates: Vec<(IsolationBoundary, tokio::process::Command)>,
+) -> anyhow::Result<IsolatedApp> {
+    let mut failures = Vec::new();
+    for (boundary, mut cmd) in candidates {
+        match cmd.spawn() {
+            Ok(child) => return Ok(IsolatedApp { child, boundary }),
+            Err(e) => failures.push(format!("{}: {}", boundary, e)),
+        }
+    }
+    anyhow::bail!("No isolation boundary could be established ({})", failures.join("; "))
+}
+
+/// Builds the `cloud-hypervisor` MicroVM command.
+pub fn build_cloud_hypervisor_command(mem_mb: &str, proc_fd_path: &str, guest_kernel: &str) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new("cloud-hypervisor");
+    cmd.arg("--cpus").arg("boot=2")
         .arg("--memory").arg(format!("size={}M", mem_mb))
         .arg("--seccomp").arg("true")
         .arg("--kernel").arg(guest_kernel)
         .arg("--cmdline").arg(format!(
             "init={} console=ttyS0 quiet sysctl.kernel.unprivileged_bpf_disabled=1 sysctl.vm.unprivileged_userfaultfd=0 kernel.yama.ptrace_scope=3",
             proc_fd_path
-        ))
-        .spawn();
+        ));
+    cmd
+}
 
-    if let Ok(child) = cloud_res {
-        println!("[Level 11 Micro-VM Hypervisor] Hardware-isolated AppVM spawned via cloud-hypervisor.");
-        return Ok(child);
-    }
-
-    // 3. Tertiary: Firecracker Micro-VM fallback
-    println!("[Level 11 Micro-VM Hypervisor] cloud-hypervisor bypassed. Trying firecracker...");
-    let fc_res = tokio::process::Command::new("firecracker")
-        .arg("--api-sock").arg("/tmp/firecracker.socket")
-        .spawn();
-
-    if let Ok(child) = fc_res {
-        println!("[Level 11 Micro-VM Hypervisor] Hardware-isolated AppVM spawned via firecracker.");
-        return Ok(child);
-    }
-
-    // 4. Lightweight container fallback via Bubblewrap executing via /proc/self/fd/{fd}
-    println!("[Level 11 Micro-VM Hypervisor] Hypervisor backends unexecutable. Falling back to bwrap sandbox via /proc/self/fd/{}.", fd);
-    tokio::process::Command::new("bwrap")
-        .arg("--unshare-all")
-        .arg("--share-net")
+/// Builds the Bubblewrap compartment command. Every namespace is unshared, network
+/// included: the Gatekeeper has no per-application policy that could grant network
+/// access. The executable is copied into the compartment from `exec_fd` (the verified
+/// descriptor), never re-resolved by path.
+pub fn build_bwrap_command(exec_fd: RawFd, app_name: &Path) -> tokio::process::Command {
+    let app_dest = Path::new("/app").join(app_name);
+    let mut cmd = tokio::process::Command::new("bwrap");
+    cmd.arg("--unshare-all")
         .arg("--ro-bind").arg("/usr").arg("/usr")
         .arg("--ro-bind").arg("/lib").arg("/lib")
         .arg("--ro-bind").arg("/lib64").arg("/lib64")
-        .arg("--ro-bind").arg("/etc").arg("/etc")
-        .arg("--tmpfs").arg("/etc/pki/secureboot")
-        .arg("--tmpfs").arg("/etc/pki/uki")
-        .arg("--tmpfs").arg("/run/secrets")
-        .arg("--proc").arg("/proc")
+        .arg("--ro-bind").arg("/etc").arg("/etc");
+    // A path absent on the host has nothing to hide, and bwrap cannot create a mount
+    // point inside the read-only /etc bind.
+    for masked in MASKED_PATHS.iter().filter(|p| Path::new(p).exists()) {
+        cmd.arg("--tmpfs").arg(masked);
+    }
+    cmd.arg("--proc").arg("/proc")
         .arg("--dev").arg("/dev")
         .arg("--dir").arg("/tmp")
-        .arg("--ro-bind").arg(&proc_fd_path).arg(&proc_fd_path)
-        .arg("--").arg(&proc_fd_path)
-        .spawn()
-        .map_err(Into::into)
+        .arg("--perms").arg("0555")
+        .arg("--ro-bind-data").arg(exec_fd.to_string()).arg(&app_dest)
+        .arg("--").arg(&app_dest);
+    // SAFETY: runs in the forked child before exec; fcntl is async-signal-safe. Clearing
+    // FD_CLOEXEC lets bwrap inherit the verified descriptor it reads the executable from.
+    unsafe {
+        cmd.pre_exec(move || {
+            if libc::fcntl(exec_fd, libc::F_SETFD, 0) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    cmd
 }
 
 /// Helper to build `crosvm` Command with strict memory limits (--mem 512) and dynamic ballooning (--balloon).
@@ -283,6 +347,36 @@ mod tests {
     fn test_root_owned_read_only_file_is_accepted() {
         // /etc/passwd and all its parents are root-owned and not group/world-writable.
         verify_seccomp_policy(Path::new("/etc/passwd"), 0).expect("root-owned file must be accepted");
+    }
+
+    #[tokio::test]
+    async fn test_all_boundaries_failing_is_an_error() {
+        let missing = |name: &str| tokio::process::Command::new(format!("/nonexistent/athanor-test/{}", name));
+        let candidates = vec![
+            (IsolationBoundary::Crosvm, missing("crosvm")),
+            (IsolationBoundary::CloudHypervisor, missing("cloud-hypervisor")),
+            (IsolationBoundary::Bubblewrap, missing("bwrap")),
+        ];
+        let err = match launch_first_available(candidates).await {
+            Ok(app) => panic!("launch without any boundary reported success via {}", app.boundary),
+            Err(e) => e,
+        };
+        assert!(err.to_string().contains("No isolation boundary"), "unexpected error: {}", err);
+    }
+
+    #[test]
+    fn test_bwrap_command_unshares_network_and_executes_from_fd() {
+        let cmd = build_bwrap_command(7, Path::new("app-binary"));
+        let std_cmd = cmd.as_std();
+        let args: Vec<String> = std_cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+
+        assert_eq!(std_cmd.get_program(), "bwrap");
+        assert!(args.contains(&"--unshare-all".to_string()), "Compartment must unshare every namespace");
+        assert!(!args.contains(&"--share-net".to_string()), "Compartment must not share the network");
+        let data = args.iter().position(|a| a == "--ro-bind-data").expect("executable copied from fd");
+        assert_eq!(args[data + 1], "7");
+        assert_eq!(args[data + 2], "/app/app-binary");
+        assert_eq!(args[args.len() - 2..], ["--".to_string(), "/app/app-binary".to_string()]);
     }
 
     #[test]

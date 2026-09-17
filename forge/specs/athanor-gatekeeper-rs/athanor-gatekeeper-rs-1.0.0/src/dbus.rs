@@ -74,27 +74,39 @@ impl GatekeeperManager {
             let target_path = tokio::fs::read_link(&fd_path).await
                 .map_err(|e| zbus::fdo::Error::Failed(format!("Failed to resolve fd: {}", e)))?;
 
-            // Remove quarantine xattr via stable /proc/self/fd path (TOCTOU-safe) offloaded to blocking pool
-            let fd_path_clone = fd_path.clone();
-            let _ = tokio::task::spawn_blocking(move || {
-                xattr::remove(&fd_path_clone, "user.athanor.quarantine")
-            }).await;
-
-            // Spawn inside Level 11 hardware-isolated Micro-VM (crosvm / cloud-hypervisor / firecracker), then DENY original unsandboxed execution
-            let sandbox_result = spawn_microvm_isolated_app(Path::new(&target_path)).await;
-
-            match sandbox_result {
-                Ok(_child) => {
-                    // Micro-VM spawned — DENY original unsandboxed execution
+            // Spawn inside an isolation boundary (MicroVM or compartment), then DENY the
+            // original unsandboxed execution whatever the outcome.
+            match spawn_microvm_isolated_app(Path::new(&target_path)).await {
+                Ok(app) => {
+                    println!("Approved {} running inside {}.", target_path.to_string_lossy(), app.boundary);
+                    // Lift the quarantine only once the application is contained, so a failed
+                    // launch leaves the file quarantined. Done through the stable
+                    // /proc/self/fd path (TOCTOU-safe) before the event fd is closed,
+                    // offloaded to the blocking pool.
+                    let _ = tokio::task::spawn_blocking(move || {
+                        xattr::remove(&fd_path, "user.athanor.quarantine")
+                    }).await;
                     respond_and_close(self.fanotify_fd, event_fd, FAN_DENY);
+                    let (target_str, boundary, mut child) =
+                        (target_path.to_string_lossy().into_owned(), app.boundary, app.child);
+                    tokio::spawn(async move {
+                        match child.wait().await {
+                            Ok(status) => println!("{} inside {} exited: {}", target_str, boundary, status),
+                            Err(e) => eprintln!("Failed to wait for {} inside {}: {}", target_str, boundary, e),
+                        }
+                    });
+                    Ok(())
                 }
                 Err(e) => {
-                    let target_str = target_path.to_string_lossy().into_owned();
-                    eprintln!("Micro-VM isolation failed for {}: {}. Denying.", target_str, e);
                     respond_and_close(self.fanotify_fd, event_fd, FAN_DENY);
+                    let target_str = target_path.to_string_lossy().into_owned();
+                    eprintln!("Isolation failed for {}: {}. Denied.", target_str, e);
+                    Err(zbus::fdo::Error::Failed(format!(
+                        "No isolation boundary could be established for {}: {}",
+                        target_str, e
+                    )))
                 }
             }
-            Ok(())
         } else {
             Err(zbus::fdo::Error::InvalidArgs(format!("No pending event for id {}", fd_id)))
         }

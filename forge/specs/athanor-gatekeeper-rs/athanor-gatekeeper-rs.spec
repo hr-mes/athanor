@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-gatekeeper-rs
 Version:        1.0.0
-Release:        3%{?dist}
+Release:        4%{?dist}
 Summary:        Athanor OS Zero-Trust Gatekeeper (fanotify)
 
 License:        GPLv3+
@@ -96,6 +96,11 @@ EOF
 %{_datadir}/%{name}/
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-4
+- Report a launch as approved only when an isolation boundary is running: drop the
+  unconfigured firecracker fallback, unshare the network in the bubblewrap
+  compartment, and return an error to the D-Bus caller when no boundary starts
+
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-3
 - Ship the crosvm seccomp policy read-only under /usr and refuse to launch when it is
   not root-owned or is writable by others; drop the runtime fallback to /tmp/crosvm
