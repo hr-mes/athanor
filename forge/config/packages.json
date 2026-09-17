@@ -132,6 +132,7 @@
     "cosmic-settings",
     "cosmic-randr",
     "cosmic-idle",
+    "cosmic-greeter",
     "cosmic-icon-theme",
     "cosmic-term",
     "cosmic-files",

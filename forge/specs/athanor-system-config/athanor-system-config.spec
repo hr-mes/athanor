@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:31.fc43}
+Release:        %{?autorelease}%{!?autorelease:32.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -11,6 +11,8 @@ BuildArch:      noarch
 Requires: cosmic-comp greetd greenboot systemd-ukify nodejs
 # athanor-greeter-client builds the greeter's sandbox with bwrap.
 Requires: bubblewrap
+# athanor-desktop runs the session's screen locker and idle daemon.
+Requires: cosmic-greeter cosmic-idle
 # Core UI andDaemons
 Requires: athanor-shell-rs
 Requires: xdg-desktop-portal-athanor
@@ -76,6 +78,7 @@ mkdir -p /etc/yum.repos.d
 /usr/lib/systemd/system/greetd.service.d/10-athanor-wantedby.conf
 /usr/lib/systemd/system/athanor-timewarp.service
 /usr/lib/systemd/system/athanor-timewarp.timer
+/usr/lib/systemd/system-preset/80-athanor-display-manager.preset
 /usr/lib/systemd/system-preset/99-Athanor.preset
 /usr/lib/tmpfiles.d/10-athanor-greetd.conf
 /usr/share/athanor-system-config/greetd.toml
@@ -86,6 +89,16 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) %attr(0600,root,root) /etc/usbguard/rules.d/10-athanor-baseline.conf
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-32
+- Lock the session on idle. cosmic-idle was installed and never started, and no screen
+  locker was installed. athanor-desktop now runs cosmic-greeter, which is COSMIC's
+  locker when run as the user, and cosmic-idle as its children and restarts them while
+  the session lasts, the way cosmic-session does: the locker finds its logind session
+  through its parent process, which a systemd user unit would not provide. cosmic-idle
+  turns the screens off after 15 minutes by default and then locks the session with
+  loginctl lock-session; the locker also locks before suspend.
+- 80-athanor-display-manager.preset disables cosmic-greeter's system units, which
+  Fedora's 85-display-manager.preset would otherwise enable next to greetd.
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-31
 - Confine the greeter UI from outside it. cosmic-comp now runs
   /usr/libexec/athanor-greeter-client, which execs athanor-shell-rs --greeter under

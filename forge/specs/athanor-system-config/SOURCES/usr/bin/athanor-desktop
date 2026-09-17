@@ -13,6 +13,40 @@
 # can serve a surface. The session lasts exactly as long as the target is active, and
 # `systemctl --user stop athanor-session.target` is the logout: the wait returns, this
 # process exits, cosmic-comp exits, greetd shows the greeter again.
+#
+# The screen locker and the idle daemon are not units: they run as children of this
+# process, the way cosmic-session starts cosmic-greeter and cosmic-idle. Both need a
+# parent inside the logind session. cosmic-greeter, run as a user other than
+# cosmic-greeter, is the locker: it finds its session with GetSessionByPID on its parent
+# PID, waits for the session's Lock signal and holds the sleep inhibitor that locks the
+# screen before suspend. cosmic-idle turns the screens off after the configured idle time,
+# locks the session with `loginctl lock-session` half a second later and suspends after
+# its own timeout. A child of the user manager belongs to no session, so as a user unit
+# the locker would never see a Lock signal and the idle lock would lock nothing.
 set -eu
 systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE
+
+# Runs a session component again whenever it exits, as cosmic-session does, for as long
+# as the anchor process lives. The anchor is this process: its PID stays the same once
+# it execs systemctl below, and when the session ends the components lose the display,
+# exit, and the loop stops.
+# ponytail: liveness by PID; a PID reused within the one-second retry would keep the loop
+# alive until that process exits. A pidfd-based supervisor would close it if it matters.
+session_component() {
+    anchor=$1
+    shift
+    while kill -0 "$anchor" 2> /dev/null; do
+        if "$@"; then
+            status=0
+        else
+            status=$?
+        fi
+        echo "athanor-desktop: $1 exited with status $status, restarting" >&2
+        sleep 1
+    done
+}
+
+session_component "$$" cosmic-greeter &
+session_component "$$" cosmic-idle &
+
 exec systemctl --user start --wait athanor-session.target
