@@ -238,8 +238,8 @@ cycle() {
   if [[ $state != ready ]]; then
     case $event in
       push)
-        if [[ -z $before || $before =~ ^0+$ ]]; then
-          [[ $state == modules-missing ]] || die "azoth:$nvr is not published, and a push without a previous commit (new branch, force push) cannot tell whether Kernel Build owns it"
+        if [[ $before =~ ^0+$ ]]; then
+          [[ $state == modules-missing ]] || die "azoth:$nvr is not published, and a push without a previous commit (a new branch) cannot tell whether Kernel Build owns it"
         else
           touched=$(kernel_build_touched "$before" "$after")
           if [[ $touched == yes ]]; then
