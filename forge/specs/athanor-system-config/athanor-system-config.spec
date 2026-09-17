@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:38.fc43}
+Release:        %{?autorelease}%{!?autorelease:39.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -90,6 +90,12 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) %attr(0600,root,root) /etc/usbguard/rules.d/10-athanor-baseline.conf
 
 %changelog
+* Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-39
+- Bind only the AT-SPI bus socket into the greeter sandbox, and only when
+  org.a11y.Bus places it directly in $XDG_RUNTIME_DIR/at-spi/. Binding the directory
+  named by the address could have exposed the unfiltered session bus socket, since a
+  read-only bind still accepts connections; any other address leaves the greeter
+  without accessibility and is logged.
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-38
 - athanor-desktop's supervisor survives its own failures: errexit is off inside it,
   run times come from /proc/uptime through a shell builtin, and the err entry falls
