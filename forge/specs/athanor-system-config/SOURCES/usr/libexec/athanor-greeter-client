@@ -6,7 +6,10 @@
 # client. The compositor stays unconfined: it takes the seat through logind and needs
 # the DRM and input devices the session was granted. Only the client that reads the
 # password is confined, and the confinement is applied here, before it executes, so
-# nothing in its own code has to cooperate:
+# nothing in its own code has to cooperate. greetd.service itself carries no sandboxing
+# on purpose: systemd applies a unit's sandboxing to every process the unit starts, so a
+# restriction on greetd would also bind the compositor and every user session greetd
+# launches, where it broke rootless containers and read-only /proc/sys.
 #
 #   - bubblewrap sets PR_SET_NO_NEW_PRIVS and, unprivileged, runs the client with no
 #     capabilities in a user namespace of its own, together with new PID, IPC, UTS,
