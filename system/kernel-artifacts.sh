@@ -108,15 +108,15 @@ write() { # write STATE LINE...: replace the file in one step
   echo "kernel-artifacts: state=$1"
 }
 
-module_verdict() { # module_verdict REF BRANCH KERNEL_DIGEST: verified or unverified
+module_verdict() { # module_verdict REF BRANCH KERNEL_DIGEST DEVEL_DIGEST: verified or unverified
   local signed predicates pins
   signed=$(ask signed "$1" modules)
   [[ $signed == signed ]] || { echo unverified; return 0; }
   predicates=$(ask predicates "$1" modules)
   [[ $predicates != unverified ]] || { echo unverified; return 0; }
   pins=$(sed -n "s/^\(NVIDIA_${2^^}_[A-Z0-9_]*\)=\(.*\)$/\1\t\2/p" "$PINS" | jq -Rn '[inputs | split("\t") | {(.[0]): .[1]}] | add')
-  jq -sr --arg branch "$2" --arg kernel "$3" --argjson pins "$pins" '
-    if any(.[]; .driver == $branch and .kernel_digest == $kernel and (.pins as $p | $pins | to_entries | all(.value == $p[.key])))
+  jq -sr --arg branch "$2" --arg kernel "$3" --arg devel "$4" --argjson pins "$pins" '
+    if any(.[]; .driver == $branch and .kernel_digest == $kernel and .devel_digest == $devel and (.pins as $p | $pins | to_entries | all(.value == $p[.key])))
     then "verified" else "unverified" end' <<< "$predicates"
 }
 
@@ -152,7 +152,7 @@ resolve() {
     lines+=("nvidia_${branch}_version=$version" "nvidia_${branch}_tag=$tag")
     digest=$(ask digest "$REGISTRY/azoth-nvidia:$tag")
     verdict=unverified
-    [[ -z $digest ]] || verdict=$(module_verdict "$REGISTRY/azoth-nvidia@$digest" "$branch" "$kernel")
+    [[ -z $digest ]] || verdict=$(module_verdict "$REGISTRY/azoth-nvidia@$digest" "$branch" "$kernel" "$devel")
     if [[ $verdict == verified ]]; then
       lines+=("nvidia_${branch}_digest=$digest")
     else
