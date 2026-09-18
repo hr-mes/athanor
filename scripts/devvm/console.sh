@@ -32,24 +32,29 @@ ESCAPE = 0x1D  # Ctrl-], the same escape socat's raw mode uses above
 def main() -> int:
     sock = socket.socket(socket.AF_UNIX)
     sock.connect(sys.argv[1])
-    stdin = sys.stdin.fileno()
-    old = termios.tcgetattr(stdin)
-    tty.setraw(stdin)
+    # This script is itself the heredoc handed to "python3 -", so its own stdin is that
+    # heredoc, not the terminal console.sh is attached to: sys.stdin is already at EOF by
+    # the time main() runs, and tcgetattr on it fails with ENOTTY. /dev/tty is the
+    # controlling terminal regardless of what stdin was redirected to get the script here.
+    tty_fd = os.open("/dev/tty", os.O_RDWR)
+    old = termios.tcgetattr(tty_fd)
+    tty.setraw(tty_fd)
     try:
         while True:
-            readable, _, _ = select.select([sock, stdin], [], [])
+            readable, _, _ = select.select([sock, tty_fd], [], [])
             if sock in readable:
                 data = sock.recv(65536)
                 if not data:
                     return 0
-                os.write(sys.stdout.fileno(), data)
-            if stdin in readable:
-                data = os.read(stdin, 4096)
+                os.write(tty_fd, data)
+            if tty_fd in readable:
+                data = os.read(tty_fd, 4096)
                 if not data or ESCAPE in data:
                     return 0
                 sock.sendall(data)
     finally:
-        termios.tcsetattr(stdin, termios.TCSADRAIN, old)
+        termios.tcsetattr(tty_fd, termios.TCSADRAIN, old)
+        os.close(tty_fd)
 
 
 if __name__ == "__main__":
