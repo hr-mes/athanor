@@ -75,26 +75,6 @@ def load_script():
     return module
 
 
-def scope_is_available():
-    """Whether a user systemd manager is here to put the daemon in a scope of its own.
-
-    A build container has none, and the wrapper's policy does not depend on the scope, so
-    every other test runs without it and the one test that is about the scope skips.
-    """
-    try:
-        return (
-            subprocess.run(
-                ["systemd-run", "--user", "--scope", "--quiet", "--", "true"],
-                capture_output=True,
-                timeout=30,
-                check=False,
-            ).returncode
-            == 0
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-
-
 def said(journal):
     """What the wrapper has written to its stderr so far."""
     try:
@@ -113,11 +93,6 @@ def write_stand_in(directory, name, source, **fields):
 class CosmicPanelWrapper(unittest.TestCase):
     def setUp(self):
         self.module = load_script()
-        # The transient scope is an environment property, not part of the policy under
-        # test, and a build container has no user manager to make one. Only the test
-        # that is about the scope puts it back.
-        self.scope = self.module.DAEMON_SCOPE
-        self.module.DAEMON_SCOPE = []
 
     def exchange(self, tmp):
         """Run the pair with stand-ins that report what each read from its descriptor."""
@@ -146,22 +121,6 @@ class CosmicPanelWrapper(unittest.TestCase):
         )
 
     def test_both_children_get_two_ends_of_the_same_socket(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            self.exchange(tmp)
-
-    @unittest.skipUnless(
-        scope_is_available(), "no user systemd manager to make a transient scope in"
-    )
-    def test_the_descriptor_survives_the_transient_scope(self):
-        """systemd-run --scope must hand the daemon its end of the pair.
-
-        The daemon is started inside a scope of its own so that its memory cannot get the
-        panel killed. That only works because systemd-run --scope execs the command in
-        its own process instead of handing it to the manager, which is the kind of thing
-        that is true until it is not, and losing it would cost notifications silently.
-        """
-        self.module.DAEMON_SCOPE = self.scope
-        self.assertIn("--scope", self.scope)
         with tempfile.TemporaryDirectory() as tmp:
             self.exchange(tmp)
 

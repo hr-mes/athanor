@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-system-services
 Version:        1.0.1
-Release:        20%{?dist}
+Release:        21%{?dist}
 Summary:        Athanor OS athanor-system-services
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -41,6 +41,25 @@ install -m 0755 %{_sourcedir}/usr/bin/athanor-cosmic-panel %{buildroot}/usr/bin/
 %attr(0755,root,root) /usr/bin/athanor-cosmic-panel
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-21
+- Revert 1.0.1-20: cosmic-notifications is a plain child of athanor-cosmic-panel again,
+  inside cosmic-panel.service's own cgroup, the way cosmic-session runs it. The transient
+  scope bought the daemon a memory limit of its own and cost more than it was worth: a
+  sibling cgroup is outside the panel's lifecycle, so a panel restart, Restart=on-failure
+  or a session teardown left the daemon running -- one orphan per restart, each still
+  contending for org.freedesktop.Notifications -- it masked the exec-failure guard,
+  systemd-run always exec'ing successfully whatever it was asked to run, and it left
+  failed run-p*.scope units behind.
+- What the single cgroup costs, stated rather than implied: a runaway notification daemon
+  is charged to the panel's MemoryHigh/MemoryMax, and if it pushes the unit past the limit
+  the kernel picks a task in that cgroup to kill; before the two shared a unit a runaway
+  daemon could only have killed itself. The wrapper puts the daemon's oom_score_adj back
+  to zero so that it, and not the panel behind OOMScoreAdjust=-500, is the preferred
+  victim, but that is a preference and not a guarantee. The daemon keeps no_new_privs and
+  a 0077 umask and loses the rest of the unit sandbox it had, which only systemd can apply.
+- The panel's budget goes back to MemoryHigh=1280M and MemoryMax=1920M: the panel's 1G and
+  1536M plus the 256M and 384M cosmic-notifications.service carried, the two now being in
+  one cgroup.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-20
 - Give cosmic-notifications a cgroup of its own again. Sharing cosmic-panel.service's,
   a daemon that ran away would have pushed the unit past MemoryMax and the kernel would
