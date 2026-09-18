@@ -2,7 +2,7 @@
 # Il crate vive nel workspace: la spec compila il checkout in place, non un tarball.
 Name:           athanor-shell-rs
 Version:        1.0.0
-Release:        33%{?dist}
+Release:        34%{?dist}
 Summary:        Athanor OS Native Rust GTK4 Shell
 
 License:        MIT
@@ -29,6 +29,13 @@ install -m 0755 target/release/athanor-shell-rs %{buildroot}/usr/bin/athanor-she
 /usr/bin/athanor-shell-rs
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.0-34
+- Test the session-command choice against a directory the test owns. The branch that
+  matters only ran where /usr/bin/athanor-session exists, so on a build machine the test
+  exercised the fallback alone and would have passed on a function that never looked at
+  the filesystem. The candidate list and the fallback are arguments to a split-out
+  first_installed(), and the cases now cover both candidates installed, the first
+  missing, and none installed.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.0-33
 - The session-command test checks what its name says. It asserted only that the result
   ends in "athanor-session", which is true of every branch including the fallback, so it
