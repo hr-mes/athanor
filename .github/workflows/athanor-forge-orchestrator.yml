@@ -106,6 +106,13 @@ jobs:
     # The kernel and module artifacts of the pins and whether this run owns their cycle
     # (docs/architecture/doc_build_ordering.md, O3, O4): system/kernel-artifacts.sh decides,
     # this job only routes on its answer.
+    # needs: [lint] so a red lint (which runs the system/tests suite that exercises this very
+    # script) cannot still resolve, sign and publish through nvidia-kmod below: before this,
+    # only the image path was gated on lint (transitively, through build-builder). Downstream
+    # of a skipped kernel-artifacts, nvidia-kmod's implicit success() on its needs skips it
+    # too, and kernel-artifacts-final and system-image already check .result == 'success'
+    # explicitly, so nothing past this job can run with lint red.
+    needs: [lint]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
