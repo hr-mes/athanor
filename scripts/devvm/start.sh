@@ -39,7 +39,8 @@ systemd-run --user --unit="$UNIT" --collect --quiet \
   -drive "if=pflash,format=raw,readonly=on,file=$(ovmf_code)" \
   -drive "if=pflash,format=raw,file=$STATE/dev-vars.fd" \
   -drive "if=virtio,format=qcow2,discard=unmap,file=$STATE/dev.qcow2" \
-  -netdev "user,id=n0,hostfwd=tcp:127.0.0.1:$SSH_PORT-:22" -device virtio-net-pci,netdev=n0 \
+  -netdev "user,id=n0,hostfwd=tcp:127.0.0.1:$SSH_PORT-:22" \
+  -device "virtio-net-pci,netdev=n0,$NIC_PCI_ADDR" \
   -device virtio-rng-pci -device qemu-xhci -device usb-kbd -device usb-tablet \
   -device virtio-vga-gl "${display[@]}" \
   -chardev "socket,id=devvm-console,path=$STATE/console.sock,server=on,wait=off,logfile=$STATE/console.log,logappend=on" \
