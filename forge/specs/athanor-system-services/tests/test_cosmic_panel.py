@@ -243,6 +243,27 @@ class CosmicPanelWrapper(unittest.TestCase):
 
             self.assert_the_panel_survives_the_daemon(tmp)
 
+    def test_a_proc_that_cannot_be_adjusted_costs_the_shield_and_not_the_daemon(self):
+        """harden() runs between the fork and the exec, so it must not be the daemon's end.
+
+        oom_score_adj only decides which of the two processes in the cgroup the kernel
+        takes first, and it is not writable everywhere -- hidepid, a container, a kernel
+        built without the knob. An exception there is a daemon that never execs and a
+        session without notifications, traded for a preference: the daemon starts anyway,
+        keeps the panel's shield and the journal says so.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            self.module.OOM_SCORE_ADJ = os.path.join(tmp, "no-such-proc-file")
+            journal = os.path.join(tmp, "stderr")
+
+            with open(journal, "w") as stderr, contextlib.redirect_stderr(stderr):
+                self.exchange(tmp)
+
+            self.assertTrue(
+                any("could not be adjusted" in line for line in said(journal)),
+                f"a hardening step that was skipped has to be logged: {said(journal)}",
+            )
+
     def test_a_daemon_dying_just_slowly_enough_still_reaches_the_give_up(self):
         """A 61-second death cycle must not reset the count forever.
 
