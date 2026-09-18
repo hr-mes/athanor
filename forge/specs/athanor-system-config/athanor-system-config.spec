@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:39.fc43}
+Release:        %{?autorelease}%{!?autorelease:40.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -80,7 +80,7 @@ mkdir -p /etc/yum.repos.d
 /usr/lib/systemd/system/athanor-timewarp.service
 /usr/lib/systemd/system/athanor-timewarp.timer
 /usr/lib/systemd/system-preset/80-athanor-display-manager.preset
-/usr/lib/systemd/system-preset/99-Athanor.preset
+/usr/lib/systemd/system-preset/80-athanor-system.preset
 /usr/lib/tmpfiles.d/10-athanor-greetd.conf
 /usr/share/athanor-system-config/greetd.toml
 /usr/share/athanor-system-config/usbguard-daemon.conf
@@ -90,6 +90,13 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) %attr(0600,root,root) /etc/usbguard/rules.d/10-athanor-baseline.conf
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.0-40
+- Rename 99-Athanor.preset to 80-athanor-system.preset. systemd takes the first preset
+  line that matches a unit, in lexicographic order of file name, so a file numbered 99
+  only decides units Fedora's 81-atomic-desktop, 85-display-manager, 90-default and
+  90-systemd left undecided. Nothing this file enables was being shadowed, but the
+  number said the opposite of what it meant; 80 is where our decisions belong, next to
+  80-athanor-display-manager.preset.
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-39
 - Bind only the AT-SPI bus socket into the greeter sandbox, and only when
   org.a11y.Bus places it directly in $XDG_RUNTIME_DIR/at-spi/. Binding the directory

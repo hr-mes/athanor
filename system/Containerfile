@@ -185,6 +185,16 @@ COPY forge/specs/azoth/pins.env /scripts/pins.env
 COPY system/nvidia/gate.sh /scripts/nvidia-gate.sh
 RUN bash /scripts/nvidia-gate.sh "${GPU}" /scripts/pins.env /
 
+# The one preset a preset cannot apply. NetworkManager.service carries
+# Also=NetworkManager-wait-online.service, so every `systemctl preset-all` that enables
+# NetworkManager re-creates the wait-online link afterwards, whatever
+# 80-athanor-base.preset says about it; `Also=` is evaluated when the other unit is
+# enabled and no preset line outranks it. This re-applies our own preset policy to that
+# single unit, after the last preset-all of the build (the GPU stages run one of their
+# own), so the image ships what the preset file declares. The intent stays in the preset
+# file; this is only the last word.
+RUN systemctl preset NetworkManager-wait-online.service
+
 # Initramfs & Unified Kernel Image (UKI) generation
 RUN --mount=type=secret,id=uki_key,required=false \
     --mount=type=secret,id=uki_cert,required=false \

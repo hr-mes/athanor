@@ -1,0 +1,13 @@
+# Numbered below 81 on purpose: the first preset line that matches a unit wins, and
+# Fedora's 81-atomic-desktop, 85-display-manager, 90-default and 90-systemd would
+# otherwise decide these units before this file is read. See 80-athanor-base.preset.
+
+enable greetd.service
+enable firewalld.service
+enable nix-daemon.socket
+enable bootc-fetch-apply.timer
+enable fstrim.timer
+enable athanor-timewarp.timer
+enable athanor-backup-hourly.timer
+enable usbguard.service
+enable boltd.service

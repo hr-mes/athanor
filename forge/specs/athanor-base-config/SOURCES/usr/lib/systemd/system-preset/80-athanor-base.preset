@@ -1,0 +1,17 @@
+# systemd reads /usr/lib/systemd/system-preset in lexicographic order of file name and
+# the FIRST line that matches a unit wins, so a preset file that sorts after Fedora's
+# only decides what Fedora left undecided. This file used to be 99-Athanor-Base.preset,
+# after 90-default.preset, which carries "enable mcelog.*" and "enable mcelog.service":
+# the disable below was read but never reached, preset-all left the enablement symlink
+# the base image ships in place, and every installation booted a failing mcelog.service.
+# Anything we decide against a Fedora default belongs in a file numbered below 81, next
+# to 80-athanor-display-manager.preset, which sorts before 85-display-manager.preset for
+# the same reason.
+#
+# A unit with no [Install] section cannot be enabled or disabled, so no preset line has
+# any effect on one; such lines are not written here.
+
+disable NetworkManager-wait-online.service
+disable systemd-networkd-wait-online.service
+# Machine checks are reported by the kernel on every vendor; mcelog is deprecated upstream and fails on AMD family 17h+.
+disable mcelog.service
