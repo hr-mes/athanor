@@ -279,6 +279,44 @@ class CosmicPanelWrapper(unittest.TestCase):
             )
             self.assertEqual(outcome["code"], 0)
 
+    def test_a_daemon_dying_just_slowly_enough_still_reaches_the_give_up(self):
+        """A 61-second death cycle must not reset the count forever.
+
+        The rule used to be "a run longer than 60 seconds clears the count", so a daemon
+        that died every 61 seconds cleared it every time: the give-up was never reached
+        and the panel was restarted once a minute for as long as the session lasted. The
+        window is what fixes that, and it is a pure function of the exit times, so the
+        cycle can be played out here without waiting five minutes for it.
+        """
+        window = self.module.FAILURE_WINDOW_SECONDS
+        cycle = 61.0
+        self.assertGreater(
+            window,
+            cycle * (self.module.GIVE_UP_AFTER - 1),
+            "the window has to be wider than the cycle it is meant to catch",
+        )
+
+        failures = []
+        for exit_number in range(1, self.module.GIVE_UP_AFTER + 1):
+            failures = self.module.recent_failures(failures, exit_number * cycle)
+            self.assertEqual(
+                len(failures),
+                exit_number,
+                f"exit {exit_number} of a {cycle}s cycle was forgotten: {failures}",
+            )
+        self.assertGreaterEqual(
+            len(failures),
+            self.module.GIVE_UP_AFTER,
+            "a daemon dying every 61 seconds never reaches the give-up",
+        )
+
+        # And the window really does forget: an exit older than it is dropped, so a
+        # daemon that fails rarely keeps being restarted.
+        self.assertEqual(
+            self.module.recent_failures([0.0], window + 1.0),
+            [window + 1.0],
+        )
+
     def test_it_supervises_the_programs_the_image_installs(self):
         self.assertEqual(self.module.DAEMON, "/usr/bin/cosmic-notifications")
         self.assertEqual(self.module.PANEL, "/usr/bin/cosmic-panel")
