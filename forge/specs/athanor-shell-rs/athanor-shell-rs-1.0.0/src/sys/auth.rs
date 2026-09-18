@@ -118,18 +118,24 @@ pub fn discover_target_user() -> UserInfo {
 /// from here, so what the card says and what the greeter requests cannot drift apart.
 pub const SESSION_TYPE: &str = "wayland";
 
-/// The command the greeter asks greetd to run once the password is accepted.
+/// Where the session command is looked for, most specific first.
+const SESSION_COMMAND_PATHS: [&str; 3] = [
+    "/usr/bin/athanor-session",
+    "/etc/greetd/athanor-session",
+    "/usr/local/bin/athanor-session",
+];
+
+/// What to ask greetd for when none of those paths is installed: the bare name, left to
+/// greetd's own PATH.
+const SESSION_COMMAND_FALLBACK: &str = "athanor-session";
+
+/// The command the greeter asks greetd to run once the password is accepted: the first
+/// of SESSION_COMMAND_PATHS that is installed, or SESSION_COMMAND_FALLBACK.
 pub fn session_command() -> String {
-    for candidate in [
-        "/usr/bin/athanor-session",
-        "/etc/greetd/athanor-session",
-        "/usr/local/bin/athanor-session",
-    ] {
-        if std::path::Path::new(candidate).exists() {
-            return candidate.to_string();
-        }
-    }
-    "athanor-session".to_string()
+    SESSION_COMMAND_PATHS
+        .iter()
+        .find(|candidate| std::path::Path::new(candidate).exists())
+        .map_or_else(|| SESSION_COMMAND_FALLBACK.to_string(), |c| c.to_string())
 }
 
 /// The badge under the user name on the greeter card: what this greeter is about to
@@ -234,8 +240,29 @@ mod tests {
     }
 
     #[test]
-    fn session_command_is_absolute_where_the_session_is_installed() {
-        let cmd = session_command();
-        assert!(cmd.ends_with("athanor-session"), "unexpected session command {cmd:?}");
+    fn session_command_is_the_first_installed_path_or_the_bare_name() {
+        let installed = SESSION_COMMAND_PATHS
+            .iter()
+            .find(|candidate| std::path::Path::new(candidate).exists());
+        match installed {
+            Some(path) => {
+                assert_eq!(
+                    session_command(),
+                    *path,
+                    "with {path} installed the greeter must ask greetd for it, and for \
+                     no later candidate"
+                );
+                assert!(
+                    path.starts_with('/'),
+                    "an installed session command is an absolute path: {path}"
+                );
+            }
+            None => assert_eq!(
+                session_command(),
+                SESSION_COMMAND_FALLBACK,
+                "with none of {SESSION_COMMAND_PATHS:?} installed the greeter falls back \
+                 to the bare command name"
+            ),
+        }
     }
 }
