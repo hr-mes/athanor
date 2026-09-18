@@ -59,10 +59,16 @@ import sys
 sys.exit(3)
 """
 
-# Stays up until it is told to go.
+# Stays up until it is told to go, and says when it is ready to be told. A panel that is
+# running is not yet a panel that answers SIGTERM: until signal.signal() has run, the
+# default action applies and the kernel kills it, which the wrapper reports -- correctly
+# -- as a panel that died of a signal and an exit of 1. The file is written after the
+# handler is installed, so a test that waits for it is testing the wrapper rather than
+# the speed of an interpreter starting up.
 SURVIVES = """#!{python}
-import signal, sys, time
+import os, signal, sys, time
 signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+open({ready!r}, "w").write(str(os.getpid()))
 time.sleep(3600)
 """
 
@@ -140,7 +146,8 @@ class CosmicPanelWrapper(unittest.TestCase):
         about a binary that will not run changes in two seconds, and every retry would
         cost another panel. Returns what was written, for the caller to read further.
         """
-        self.module.PANEL = write_stand_in(tmp, "panel", SURVIVES)
+        ready = os.path.join(tmp, "panel.ready")
+        self.module.PANEL = write_stand_in(tmp, "panel", SURVIVES, ready=ready)
         finished = threading.Event()
         outcome = {}
         journal = os.path.join(tmp, "stderr")
@@ -165,6 +172,21 @@ class CosmicPanelWrapper(unittest.TestCase):
                 finished.wait(0.05)
             else:
                 self.fail(f"the wrapper never reported the failure: {said(journal)}")
+
+            # The failure is logged just before the panel is started, so the panel is
+            # still on its way up here: wait for it to be running and able to answer
+            # SIGTERM, rather than for however long an interpreter takes to start on the
+            # machine the suite happens to run on.
+            for _ in range(600):
+                self.assertFalse(
+                    finished.is_set(),
+                    f"the wrapper exited before the panel was up: {said(journal)}",
+                )
+                if os.path.exists(ready):
+                    break
+                finished.wait(0.05)
+            else:
+                self.fail(f"the panel never came up: {said(journal)}")
             written = said(journal)
 
         self.assertTrue(
@@ -281,7 +303,9 @@ class CosmicPanelWrapper(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             self.module.DAEMON = write_stand_in(tmp, "daemon", DIES)
-            self.module.PANEL = write_stand_in(tmp, "panel", SURVIVES)
+            self.module.PANEL = write_stand_in(
+                tmp, "panel", SURVIVES, ready=os.path.join(tmp, "panel.ready")
+            )
             self.module.BACKOFF_START_SECONDS = 0.01
             self.module.BACKOFF_CEILING_SECONDS = 0.01
 
