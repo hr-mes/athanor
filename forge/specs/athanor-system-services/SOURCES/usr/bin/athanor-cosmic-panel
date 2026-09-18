@@ -34,9 +34,25 @@ import sys
 DAEMON = "/usr/bin/cosmic-notifications"
 PANEL = "/usr/bin/cosmic-panel"
 
+# How long a program gets to answer SIGTERM before it is killed. Without a bound, one
+# child ignoring SIGTERM would hang this process for good and the unit would never
+# restart it.
+TERMINATE_TIMEOUT_SECONDS = 10
+
 
 def log(message):
     print(f"athanor-cosmic-panel: {message}", file=sys.stderr, flush=True)
+
+
+def stop(child):
+    """SIGTERM, then SIGKILL if it is still there. Never blocks for good."""
+    child.terminate()
+    try:
+        child.wait(timeout=TERMINATE_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        log(f"pid {child.pid} ignored SIGTERM for {TERMINATE_TIMEOUT_SECONDS}s; killing")
+        child.kill()
+        child.wait()
 
 
 def spawn(command, end, variable):
@@ -74,8 +90,7 @@ def main():
 
     for child in children:
         if child.returncode is None:
-            child.terminate()
-            child.wait()
+            stop(child)
 
     # The panel exiting cleanly is the session ending. Anything else is a failure, and
     # the unit restarts the pair.
