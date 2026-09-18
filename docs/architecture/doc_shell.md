@@ -70,7 +70,11 @@ COSMIC applications (`cosmic-files`, `cosmic-term`, `cosmic-edit`, `cosmic-store
 - **Factory accent:** indigo, hue 231 and saturation 62 % in the HSL tokens (`#3f56d8` on light). The user changes the accent; trust colours (verified, not verified, blocked) are fixed and never derived from the accent.
 - **Stage 1 has one accent control, COSMIC's.** Our surfaces follow the `CosmicTheme` accent and compute the on-accent text colour against WCAG AA at run time. The greeter uses the factory accent. A curated palette arrives with a Settings surface of our own, not before.
 - **Contrast is validated:** every text/background pair of the tokens meets WCAG AA, checked in CI.
-- **Shipped assets:** Inter (`rsms-inter-fonts`) as the interface font, to be confirmed on the dev VM; `cosmic-icon-theme` stays in stage 1; our own symbolic icons only for the trust states.
+- **The identity lives in form, not in colour,** because the colour is the user's. Two signatures carry it:
+  - **The mark is the seal.** The Athanor mark is reserved for the trust shield (SH12) and appears nowhere else in the shell; the launcher uses a neutral glyph.
+  - **The hearth wallpaper.** The default wallpaper is a set of concentric discs rising from a corner, generated per accent and per theme as an image at build time. The shape is ours; the hue is the user's.
+- **Shipped assets:** Inter (`rsms-inter-fonts`) as the only interface family, with tabular figures for clocks, to be confirmed on the dev VM; `cosmic-icon-theme` stays in stage 1; our own symbolic icons only for the seal and its states.
+- **Depth is reserved for what floats:** windows, popovers and notifications carry a marked shadow; panels and docks carry a hairline and a faint one.
 - Nothing in the identity relies on an effect GTK4 cannot draw.
 
 **SH6. The layout is a document with our own schema.**
@@ -87,6 +91,8 @@ COSMIC applications (`cosmic-files`, `cosmic-term`, `cosmic-edit`, `cosmic-store
 - **Essenziale:** thin top bar, no dock. Subject to cosmic-panel#560 being absent on 1.8.
 - **Isole** (three top islands, vertical dock) needs our own panel and is not in version 1.
 - **Knobs:** panel position (top, bottom); dock (visible, auto-hide, none); accent (SH5).
+- **A knob exists only where it means something.** Barra holds the applications in the bar, so it has no dock knob and the schema rejects one. That leaves 2 × 3 layouts for Isola, 2 for Barra and 2 × 3 for Essenziale: 14 in version 1.
+- **Dock placement is derived, not chosen:** the dock sits on the bottom edge, and on the left edge when the panel is at the bottom. A vertical dock carries icons only (SH9.3).
 - In stage 1 a translator turns the document into cosmic-panel configuration. It writes `entries` last, because that configuration is live and not atomic. It runs when the effective document changes, not at every login.
 
 **SH8. The schema is the ratchet.** Everything the schema can express is supported and tested; nothing else is expressible.
@@ -116,11 +122,13 @@ COSMIC applications (`cosmic-files`, `cosmic-term`, `cosmic-edit`, `cosmic-store
 - A state is shown as verified only when the system performed the verification. Everything else is "not verified", never green.
 - Stage 1 sources: the booted image and digest (`bootc status`); whether that image passed signature verification at pull time; Secure Boot state; staged update and available rollback.
 - Image verification has no verifier today (section 1). Stage 1 ships a sigstore policy for the project's registry and public key in `/etc/containers/policy.json`. Until it is shipped and proven on the dev VM, the shield shows the image as "not verified".
-- In stage 1 the shield is a GTK4 applet inside cosmic-panel (spike P1). Its popover carries the states, "Restart to update" and "Go back to the previous version".
+- **The shield is the Athanor mark with a state badge.** Verified is a check, not verified an exclamation mark, blocked a cross; each state differs in shape and in colour, so it reads without colour vision. There is no permanent text in the panel: the words are in the popover and in the accessible name.
+- **Its place is fixed:** the trailing end of the panel in every layout, and the same corner of the greeter.
+- In stage 1 the shield is a GTK4 applet inside cosmic-panel (spike P1). Its popover carries one row per source above, "Restart to update" and "Go back to the previous version".
 
 **SH13. Tests.**
 
-- Screenshot cases are generated from the schema: preset × outputs {1, 2} × scale {1.0, 2.0} × direction {LTR, RTL} × locale {en, de} = 48 cases for three presets. German is in the matrix for string length; Italian and English are the shipped locales.
+- Screenshot cases are generated from the schema. The three presets at their factory knobs run the full matrix: outputs {1, 2} × scale {1.0, 2.0} × direction {LTR, RTL} × locale {en, de} = 48 cases. The other 11 layouts of SH7 run once each at the baseline (one output, scale 1.0, LTR, en): 59 cases in all. German is in the matrix for string length; Italian and English are the shipped locales.
 - Each surface has an accessibility check: every interactive widget exposes a role and a name.
 - All strings go through gettext from the first commit.
 
@@ -132,7 +140,7 @@ Three work packages, each with its own implementation plan, in this order.
 |---|---|---|
 | **1a. Design system** | tokens, generator, CI parse and contrast gates, vendor `CosmicTheme` light and dark, font, the greeter re-skinned on the tokens with roles and gettext | P2, P3 |
 | **1b. Updates and shield** | staging timer (replaces the broken preset line and override), state file, notifier, rollback helper, sigstore policy, shield applet | P1; maintainer consent for the helper and the policy |
-| **1c. Layout** | schema, layered loader with degradation, translator to cosmic-panel, first-boot default, three presets, a small chooser window, the 48 cases | P3 |
+| **1c. Layout** | schema, layered loader with degradation, translator to cosmic-panel, first-boot default, three presets, a small chooser window, the 59 cases | P3 |
 
 Spikes, run before the plan they gate; each produces an answer, not code we keep:
 
@@ -151,7 +159,7 @@ Out of stage 1: our own panel, dock, launcher, notifications, lock and Settings;
 - **The shim.** GTK 4.16 broke `gtk4-layer-shell` once. SH4 bounds the damage to one call site per surface; the greeter is the exposed surface in stage 1.
 - **A wrong signature policy blocks updates,** not boot. It is proven on the dev VM against a signed and an unsigned image before it reaches the image, and rollback stays available.
 - **Two editors of the panel configuration.** COSMIC Settings keeps its Panel and Dock pages. A user's edit there lasts until the next layout change, when the translator rewrites the configuration. Accepted for stage 1; it ends with our own panel.
-- **cosmic-panel moves fast.** The translator targets a configuration format we do not own. The 48 cases run against every COSMIC bump.
+- **cosmic-panel moves fast.** The translator targets a configuration format we do not own. The 59 cases run against every COSMIC bump.
 - **Scope.** Each later stage re-solves something COSMIC already solved. SH1's replacement rule is the brake.
 
 ## 5. Open doubts
@@ -163,6 +171,7 @@ Out of stage 1: our own panel, dock, launcher, notifications, lock and Settings;
 5. **Hiding COSMIC Settings pages** that configure a panel we later remove may need a patch. Not a stage 1 problem.
 6. **The greeter holds the real Wayland socket,** with capture and clipboard privilege. Per-surface confinement needs the compositor work of SH2.
 7. **Inter** is a proposal from the mockups, not yet seen on real hardware at fractional scale.
+8. **The seal at panel size** is an 18-pixel mark with a 12-pixel badge. Whether the three badges stay distinguishable at scale 1.0 on a low-density screen is checked in P1.
 
 ## 6. Changes to other documents
 
@@ -182,4 +191,4 @@ On a fresh install in the dev VM and on the maintainer's desktop:
 5. After the restart the new deployment is booted; "Go back to the previous version" asks for administrator authentication and returns to the old digest.
 6. An unsigned image is refused at pull time, and the shield never showed it as verified.
 7. The three presets apply from the chooser without a restart of the session; a user document with an unknown key degrades to a preset and the file is byte-identical afterwards.
-8. The 48 screenshot cases pass in CI.
+8. The 59 screenshot cases pass in CI.
