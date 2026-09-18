@@ -4,6 +4,8 @@ Status: **approved on 2026-09-18, revision 3.** The maintainer took the decision
 
 The approval covers the direction and packages 1a, 1b-shield and 1c. Package 1b-system starts only when `doc_update_trust.md` exists, has passed the `auditor` and has the maintainer's consent, because it changes the signing pipeline (SH12). Section 5 lists what is still unverified; doubt 10 waits for a maintainer decision.
 
+The three spikes of section 3 ran on 2026-09-18 (`.superpowers/spike-p1-applet.md`, `spike-p2-gtk-bump.md`, `spike-p3-headless.md`). Their results are written into SH4, SH5, SH12 and SH13 below; none overturned a decision.
+
 The document replaces `doc_shell_ui.md` and amends `doc_platform_experience.md`, section 3. Section 6 lists the changes other documents take.
 
 ## 1. Context
@@ -62,8 +64,11 @@ COSMIC applications (`cosmic-files`, `cosmic-term`, `cosmic-edit`, `cosmic-store
 **SH4. GTK4, with the shim kept replaceable.**
 
 - Our surfaces use GTK4 through plain `gtk4-rs`. AT-SPI, IME and RTL work today.
-- `gtk4` 0.7.3, `gtk4-layer-shell` 0.2.0 and `relm4` 0.7.1 are workspace dependencies shared by seven crates, most of them out of the image. Spike P2 decides two things: upgrade relm4 or drop it, and whether the unused GTK crates are bumped, pinned apart or removed from the workspace. Nothing stays at 0.7.
+- **relm4 is upgraded, not dropped** (spike P2, on `iso-v0` at cfe61ecf). With gtk4 0.11.4, gtk4-layer-shell 0.8.1 and relm4 0.11.0 the shell crate has 54 errors, none caused by relm4: 25 old-syntax `glib::clone!`, 20 `Option` wraps, 4 removed channel APIs that need `async-channel`, 5 others. That is a day to a day and a half. The greeter uses no relm4 and needs one line.
+- **The GTK crates move together or leave the workspace.** `gtk4-sys` declares `links = "gtk-4"`, so no crate can be pinned apart. Nine crates touch gtk4, two of them only through `athanor-style`; two ship today, `athanor-shell-rs` and `athanor-recovery`, and `athanor-dock` is a path dependency of the first. The plan of 1a proposes which unshipped crates leave `[workspace.members]` before the bump; the maintainer decides, because it retires code.
 - `gtk4-layer-shell` is a one-maintainer symbol-interposition shim that GTK does not support. Therefore: one process per surface, all logic in toolkit-agnostic crates, and the shim called from one place per surface. If the shim fails, only the panel moves to a direct `wayland-rs` client. Qt is not a fallback.
+- **The shim degrades silently,** to a normal window with a title bar, when it is not loaded before `libwayland-client` (spike P3). Our Rust binary links it first today, by the accident of link-flag order and not by contract (spike P2). Therefore the package's `%check` asserts the `DT_NEEDED` order, and every layer-shell surface asserts at start that it is a layer surface and exits with an error when it is not.
+- **Surfaces that live in the panel use GTK's Cairo renderer.** With the default renderer an icon-sized applet maps 216–320 MB; with Cairo it is 41 MB PSS, beside 33 MB for a stock applet (spike P1).
 - `#![allow(clippy::all, warnings)]` is removed from any crate a stage touches.
 
 **SH5. Identity: "Calmo".** Light and neutral by default, with a dark variant of equal standing.
@@ -71,7 +76,7 @@ COSMIC applications (`cosmic-files`, `cosmic-term`, `cosmic-edit`, `cosmic-store
 - **Tokens are the single source.** One tokens file generates the GTK4 CSS of our surfaces and the default `CosmicTheme`, light and dark. CI parses the generated CSS with GTK's own parser; a parse warning fails the build.
 - **Calmo is the default, not a migration.** COSMIC's RPMs own the files under `/usr/share/cosmic/`, so our defaults cannot be packaged at those paths. The plan of 1a picks the mechanism: an overlay directory ahead of `/usr/share` in `XDG_DATA_DIRS` if cosmic-config honours it, otherwise a build step after the COSMIC RPMs, checked by `verify.py shipped`. A user whose `~/.config/cosmic` already holds a theme keeps it.
 - **Factory accent:** indigo, hue 231 and saturation 62 % in the HSL tokens (`#3f56d8` on light). The user changes the accent; trust colours (verified, attention, blocked) are fixed and never derived from the accent.
-- **Stage 1 has one accent control, COSMIC's.** Our surfaces follow the `CosmicTheme` accent and compute the on-accent text colour against WCAG AA at run time. The greeter uses the factory accent. A curated palette arrives with a Settings surface of our own, not before.
+- **Stage 1 has one accent control, COSMIC's.** GTK inherits nothing from COSMIC: on the maintainer's desktop COSMIC is dark while GTK's colour scheme says `default`, and a GTK surface comes up light (spike P1). Our surfaces therefore read `CosmicTheme` themselves, for the mode and for the accent, and compute the on-accent text colour against WCAG AA at run time. The greeter uses the factory accent. A curated palette arrives with a Settings surface of our own, not before.
 - **Contrast is validated:** every text/background pair of the tokens meets WCAG AA in four variants, light and dark, each normal and high-contrast, checked in CI. Our surfaces follow COSMIC's high-contrast flag. Every animation has a disabled path that follows the reduced-motion setting.
 - **The identity lives in form, not in colour,** because the colour is the user's. Two signatures carry it:
   - **The mark is the seal.** The Athanor mark is reserved for the trust shield (SH12) and appears nowhere else in the shell; the launcher uses a neutral glyph.
@@ -138,7 +143,7 @@ COSMIC applications (`cosmic-files`, `cosmic-term`, `cosmic-edit`, `cosmic-store
 - **Rows that do not move the badge.** Secure Boot off is the declared degraded mode of `doc_kernel_profile.md` D3: its row says so, plainly. The header of the popover claims only what the rows back: "System image verified", never "this computer is safe". That sentence is about the image the deployment refers to. It is not a measurement of the running `/usr`: nothing ties the booted files to the digest until the dm-verity `/usr` of `doc_kernel_profile.md`, and no wording in the interface suggests otherwise.
 - **In stage 1 the session shield is informative, not a trusted path.** A process running as the user can shadow, remove or overdraw it. The greeter's seal is the stronger one, because no user code runs there. A spoof-resistant shield needs the compositor work of SH2.
 - **The shield is the Athanor mark with the badge.** There is no permanent text in the panel: the words are in the popover and in the accessible name. Its place is the right end of the panel in every layout, and the top right corner of the greeter. Whether that place mirrors under RTL is decided with our own panel; cosmic-panel does not mirror.
-- In stage 1 the shield is a GTK4 applet inside cosmic-panel (spike P1). Its popover carries the rows, "Restart to update" and "Go back to the previous version".
+- **In stage 1 the shield is two processes** (spike P1). The seal is a GTK4 applet inside cosmic-panel, which starts it, sizes it, hands it clicks and restarts it when it dies. Its sheet is a separate layer-shell surface on the compositor, started by the seal, carrying the rows, "Restart to update" and "Go back to the previous version". A GTK popover cannot be used: cosmic-panel 1.8 does not display one (`surface missing from known popups`), and a second Wayland connection inside the applet kills it through the shim.
 
 **The system side has its own spec, `doc_update_trust.md`,** written and passed through the `auditor` before package 1b-system is planned; the maintainer consents to it because it changes the signing pipeline. This document binds it to the following:
 
@@ -156,7 +161,11 @@ COSMIC applications (`cosmic-files`, `cosmic-term`, `cosmic-edit`, `cosmic-store
 
 - **Layouts** are captured left-to-right in English with a fixed clock and an empty tray. The three presets at their factory knobs run outputs {1, 2} × scale {1.0, 1.5}: 12 cases. The other 11 layouts of SH7 run once at one output and scale 1.0: 23 layout cases.
 - **Our own surfaces** (greeter, shield popover, chooser) run scale {1.0, 1.5} × theme {light, dark} × text {English, German for length, a right-to-left pseudo-locale}: 36 surface cases. Italian and English are the shipped locales.
-- A case passes when it matches its golden image within a tolerance the plan states.
+- **Where they run** (spike P3): in a rootless `fedora:43` container on the hosted `ubuntu-24.04` runner, with no GPU: a headless sway on pixman, cosmic-comp with its winit backend on llvmpipe, `cosmic-randr` for size and scale, cosmic-panel, and `grim` over `ext-image-copy-capture-v1`. A scene costs 8 seconds and 1 GiB, and two independent runs are byte-identical.
+- **Two outputs are not reachable there:** cosmic-comp has no headless backend and Smithay's winit backend has one output. The 6 two-output cases run as a scheduled job on the KVM runner. They do not gate a push, and they are not dropped: they are the ones that catch a per-output regression in cosmic-panel. A `vkms` device on the hosted runner may replace the KVM job; nobody has tried it.
+- **What makes a golden reproducible:** isolated `XDG_*` directories per case, a frozen wall clock with a live monotonic clock, `TZ=UTC`, `LC_ALL` per case, a fixed set of running clients, the runner label `ubuntu-24.04` and the container pinned by digest. A case passes when at most a stated number of pixels differ from its golden image; the plan states the number.
+- **There is no input in that environment,** so a surface is captured by starting it in the state under test. The shield's sheet, being its own process, starts open.
+- **What a golden cannot show:** the nested route has no dmabuf, no pointer, no hotplug, and reports a physical size of 0 × 0 mm. It proves layout and drawing, not behaviour on a real screen.
 - Each surface has an automated accessibility check: every interactive widget exposes a role and a name in the AT-SPI tree.
 - All strings go through gettext from the first commit.
 
@@ -171,13 +180,13 @@ Four work packages, each with its own implementation plan, in this order. The fi
 | **1b-shield. Shield** | shield applet with its popover, the seal in the greeter, with the state file bound read-only into the greeter's sandbox | 1b-system, 1a, P1 |
 | **1c. Layout** | schema, layered loader with migration and degradation, translator to cosmic-panel, first-session default, three presets with two knobs, a small chooser window | 1a, P3 |
 
-Spikes, run before the plan they gate; each produces an answer, not code we keep:
+Spikes, run before the plan they gate; each produced an answer, not code we keep:
 
 | # | Spike | Settles |
 |---|---|---|
-| P1 | A GTK4 applet inside cosmic-panel: sizing, popover, scale, theme, memory; desktop-id shadowing from `~/.local/share`; overflow priority; behaviour when the panel restarts; the three badges at scale 1.0 on a low-density screen | whether the shield can ship in stage 1 |
-| P2 | Bump gtk4 0.7→0.11 and gtk4-layer-shell on the greeter, with and without relm4; count errors; list what the other six crates need | upgrade relm4 or drop it; bump, pin or remove the unused crates |
-| P3 | cosmic-comp under llvmpipe in a container, two headless outputs, cosmic-panel running, one captured frame per output | whether screenshot tests run on a hosted runner or on the KVM runner |
+| P1 | A GTK4 applet inside cosmic-panel: sizing, popover, scale, theme, memory; desktop-id shadowing from `~/.local/share`; overflow priority; behaviour when the panel restarts; the three badges at scale 1.0 on a low-density screen | **Yes, as two processes** (SH12). Not covered: fractional scale, a low-density physical screen, the overflow popup |
+| P2 | Bump gtk4 0.7→0.11 and gtk4-layer-shell on the greeter, with and without relm4; count errors; list what the other crates need | **Upgrade relm4**; crates move together or leave the workspace (SH4) |
+| P3 | cosmic-comp under llvmpipe in a container, two headless outputs, cosmic-panel running, one captured frame per output | **Hosted runner for one output, KVM for two** (SH13) |
 
 Two more spikes gate stage 2, not stage 1: the security-context privilege model on 1.8, and a side-connection client for toplevels, workspaces and capture.
 
@@ -194,10 +203,10 @@ Out of stage 1: our own panel, dock, launcher, notifications, lock and Settings;
 
 ## 5. Open doubts
 
-1. **The session shield can be shadowed or removed** (section 1, SH12). Whether the panel unit can run with a restricted data path without breaking the application list is part of P1.
+1. **The session shield can be shadowed or removed** (section 1, SH12); P1 confirmed that the panel runs an applet from the user's data directory. Whether the panel unit can run with a restricted data path without breaking the application list is still untested.
 2. **Where the verification runs.** `skopeo standalone-verify`, `cosign verify` with the key, or the pull itself under the policy: `doc_update_trust.md` picks one and says what it needs offline.
 3. **The metered state** is "unknown" on many networks, so SH11 downloads there. A user on an unmarked tethered phone pays for it; the rule errs towards being up to date.
-4. **P1 may fail.** Then there is no persistent "Restart to update" surface in the session: the notifier of 1b-system offers a pending digest again once per session start, and the seal exists at the greeter only.
+4. **The sheet's behaviour is not designed yet:** dismissal on an outside click or on focus loss, its stacking against the panel's own popups, which it drew over in the spike, and its place when the panel is at the bottom.
 5. **Hiding COSMIC Settings pages** that configure a panel we later remove may need a patch. Not a stage 1 problem.
 6. **The greeter holds the real Wayland socket,** with capture and clipboard privilege. Per-surface confinement needs the compositor work of SH2.
 7. **A screen reader at the greeter** needs an accessibility bus, Orca and audio for the `greetd` user. Stage 1 delivers the roles and names; the plumbing is a later requirement of "for everyone", not a wish.
