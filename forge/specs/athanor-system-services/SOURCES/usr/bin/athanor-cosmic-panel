@@ -26,10 +26,10 @@ exits; the unit's Restart= never sees a failing daemon. A daemon that dies is re
 here, on a new socket pair -- and so is the panel, which is not a choice: the panel holds
 its end of the dead pair for life, the descriptor number in its environment never
 changes, and nothing in it can reconnect. cosmic-session force-restarts the other side
-for the same reason. Restarts back off 1, 2, 4 ... up to 60 seconds; after five short
-runs in a row the daemon is given up on, logged at err priority, and the panel runs
-alone for the rest of the session -- a session without notifications, rather than a
-panel that disappears every minute.
+for the same reason. Restarts back off 1, 2, 4 ... up to 60 seconds; five exits inside
+ten minutes and the daemon is given up on, logged at err priority, and the panel runs
+alone for the rest of the session -- a session without notifications, rather than a panel
+that disappears every minute.
 """
 
 import ctypes
@@ -42,8 +42,16 @@ import time
 DAEMON = "/usr/bin/cosmic-notifications"
 PANEL = "/usr/bin/cosmic-panel"
 
-# A run shorter than this counts as a failure; five in a row and the daemon is dropped.
-SHORT_RUN_SECONDS = 60
+# GIVE_UP_AFTER exits inside FAILURE_WINDOW_SECONDS and the daemon is dropped for the
+# rest of the session. A sliding window rather than a run of consecutive short runs: the
+# rule used to be "a run longer than 60 seconds clears the count", and a daemon that died
+# every 61 seconds -- the shape of a leak, or of a driver that gives out after a while --
+# cleared it every time and restarted the panel once a minute for as long as the session
+# lasted, never reaching the give-up at all. Ten minutes is wide enough that no such cycle
+# can outrun it: at one exit a minute the fifth falls inside the window with five minutes
+# to spare. A daemon that fails less often than five times in ten minutes is worth
+# restarting, and the window forgets it.
+FAILURE_WINDOW_SECONDS = 600
 GIVE_UP_AFTER = 5
 BACKOFF_CEILING_SECONDS = 60
 
@@ -176,12 +184,20 @@ def run_once(with_daemon):
     raise AssertionError(f"waited on pid {first}, which is neither child")
 
 
+def recent_failures(failures, now):
+    """The daemon exits still inside the window, with this one added.
+
+    Kept separate from the loop because it is the whole give-up policy: what counts as
+    "still failing" is this and nothing else.
+    """
+    return [when for when in failures if now - when < FAILURE_WINDOW_SECONDS] + [now]
+
+
 def main():
-    failures = 0
+    failures = []
     delay = 1
     while True:
-        started = time.monotonic()
-        exited, code, other = run_once(with_daemon=failures < GIVE_UP_AFTER)
+        exited, code, other = run_once(with_daemon=len(failures) < GIVE_UP_AFTER)
 
         if exited == PANEL:
             if other is not None:
@@ -190,16 +206,16 @@ def main():
             return code if code >= 0 else 1
 
         stop(other)
-        if time.monotonic() - started > SHORT_RUN_SECONDS:
-            failures, delay = 0, 1
-        else:
-            failures += 1
+        failures = recent_failures(failures, time.monotonic())
+        if len(failures) == 1:
+            # Nothing recent: the daemon had been healthy, so start the backoff over.
+            delay = 1
 
-        if failures >= GIVE_UP_AFTER:
+        if len(failures) >= GIVE_UP_AFTER:
             log(
-                f"cosmic-notifications failed {failures} times in a row, each run "
-                f"shorter than {SHORT_RUN_SECONDS}s (last exit {code}); "
-                f"running cosmic-panel without it -- this session has no notifications",
+                f"cosmic-notifications exited {len(failures)} times within "
+                f"{FAILURE_WINDOW_SECONDS}s (last exit {code}); running cosmic-panel "
+                f"without it -- this session has no notifications",
                 ERR,
             )
             continue

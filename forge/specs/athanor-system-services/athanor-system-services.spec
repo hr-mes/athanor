@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-system-services
 Version:        1.0.1
-Release:        18%{?dist}
+Release:        19%{?dist}
 Summary:        Athanor OS athanor-system-services
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -41,6 +41,14 @@ install -m 0755 %{_sourcedir}/usr/bin/athanor-cosmic-panel %{buildroot}/usr/bin/
 %attr(0755,root,root) /usr/bin/athanor-cosmic-panel
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-19
+- Count the notification daemon's failures over a sliding ten-minute window instead of
+  clearing them after any run longer than a minute. Under the old rule a daemon that died
+  every 61 seconds -- the shape of a leak, or of a driver that gives out after a while --
+  cleared the count every time, so the give-up was never reached and the panel was
+  restarted once a minute for as long as the session lasted. Five exits inside ten minutes
+  now drop the daemon; at one exit a minute the fifth falls inside the window with five
+  minutes to spare, and a daemon that fails less often than that is still worth restarting.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-18
 - A cosmic-notifications that cannot be started at all no longer costs the session its
   panel. athanor-cosmic-panel spawns the daemon first, and an exec failure there -- a
