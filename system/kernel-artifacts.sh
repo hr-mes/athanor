@@ -23,6 +23,10 @@
 #                                       check_gpus and check_delta; exit 1 for a failing row
 #   get KEY                             print the value of KEY; exit 1 when the file lacks it
 #   has KEY                             exit 0 when KEY has a non-empty value
+#   registry                            print the registry and owner this run would resolve
+#                                       against (the same $REGISTRY resolve writes to the file);
+#                                       no network call, so a caller can compose an image
+#                                       reference before resolve has ever run
 #   digest REF                          the digest of REF, empty when the tag does not exist
 #   signed REF kernel|modules           signed or unsigned, by the workflow that publishes it
 #   predicates REF modules              the custom predicates of REF, one JSON per line, or
@@ -415,6 +419,7 @@ case $command in
   check-plan) check_plan "$@" ;;
   get) [[ $# -eq 1 ]] || usage; get "$1" ;;
   has) [[ $# -eq 1 ]] || usage; [[ -f $FILE ]] && grep -q "^$1=." "$FILE" ;;
+  registry) [[ $# -eq 0 ]] || usage; echo "$REGISTRY" ;;
   digest) [[ $# -eq 1 ]] || usage; ask digest "$1" ;;
   signed) [[ $# -eq 2 ]] || usage; ask signed "$1" "$2" ;;
   predicates) [[ $# -eq 2 ]] || usage; ask predicates "$1" "$2" ;;

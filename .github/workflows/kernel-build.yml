@@ -45,7 +45,13 @@ permissions:
 
 env:
   STAGE: ${{ inputs.stage || 'build' }}
-  IMAGE: ${{ vars.REGISTRY || 'ghcr.io' }}/${{ github.repository_owner }}/azoth
+  # The one knob system/kernel-artifacts.sh itself reads (default ghcr.io/<owner>,
+  # lowercased there, never recomputed here): every job below that needs an image
+  # reference asks the script for it (system/kernel-artifacts.sh registry), so a
+  # repository variable override can never diverge between what this workflow pushes
+  # to and what resolve() verifies against elsewhere in the chain (doc_build_ordering.md,
+  # O9).
+  KERNEL_REGISTRY: ${{ vars.KERNEL_REGISTRY }}
 
 jobs:
   inputs:
@@ -61,6 +67,9 @@ jobs:
       registry: ${{ steps.artifacts.outputs.registry }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Registry (system/kernel-artifacts.sh)
+        run: echo "IMAGE=$(bash system/kernel-artifacts.sh registry)/azoth" >> "$GITHUB_ENV"
 
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
 
@@ -178,6 +187,7 @@ jobs:
           NVR: ${{ needs.inputs.outputs.nvr }}
         run: |
           set -euo pipefail
+          IMAGE=$(bash system/kernel-artifacts.sh registry)/azoth
           mkdir -p out
           for tag in "${NVR}" "${NVR}-microvm"; do
             ctr=$(podman create "${IMAGE}:${tag}" /kernel)
@@ -273,6 +283,9 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Registry (system/kernel-artifacts.sh)
+        run: echo "IMAGE=$(bash system/kernel-artifacts.sh registry)/azoth" >> "$GITHUB_ENV"
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:

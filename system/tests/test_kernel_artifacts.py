@@ -482,6 +482,18 @@ class Resolve(Tool):
         self.assertEqual(self.run_script("has", "nvidia_open_digest").returncode, 0)
         self.assertEqual(self.run_script("has", "nvidia_legacy_digest").returncode, 1)
 
+    def test_registry_prints_the_default_without_a_network_call(self):
+        # No fixture is loaded (setUp leaves the fake registry empty): a real network call
+        # would find nothing signed and fail differently than a plain digest mismatch.
+        r = self.run_script("registry")
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, REG))
+        self.assertFalse((self.dir / "calls.log").exists(), "registry must never call skopeo or cosign")
+
+    def test_registry_honours_kernel_registry(self):
+        env = dict(self.env, KERNEL_REGISTRY="registry.example/other")
+        r = subprocess.run(["bash", str(SCRIPT), "registry"], capture_output=True, text=True, env=env, cwd=self.dir)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "registry.example/other"))
+
 
 class Repo(Tool):
     """A git repository with a bare origin and a shallow clone, as actions/checkout leaves it."""

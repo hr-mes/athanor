@@ -38,6 +38,13 @@ on:
 permissions:
   contents: read
 
+env:
+  # The same knob kernel-build.yml sets (system/kernel-artifacts.sh reads it under this
+  # exact name): every resolve below must agree with what kernel-build.yml published to,
+  # or a repository variable override would make this workflow see kernel-missing forever
+  # (doc_build_ordering.md, O9).
+  KERNEL_REGISTRY: ${{ vars.KERNEL_REGISTRY }}
+
 jobs:
   artifacts:
     runs-on: ubuntu-24.04
