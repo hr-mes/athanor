@@ -97,7 +97,7 @@ window.background {
     margin-bottom: 22px;
 }
 
-.greeter-caps-pill, .greeter-biometric-pill {
+.greeter-caps-pill {
     font-family: 'Inter', 'SF Pro Text', sans-serif;
     font-size: 12px;
     font-weight: 700;
@@ -107,18 +107,9 @@ window.background {
     letter-spacing: 1px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     transition: all 0.3s ease;
-}
-
-.greeter-caps-pill {
     color: #ffd166;
     background-color: rgba(255, 209, 102, 0.20);
     border: 1px solid rgba(255, 209, 102, 0.40);
-}
-
-.greeter-biometric-pill {
-    color: #38bdf8;
-    background-color: rgba(56, 189, 248, 0.20);
-    border: 1px solid rgba(56, 189, 248, 0.40);
 }
 
 .greeter-entry-box {
@@ -282,17 +273,19 @@ pub fn build_ui(app: &Application) {
         .css_classes(["greeter-status-pill"])
         .build();
 
-    let status_pill = Label::builder()
-        .label("󰤨   󰁹   IT")
-        .css_classes(["greeter-status-pill"])
-        .build();
+    // The top bar carried a second pill reading "󰤨   󰁹   IT": a wifi glyph, a full
+    // battery glyph and a keyboard layout, none of them read from anything. The greeter
+    // cannot read any of the three -- NetworkManager is not on its filtered bus, the
+    // sandbox is not given the power supply class and nothing tells it the layout -- and
+    // on the dev VM it drew a connected network and a full battery on a machine with
+    // neither (and two tofu boxes, the glyphs being absent from the font). Removed
+    // rather than faked.
 
     let right_box = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(8)
         .build();
     right_box.append(&theme_toggle);
-    right_box.append(&status_pill);
 
     topbar.append(&os_title);
     topbar.append(&spacer);
@@ -369,19 +362,25 @@ pub fn build_ui(app: &Application) {
         .css_classes(["greeter-user-name"])
         .build();
 
-    let badge_text = "WAYLAND • NIRI";
+    // Built from the session request the greeter will send, not written out here: the
+    // hard-coded "WAYLAND • NIRI" survived niri's replacement by cosmic-comp and told
+    // every user of the published image something untrue.
     let badge_label = Label::builder()
-        .label(badge_text)
+        .label(session_badge(&session_command()))
         .halign(Align::Center)
         .css_classes(["greeter-badge"])
         .build();
 
-    let biometric_pill = Label::builder()
-        .label("󰈆 BIOMETRIA (TPM 2.0 / FPRINTD) & KEYRING UNLOCK ATTIVI")
-        .halign(Align::Center)
-        .css_classes(["greeter-biometric-pill"])
-        .visible(std::path::Path::new("/var/run/dbus/system_bus_socket").exists())
-        .build();
+    // The card used to carry a pill reading "BIOMETRIA (TPM 2.0 / FPRINTD) & KEYRING
+    // UNLOCK ATTIVI", shown whenever a system bus socket existed. That is not evidence
+    // of any of the three: the dev VM has no /dev/tpm*, fprintd inactive and showed the
+    // pill all the same. Nor can the greeter earn the claim here -- its bus is filtered
+    // down to three logind methods by xdg-dbus-proxy, so net.reactivated.Fprint and
+    // tpm2 state are out of reach by design, and whether PAM unlocks the keyring is
+    // decided by the stack greetd runs, not by anything visible before login. An
+    // unbacked security claim is worse than no claim, so the pill is gone. The PAM
+    // conversation already names a fingerprint prompt when there is one
+    // (authenticate_interactive's status callback).
 
     let caps_label = Label::builder()
         .label("󰪛 MAIUSC ATTIVO")
@@ -504,7 +503,6 @@ pub fn build_ui(app: &Application) {
     card_box.append(&avatar_widget);
     card_box.append(&user_label);
     card_box.append(&badge_label);
-    card_box.append(&biometric_pill);
     card_box.append(&caps_label);
     card_box.append(&entry_row);
     card_box.append(&error_label);

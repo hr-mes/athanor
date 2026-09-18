@@ -114,6 +114,37 @@ pub fn discover_target_user() -> UserInfo {
     }
 }
 
+/// The session type the greeter asks greetd for. The badge on the greeter card reads it
+/// from here, so what the card says and what the greeter requests cannot drift apart.
+pub const SESSION_TYPE: &str = "wayland";
+
+/// The command the greeter asks greetd to run once the password is accepted.
+pub fn session_command() -> String {
+    for candidate in [
+        "/usr/bin/athanor-session",
+        "/etc/greetd/athanor-session",
+        "/usr/local/bin/athanor-session",
+    ] {
+        if std::path::Path::new(candidate).exists() {
+            return candidate.to_string();
+        }
+    }
+    "athanor-session".to_string()
+}
+
+/// The badge under the user name on the greeter card: what this greeter is about to
+/// start, and nothing else. It is built from the session request itself, so it cannot
+/// go stale the way the hard-coded "WAYLAND • NIRI" did when cosmic-comp replaced niri.
+/// The compositor is not named: the greeter does not choose it and cannot read it out of
+/// the session command without parsing a shell script.
+pub fn session_badge(session_cmd: &str) -> String {
+    let name = std::path::Path::new(session_cmd)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(session_cmd);
+    format!("{} • {}", SESSION_TYPE.to_uppercase(), name.to_uppercase())
+}
+
 pub async fn authenticate_interactive<F>(password: &str, status_cb: &F) -> Result<(), String>
 where
     F: Fn(&str),
@@ -127,15 +158,7 @@ where
     let mut stream = UnixStream::connect(path).map_err(|e| e.to_string())?;
     let username = discover_target_user().username;
 
-    let session_cmd = if std::path::Path::new("/usr/bin/athanor-session").exists() {
-        "/usr/bin/athanor-session".to_string()
-    } else if std::path::Path::new("/etc/greetd/athanor-session").exists() {
-        "/etc/greetd/athanor-session".to_string()
-    } else if std::path::Path::new("/usr/local/bin/athanor-session").exists() {
-        "/usr/local/bin/athanor-session".to_string()
-    } else {
-        "athanor-session".to_string()
-    };
+    let session_cmd = session_command();
 
     let req = Request::CreateSession { username: username.clone() };
     let mut resp = send_request(&mut stream, &req)?;
@@ -162,7 +185,7 @@ where
                 let req = Request::StartSession {
                     cmd: vec![session_cmd],
                     env: vec![
-                        "XDG_SESSION_TYPE=wayland".to_string(),
+                        format!("XDG_SESSION_TYPE={}", SESSION_TYPE),
                         "XDG_CURRENT_DESKTOP=Athanor".to_string(),
                     ],
                 };
@@ -181,4 +204,38 @@ where
 
 pub async fn authenticate(password: &str) -> Result<(), String> {
     authenticate_interactive(password, &|_| {}).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn badge_names_the_session_the_greeter_starts() {
+        assert_eq!(
+            session_badge("/usr/bin/athanor-session"),
+            "WAYLAND • ATHANOR-SESSION"
+        );
+        // A bare command, as the last fallback of session_command() returns it.
+        assert_eq!(session_badge("athanor-session"), "WAYLAND • ATHANOR-SESSION");
+    }
+
+    #[test]
+    fn badge_names_no_compositor() {
+        // The greeter neither chooses nor can read the compositor, so it must not claim
+        // one: "WAYLAND • NIRI" outlived niri by a whole release.
+        let badge = session_badge(&session_command());
+        for compositor in ["NIRI", "COSMIC", "COSMIC-COMP", "SWAY", "GNOME", "KDE"] {
+            assert!(
+                !badge.contains(compositor),
+                "badge {badge:?} names the compositor {compositor}"
+            );
+        }
+    }
+
+    #[test]
+    fn session_command_is_absolute_where_the_session_is_installed() {
+        let cmd = session_command();
+        assert!(cmd.ends_with("athanor-session"), "unexpected session command {cmd:?}");
+    }
 }
