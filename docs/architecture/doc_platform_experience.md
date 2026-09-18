@@ -48,7 +48,7 @@ Queste app operano in un sandbox stretto (Bubblewrap). Se scarichi un PDF malign
 Al primo avvio, l'OS fornisce un set di strumenti essenziali curati per non violare l'isolamento:
 - **Browser:** Una versione hardenizzata (spesso basata su Firefox/LibreWolf) fornita via Flatpak.
 - **Terminal/IDE:** Ambienti di sviluppo forniti tramite podman/toolbx, che permettono all'utente di distruggere e ricreare macchine virtuali di sviluppo senza mai "sporcare" l'OS host.
-- **Interfaccia:** Nessun desktop "pesante" come GNOME o KDE. Solo il pannello nativo GTK4/Relm4 e la navigazione a nastro orizzontale del compositor `Niri`.
+- **Interface:** COSMIC on cosmic-comp, with Athanor's own surfaces replacing COSMIC's one stage at a time. See [doc_shell.md](doc_shell.md), which supersedes the niri and Relm4 panel described here before 2026-09-18.
 
 ---
 

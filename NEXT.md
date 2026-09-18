@@ -347,7 +347,21 @@ Specification: [docs/architecture/doc_kernel_profile.md](docs/architecture/doc_k
 - **P1**: `forge/specs/athanor-kernel-profile`, holding `profile.toml`, `kernel_profile.py` (validator over every role combination and generator of the effective profiles), `athanor-profile-check` and the acceptance marker `profile-ok`. Plan: [docs/superpowers/plans/2026-09-14-kernel-profile-p1.md](docs/superpowers/plans/2026-09-14-kernel-profile-p1.md). Gate: ISO acceptance PASS with `profile-ok`.
 - **P2**: kernel build profile (section 5) and boot matrix assertions. Gate: Kernel Build gate green.
 
+## BLOCCO S — shell, stage 1
+
+Specification: [docs/architecture/doc_shell.md](docs/architecture/doc_shell.md), approved on 2026-09-18 after two review rounds. COSMIC stays underneath; stage 1 adds a design system, the update experience and the trust shield. Packages run in this order, each with its own plan:
+
+- [ ] **Spikes P1–P3** (GTK4 applet in cosmic-panel; gtk4/relm4 bump on the greeter; headless screenshots). Each gates the plan named in section 3 of the spec.
+- [ ] **1b-system**: `doc_update_trust.md` written, audited and consented to by the maintainer; then key-based signature, policy, download timer, state file, helper, notifier.
+- [ ] **1a**: design system and the greeter on it.
+- [ ] **1b-shield**: shield applet and the seal in the greeter.
+- [ ] **1c**: layout document, three presets, two knobs, chooser.
+
+Gate: section 7 of the spec, on a fresh install in the dev VM and on the maintainer's desktop upgraded in place.
+
 ## Shell — lacune funzionali verso un utente Windows/macOS
+
+> Superseded on 2026-09-18 by BLOCCO S: the critical analyses behind `doc_shell.md` found this shell to be a niri satellite whose styling never rendered. The three gaps below stay valid as requirements for the stage that owns each surface.
 
 Analisi statica della shell 2026-09-10 (`athanor-shell-rs`, 83 file, ~15.6k righe vive):
 sana — zero unwrap/expect/panic/unsafe nel codice vivo, clippy pulito, niente TODO,

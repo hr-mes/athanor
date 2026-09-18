@@ -22,7 +22,7 @@
 Explore the detailed architectural specifications (generated and maintained by our AI swarm):
 - [**Kernel Layer & Boot Sequence**](docs/architecture/doc_kernel_layer.md)
 - [**Core Daemons, Security & IPC**](docs/architecture/doc_core_daemons.md)
-- [**Desktop UI Stack & Compositor**](docs/architecture/doc_shell_ui.md)
+- [**Desktop Shell: Direction, Layout Model, Stage 1**](docs/architecture/doc_shell.md)
 - [**Athanor Cloud Mesh & Sync**](docs/architecture/doc_cloud_mesh.md)
 - [**Build System & CI/CD Pipeline**](docs/architecture/doc_build_system.md)
 - [**Athanor OS v3.0 Singularity Architecture**](docs/architecture/athanor_singularity_architecture_v3.md)
