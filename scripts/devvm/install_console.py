@@ -12,9 +12,25 @@ import socket
 import sys
 import time
 
-sys.path.insert(
-    0, str(pathlib.Path(__file__).resolve().parents[2] / "forge" / "test" / "iso")
-)
+# This script is found by its position in the repository, two directories below the root:
+# forge/test/iso is a sibling of scripts/devvm's parent. create.sh runs it in place with
+# "$HERE/install_console.py", so this only breaks if scripts/devvm itself was copied or
+# symlinked out of the repo tree -- but then it breaks silently: create.sh backgrounds
+# this process and runs QEMU in the foreground, so a crash here at start-up leaves nobody
+# to type at the GRUB menu, and QEMU just sits there with no further output. A plain
+# ModuleNotFoundError from the failed import says as much, but only if someone happens to
+# be watching the very first instant of a `create.sh` that otherwise looks like a normal,
+# multi-minute install -- which is what "hangs silently" meant in practice.
+_ISO_TEST_DIR = pathlib.Path(__file__).resolve().parents[2] / "forge" / "test" / "iso"
+if not (_ISO_TEST_DIR / "console.py").is_file():
+    sys.exit(
+        f"install_console.py: expected {_ISO_TEST_DIR / 'console.py'} two directories "
+        "above scripts/devvm, found nothing there. This script locates "
+        "forge/test/iso/console.py by its position in the repository: run it from "
+        "scripts/devvm inside a normal checkout of athanor, not from a copy or a "
+        "symlink taken out of the repository layout."
+    )
+sys.path.insert(0, str(_ISO_TEST_DIR))
 import console
 
 
