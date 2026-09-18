@@ -114,7 +114,16 @@ jobs:
     # explicitly, so nothing past this job can run with lint red.
     needs: [lint]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # resolve makes about 11 registry/Rekor calls (skopeo/cosign, twice for the kernel plus
+    # a digest/signed/predicates probe per module branch), each wrapped in retry.sh: 5
+    # attempts, delay doubling from 15 s, so a call that fails every attempt sleeps
+    # 15+30+60+120 = 225 s (~3.75 min) before its own error surfaces. Two or three of the 11
+    # calls hitting a flaky-but-transient registry and retrying to exhaustion (2-3 x ~3.75
+    # min = 7.5-11.25 min) already threatened the previous 15-minute budget; 25 minutes
+    # gives that headroom. A persistent, real error still fails fast, inside the first
+    # attempt of whichever call finds it, so this only changes the diagnosis of a flaky run,
+    # never the outcome of a broken one (review finding 7).
+    timeout-minutes: 25
     permissions:
       contents: read
     env:
@@ -163,7 +172,9 @@ jobs:
     needs: [kernel-artifacts, nvidia-kmod]
     if: ${{ !cancelled() && needs.kernel-artifacts.result == 'success' && needs.kernel-artifacts.outputs.cycle == 'build' && (needs.nvidia-kmod.result == 'success' || needs.nvidia-kmod.result == 'skipped') }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # require-ready runs the same resolve() as the kernel-artifacts job above, at the same
+    # registry/Rekor cost: see the arithmetic on that job's timeout-minutes.
+    timeout-minutes: 25
     permissions:
       contents: read
     env:
