@@ -26,6 +26,8 @@ jobs:
       # is what made this workflow fail every night since September. Missing secret =
       # a red run with a message, not a run that pretends to work.
       - name: The token that opens the pull request
+        # Before the checkout, so the job's working-directory (forge) does not exist yet.
+        working-directory: ${{ github.workspace }}
         env:
           SPECS_UPDATE_TOKEN: ${{ secrets.SPECS_UPDATE_TOKEN }}
         run: |
