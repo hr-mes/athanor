@@ -26,8 +26,7 @@ bootloader --append="console=tty0 console=ttyS0,115200n8"
 # reliably hand the same lease back to the guest on every renewal (seen going from .15 to
 # .16 across an in-place reboot), and nothing short of a new hostfwd on the QEMU monitor
 # recovers from that; a fixed address removes the lease from the picture entirely.
-network --bootproto=static --device=link --ip=10.0.2.15 --netmask=255.255.255.0 \
-    --gateway=10.0.2.2 --nameserver=10.0.2.3 --activate --onboot=yes
+network --bootproto=static --device=link --ip=10.0.2.15 --netmask=255.255.255.0 --gateway=10.0.2.2 --nameserver=10.0.2.3 --activate --onboot=yes
 
 # The developer: the host user's name, so ssh needs no user@. The password is for the
 # greeter; SSH takes the key only.
