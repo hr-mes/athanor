@@ -47,7 +47,7 @@ qemu-system-x86_64 \
   -drive "if=virtio,format=raw,file=$work/ks.img" \
   -drive "if=none,id=cd,media=cdrom,readonly=on,file=$iso" \
   -device virtio-scsi-pci -device scsi-cd,drive=cd,bootindex=1 \
-  -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
+  -netdev user,id=n0 -device "virtio-net-pci,netdev=n0,$NIC_PCI_ADDR" \
   -device virtio-vga -display none -serial "unix:$work/serial.sock,server,wait=off"
 wait "$console_pid"
 grep -aq "Athanor devvm kickstart finished" "$work/serial.log" \
