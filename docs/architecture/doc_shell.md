@@ -1,6 +1,6 @@
 # Athanor shell: direction, layout model, stage 1
 
-Status: **revision 2, under validation.** The maintainer took the decisions below on 2026-09-18 and delegated the validation of this document. Revision 1 failed two independent reviews, an adversarial one and a security one (`.superpowers/shell-spec-review.md`, `.superpowers/shell-spec-security-review.md`): the direction held, the update and trust part did not. This revision takes their findings. Section 5 lists what is still unverified. No code is written before this document is approved.
+Status: **revision 3, under validation.** The maintainer took the decisions below on 2026-09-18 and delegated the validation of this document. Revision 1 failed two independent reviews, an adversarial one and a security one (`.superpowers/shell-spec-review.md`, `.superpowers/shell-spec-security-review.md`): the direction held, the update and trust part did not. Revision 2 took their findings; both reviewers then found it approvable with changes (`…-r2.md` beside the first reports), and revision 3 takes those. Section 5 lists what is still unverified. No code is written before this document is approved.
 
 The document replaces `doc_shell_ui.md` and amends `doc_platform_experience.md`, section 3. Section 6 lists the changes other documents take.
 
@@ -114,25 +114,26 @@ COSMIC applications (`cosmic-files`, `cosmic-term`, `cosmic-edit`, `cosmic-store
 2. No third-party code runs in our surfaces: modules are a closed, in-image set. A third-party module mechanism may exist only inside a compartment with a declared capability manifest.
 3. Elements that carry text are horizontal.
 
-**SH10. The default preset is chosen once per user,** at the first session, from the logical height of the primary output: below 800 logical pixels `bar`, which spends one edge instead of two; otherwise `float`. It writes only the `preset` key, and nothing at all when the policy layer names a preset. It is never re-evaluated. The chassis type is not used: `hostnamectl chassis` answers `vm` or nothing on too many machines.
+**SH10. The default preset is chosen once per user,** at the first session, from the smallest logical height among the connected outputs; Wayland has no primary output. Below 800 logical pixels the pick is `bar`, which spends one edge instead of two; otherwise `float`. A 1080p laptop at 150 % is 720 logical pixels and gets `bar`: that is intended. The pick writes only the `preset` key, and nothing at all when the policy layer names a preset. A marker under `$XDG_STATE_HOME/athanor/` records that it ran, so it is never re-evaluated. The chassis type is not used: `hostnamectl chassis` answers `vm` or nothing on too many machines.
 
 **SH11. Updates are never forced, and never applied unconfirmed.** Stage 1b is the interim implementation of the Athanor update service of `doc_kernel_profile.md`, section 8 (D31, D36), behind the same interface, so `systemd-sysupdate` with A/B `/usr` later replaces bootc without changing the experience.
 
-- **Download:** a system timer runs `bootc upgrade --download-only`, which stages a deployment locked against being applied. A shutdown the user did not confirm applies nothing. The download is skipped when NetworkManager reports the connection as metered (`Metered` 1 or 3); unknown and guessed-unmetered connections download, and so does a machine without NetworkManager.
+- **Check and download:** a system timer checks for a newer digest on every run, which costs a manifest, and then runs `bootc upgrade --download-only`, which stages a deployment locked against being applied. A shutdown the user did not confirm applies nothing. Only the download is skipped when NetworkManager reports the connection as metered (`Metered` 1 or 3); unknown and guessed-unmetered connections download, and so does a machine without NetworkManager.
+- **A reboot discards a locked deployment;** the pulled image stays cached. The state therefore tells "available" from "downloaded", and "Restart to update" on a digest that is only available downloads it first.
 - **Notice:** a user service sends **one** notification per staged digest and per user: an update is ready; actions "Restart to update" and "Later". "Later" leaves the deployment locked. No countdown, no repeat. The state is per machine; notifications are per user.
-- **Confirmation:** "Restart to update" asks the system side to unlock the staged deployment (`bootc upgrade --from-downloaded`), then asks logind to reboot.
+- **Confirmation is one step:** "Restart to update" asks the system side to unlock the deployment (`bootc upgrade --from-downloaded`) and reboot in the same request. The system side first asks logind whether a reboot is blocked by an inhibitor, and when it is, refuses without unlocking. An unlocked deployment therefore never waits for some later shutdown, the request grants a process nothing beyond the reboot logind already allows the active local user, and it takes the same polkit defaults.
 - **After the first boot into a new deployment,** one notification says which version is now running, with the version and date from the image labels, and offers the way back. It claims no changelog: none exists yet.
-- **Going back** is `bootc rollback` to the immediately previous deployment, behind administrator authentication, followed by a restart. A digest the user went back from is held: it is not downloaded again until a newer digest is published or the user asks from the shield. Without this rule the timer would undo the rollback.
+- **Going back** is `bootc rollback` to the immediately previous deployment, behind administrator authentication, followed by a restart. A digest the user went back from is held: it is not downloaded again, and only a newer digest is offered. Without this rule the timer would undo the rollback. Stage 1 has no request that releases a held digest.
 
 **SH12. The shield reports only what a verifier backs.**
 
-- **The contract with the system side.** The shell never runs privileged code. It reads one root-owned, world-readable state file, written atomically by the system side, and sends two requests, unlock and go back. It treats the file as untrusted input: every string is set as plain text, never as markup, truncated, and stripped of control and bidirectional characters. The words "verified" and "blocked" come only from the shell's own translations, never from the file.
-- **Verified** means: the digest of the booted deployment carries a signature that the system side checked against a key still present in the policy in force. The result is recorded per digest and per key under `/var/lib`, so it survives the reboot and a deployment installed from the ISO becomes verified at its first check. A digest fetched under a permissive policy, or whose key left the policy, is not verified. Nothing is inferred from the policy being strict today.
+- **The contract with the system side.** The shell never runs privileged code. It reads one root-owned, world-readable state file, written atomically by the system side, and sends two requests, apply and go back. Because every local process can read that file, the system side writes an enumerated error code and at most a host name into it, never a raw error string or a URL. It treats the file as untrusted input: every string is set as plain text, never as markup, truncated, and stripped of control and bidirectional characters. The words "verified" and "blocked" come only from the shell's own translations, never from the file.
+- **Verified** means: the digest of the booted deployment carries a signature that the system side checked against a key still present in the policy in force. The result is recorded per digest and per key under `/var/lib`, so it survives the reboot and a deployment installed from the ISO becomes verified at its first check. A digest fetched under a permissive policy, or whose key left the policy, is not verified. Nothing is inferred from the policy being strict today. The signature material is kept beside the record, so the result can be derived again and is not a bare boolean on a writable partition.
 - **Three badges,** each different in shape and in colour so they read without colour vision:
-  - a check: the booted image is verified and is the newest the machine has seen;
-  - an exclamation mark: not verified yet, the policy is not in force, or the machine runs an older version than it has seen, as after going back;
-  - a cross: the last download was refused by the policy. It clears at the next verified download.
-- **Rows that do not move the badge.** Secure Boot off is the declared degraded mode of `doc_kernel_profile.md` D3: its row says so, plainly. The header of the popover claims only what the rows back: "System image verified", never "this computer is safe".
+  - a check: the booted image is verified, it is the newest the machine has booted, and the last successful check for updates is at most 14 days old;
+  - an exclamation mark: not verified yet, the policy is not in force, the machine runs an older version than one it has booted, as after going back, or no check for updates has succeeded for 14 days, with that date. A machine whose updates stopped silently must not stay green: that defect has already shipped once (section 1), and an attacker who can only drop traffic causes it at will;
+  - a cross: the last download was refused by the policy. It clears when a later download passes the policy.
+- **Rows that do not move the badge.** Secure Boot off is the declared degraded mode of `doc_kernel_profile.md` D3: its row says so, plainly. The header of the popover claims only what the rows back: "System image verified", never "this computer is safe". That sentence is about the image the deployment refers to. It is not a measurement of the running `/usr`: nothing ties the booted files to the digest until the dm-verity `/usr` of `doc_kernel_profile.md`, and no wording in the interface suggests otherwise.
 - **In stage 1 the session shield is informative, not a trusted path.** A process running as the user can shadow, remove or overdraw it. The greeter's seal is the stronger one, because no user code runs there. A spoof-resistant shield needs the compositor work of SH2.
 - **The shield is the Athanor mark with the badge.** There is no permanent text in the panel: the words are in the popover and in the accessible name. Its place is the right end of the panel in every layout, and the top right corner of the greeter. Whether that place mirrors under RTL is decided with our own panel; cosmic-panel does not mirror.
 - In stage 1 the shield is a GTK4 applet inside cosmic-panel (spike P1). Its popover carries the rows, "Restart to update" and "Go back to the previous version".
@@ -140,12 +141,14 @@ COSMIC applications (`cosmic-files`, `cosmic-term`, `cosmic-edit`, `cosmic-store
 **The system side has its own spec, `doc_update_trust.md`,** written and passed through the `auditor` before package 1b-system is planned; the maintainer consents to it because it changes the signing pipeline. This document binds it to the following:
 
 1. Release images gain a key-based cosign signature beside the keyless one, with the key in the `signing` environment.
-2. The policy is `sigstoreSigned` with a `keyPaths` list, scoped to the project's registry only; `default` is untouched, so other registries keep working. It ships at `/usr/share/containers/policy.json` with `use-sigstore-attachments` in `registries.d`, and the image build removes the `/etc` copy that would shadow it. The state file names the policy actually in force.
+2. The policy is `sigstoreSigned` with a `keyPaths` list, scoped to the project's registry only; `default` is untouched, so other registries keep working. The tools read only `/etc/containers/`, so the policy and the `registries.d` entry with `use-sigstore-attachments` live under `/usr` and the image build makes the `/etc` paths symbolic links to them. A local file that replaces a link shadows the policy; the state file names the policy actually in force, and the badge follows it.
 3. A key rotation ships the new public key in an image still signed with the old one.
 4. Existing installs move from `ostree-unverified-registry:` to a signed reference by an explicit, tested step.
-5. The helper is a root D-Bus service with two methods and no arguments, one polkit action each in the `os.athanor.*` namespace, the subject taken from the bus sender through `athanor_bus_api::polkit`. Going back is `auth_admin`. Every new unit is hardened, and the user-side processes restrict themselves with Landlock at start, as the greeter does.
+5. The helper is a root D-Bus service with two methods and no arguments, apply and go back, one polkit action each in the `os.athanor.*` namespace, the subject taken from the bus sender through `athanor_bus_api::polkit`. Apply takes logind's defaults for a reboot (SH11); going back is `auth_admin` for every subject. Every new unit is hardened, and the user-side processes restrict themselves with Landlock at start, as the greeter does.
 6. The state directory is declared in `tmpfiles.d` with owner and mode, apart from the directory that holds the released disk key.
 7. "Secure Boot on" means `SecureBoot=1`, `SetupMode=0`, shim validation not disabled and kernel lockdown active, each published separately. The shipped `athanor-secure-boot` daemon cannot own its bus name today; it is fixed or retired there.
+8. Registry retention never removes an image, or the signature of an image, that a supported machine may still boot, download or go back to. `forge/scripts/clean_ghcr.sh` keeps two tagged versions per package today and counts signatures as versions.
+9. Every published image carries a version label of its own. Today two builds a day apart are both `43.20260916.0`, and SH11 names the running version to the user.
 
 **SH13. Tests.**
 
@@ -161,9 +164,9 @@ Four work packages, each with its own implementation plan, in this order. The fi
 
 | Package | Delivers | Gated by |
 |---|---|---|
-| **1b-system. Updates and trust state** | `doc_update_trust.md`; key-based signature; policy; download timer in place of the broken preset line and override; state file; helper with its `.policy` and `system.d` files | the maintainer's consent to that spec |
+| **1b-system. Updates and trust state** | `doc_update_trust.md`; key-based signature; policy; download timer in place of the broken preset line and override; state file; helper with its `.policy` and `system.d` files; the notifier, which needs neither GTK nor the tokens, so the timer never ships without a way to confirm | the maintainer's consent to that spec |
 | **1a. Design system** | tokens, generator, CI parse and contrast gates, default `CosmicTheme`, font, hearth wallpaper, seal icons, the greeter re-skinned on the tokens with roles and gettext | P2, P3 |
-| **1b-shield. Notices and shield** | notifier, shield applet with its popover, the seal in the greeter, with the state file bound read-only into the greeter's sandbox | 1b-system, 1a, P1 |
+| **1b-shield. Shield** | shield applet with its popover, the seal in the greeter, with the state file bound read-only into the greeter's sandbox | 1b-system, 1a, P1 |
 | **1c. Layout** | schema, layered loader with migration and degradation, translator to cosmic-panel, first-session default, three presets with two knobs, a small chooser window | 1a, P3 |
 
 Spikes, run before the plan they gate; each produces an answer, not code we keep:
@@ -176,7 +179,7 @@ Spikes, run before the plan they gate; each produces an answer, not code we keep
 
 Two more spikes gate stage 2, not stage 1: the security-context privilege model on 1.8, and a side-connection client for toplevels, workspaces and capture.
 
-Out of stage 1: our own panel, dock, launcher, notifications, lock and Settings; the `split` preset; window titles in `bar`; a curated accent palette; named outputs; a screen reader at the greeter; any compositor patch.
+Out of stage 1: our own panel, dock, launcher, notifications, lock and Settings; the `split` preset; window titles in `bar`; a curated accent palette; named outputs; releasing a held digest; a screen reader at the greeter, which belongs to the stage that replaces the session lock; any compositor patch.
 
 ## 4. Risks
 
@@ -192,16 +195,18 @@ Out of stage 1: our own panel, dock, launcher, notifications, lock and Settings;
 1. **The session shield can be shadowed or removed** (section 1, SH12). Whether the panel unit can run with a restricted data path without breaking the application list is part of P1.
 2. **Where the verification runs.** `skopeo standalone-verify`, `cosign verify` with the key, or the pull itself under the policy: `doc_update_trust.md` picks one and says what it needs offline.
 3. **The metered state** is "unknown" on many networks, so SH11 downloads there. A user on an unmarked tethered phone pays for it; the rule errs towards being up to date.
-4. **P1 may fail.** Then there is no persistent "Restart to update" surface in the session: the notifier offers a pending digest again once per session start, and the seal exists at the greeter only.
+4. **P1 may fail.** Then there is no persistent "Restart to update" surface in the session: the notifier of 1b-system offers a pending digest again once per session start, and the seal exists at the greeter only.
 5. **Hiding COSMIC Settings pages** that configure a panel we later remove may need a patch. Not a stage 1 problem.
 6. **The greeter holds the real Wayland socket,** with capture and clipboard privilege. Per-surface confinement needs the compositor work of SH2.
 7. **A screen reader at the greeter** needs an accessibility bus, Orca and audio for the `greetd` user. Stage 1 delivers the roles and names; the plumbing is a later requirement of "for everyone", not a wish.
 8. **Inter** is a proposal from the mockups, not yet seen on real hardware at fractional scale.
 9. **Multi-user and kiosk machines** are covered by wording (per-user notices and picks, SH9.1 without a panel), not yet by a test.
+10. **How often a user is asked to restart.** The Orchestrator builds every night, and "one notice per digest" then means one notice a day. A promoted `stable` tag that users follow, with `latest` kept for testing, would fix it; `doc_kernel_profile.md` leaves channels to release 1.1. The maintainer decides whether one hand-promoted channel comes forward into `doc_update_trust.md`.
 
 ## 6. Changes to other documents
 
-- `doc_shell_ui.md` describes niri, relm4 and `athanor-settings-rs`. It is replaced by this document and deleted when this one is approved.
+- `doc_shell_ui.md` describes niri, relm4 and `athanor-settings-rs`. It is replaced by this document and deleted when this one is approved; the links to it in `README.md` and `forge/README.md` move here.
+- `doc_update_trust.md` is a new document (SH12).
 - `doc_platform_experience.md`, section 3, names "the native GTK4/Relm4 panel and the horizontal strip of `Niri`". It takes a pointer to this document.
 - `doc_kernel_profile.md`, the note on the existing override that "stages updates automatically": it takes a pointer to SH11, which removes that override.
 - `NEXT.md` takes stage 1 as a block with the gate of section 7.
@@ -213,11 +218,12 @@ On a fresh install in the dev VM, and on the maintainer's desktop upgraded in pl
 
 1. The generated CSS loads with zero GTK parse warnings, and the contrast gate passes in the four variants.
 2. On the fresh install the greeter, COSMIC's surfaces and COSMIC applications show one identity in light and in dark. On the upgraded desktop the existing theme is untouched. Changing the accent in COSMIC Settings changes our surfaces, and the trust colours do not move.
-3. The AT-SPI tree of the greeter, of the shield and of the chooser exposes a role and a name for every control; Orca reads the shield in the user session; all three run in Italian and in English.
-4. With a newer image published, the download happens with no user action and one notification appears. A shutdown after "Later" boots the same version, and "Later" is never asked again for that digest.
+3. The AT-SPI tree of the greeter, of the shield and of the chooser exposes a role and a name for every control, checked in the test rig, where an accessibility bus exists; Orca reads the shield in the user session; all three run in Italian and in English.
+4. With a newer image published, the download happens with no user action and one notification appears. A shutdown after "Later" boots the same version, and "Later" is never asked again for that digest. On a connection marked metered the check runs and the download does not.
 5. "Restart to update" boots the new deployment, and one notification names the running version.
 6. "Go back to the previous version" asks for administrator authentication and, after the restart, the old digest is booted, the badge is the exclamation mark, and the timer does not download the held digest again.
 7. The same image without its signature, and an image signed with another key, are refused; the badge is the cross, never the check.
-8. A signed image reads "verified" after the restart that boots it. The fresh install reads "verified" after its first check and "not verified" before it, never the check by default.
-9. The three presets and the two knobs apply from the chooser without a restart of the session. A user document with an unknown key degrades to a preset and the file is byte-identical afterwards. A key marked mandatory in `/etc` is greyed in the chooser. A new user on a screen under 800 logical pixels gets `bar`.
-10. The 23 layout cases and the 36 surface cases pass in CI.
+8. A signed image reads "verified" after the restart that boots it. The fresh install reads "verified" after its first check and "not verified" before it, never the check by default. With the clock moved 15 days past the last successful check and the network down, the badge is the exclamation mark.
+9. The upgraded desktop moves from `ostree-unverified-registry:` to the signed reference by the documented step and keeps updating. On the dev VM, an image that carries a second public key and is signed with the first is accepted, and so is the next one, signed with the second.
+10. The three presets and the two knobs apply from the chooser without a restart of the session. A user document with an unknown key degrades to a preset and the file is byte-identical afterwards. A key marked mandatory in `/etc` is greyed in the chooser. A new user on a screen under 800 logical pixels gets `bar`. A translator made to fail repeatedly leaves the vendor layout on screen, not an empty one.
+11. The 23 layout cases and the 36 surface cases pass in CI.
