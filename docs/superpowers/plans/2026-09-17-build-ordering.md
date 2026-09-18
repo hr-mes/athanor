@@ -6,21 +6,24 @@
 
 **Architecture:** `system/kernel-artifacts.sh` is the single decider: it verifies the kernel and the module tags of the pins in the registry, writes `kernel-artifacts/kernel-artifacts.env`, and answers the ordering questions of the Orchestrator and of System Image Check. Every workflow calls it and routes on its file. The work lands in two pull requests.
 
-- **PR A (Tasks 1–6), branch `build-ordering` into `iso-v0`:**
+- **PR A (Tasks 1–6, plus Task 8 brought forward), branch `build-ordering` into `iso-v0`:**
   - the script with its offline tests;
   - NVIDIA kmod as a reusable workflow publishing digest-bound tags;
   - the images built from the verified digests;
   - Kernel Build dispatching the Orchestrator;
-  - System Image Check following the O7 table.
+  - System Image Check following the O7 table;
+  - Task 8, the janitor excluding `azoth*` — moved here from PR B by the final whole-branch
+    review of PR A (finding 2): once `forge-ghcr-cleanup.yml` is repaired it would delete
+    the untagged cosign bundles and O2 module tags this PR's chain depends on, and PR A's
+    own merge (the O10 bootstrap) is the point those tags start existing.
 
   PR A changes the chain as one merge, so its merge is the O10 bootstrap.
-- **PR B (Tasks 7–9), branch `build-ordering-retention` from `iso-v0` after PR A is merged and its bootstrap is green:**
-  - one pruner per package set;
-  - the janitor excluding `azoth*`;
+- **PR B (Tasks 7, 9), branch `build-ordering-retention` from `iso-v0` after PR A is merged and its bootstrap is green:**
+  - one pruner per package set (Task 8's janitor exclusion already landed in PR A);
   - the documentation owed by spec section 5.
 
   The `nvidia` pruner deletes the old `<nvr>-open|legacy` tags, so it must not run before the new chain has published its own tags.
-- **Task 10** is the bootstrap and the acceptance. Execution order: Tasks 1–6, Task 10 Part 1, Tasks 7–9, Task 10 Part 2.
+- **Task 10** is the bootstrap and the acceptance. Execution order: Tasks 1–6 and 8, Task 10 Part 1, Tasks 7 and 9, Task 10 Part 2.
 
 **Tech Stack:** Bash (`set -euo pipefail`, `inherit_errexit`), jq, skopeo, cosign v3 (keyless, GitHub OIDC), git, Python 3 standard library `unittest` with fake tools on `PATH`, podman/buildah, GitHub Actions (`workflow_call`, `workflow_dispatch`, job-level concurrency), `gh`.
 
@@ -2855,6 +2858,14 @@ Claude-Session: https://claude.ai/code/session_01EUnNXqv8jNWDVMA83G7eZ4"
 
 ### Task 8: The janitor leaves the kernel packages alone
 
+**Done in PR A**, ahead of the schedule below: the final whole-branch review of PR A
+(`.superpowers/sdd/2026-09-17-build-ordering/final-review-pr-a.md`, finding 2) found that
+`forge-ghcr-cleanup.yml`, once repaired, would delete the untagged cosign bundles and the O2
+module tags the new chain depends on, turning into a permanent `kernel-missing`. The controller
+ruling brought this task forward into PR A rather than waiting for PR B, implemented as written
+below against the branch's current `test_kernel_artifacts.Tool` and `fake_registry.py`. PR B
+(Tasks 7, 9) is unaffected.
+
 **Files:**
 - Replace: `forge/scripts/clean_ghcr.sh`, `.github/workflows/forge-ghcr-cleanup.yml`
 - Create: `system/tests/test_clean_ghcr.py`
@@ -2868,7 +2879,7 @@ Claude-Session: https://claude.ai/code/session_01EUnNXqv8jNWDVMA83G7eZ4"
   - the workflow calls it in one line.
   - Unchanged: `forge/Justfile` recipe `clean-ghcr` keeps calling `bash scripts/clean_ghcr.sh "{{ owner }}"`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `system/tests/test_clean_ghcr.py`:
 
@@ -2911,13 +2922,13 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `python3 -B -m unittest discover -s system/tests -p 'test_clean_ghcr.py' -v`
 
 Expected: FAIL with `Lists differ`. The current script also deletes `athanor-system` version 6 (tagged `latest`, but not among the two newest) and the untagged versions of `azoth` and `azoth-nvidia`.
 
-- [ ] **Step 3: Replace `forge/scripts/clean_ghcr.sh`** (mode 0755)
+- [x] **Step 3: Replace `forge/scripts/clean_ghcr.sh`** (mode 0755)
 
 ```bash
 #!/usr/bin/env bash
@@ -2954,7 +2965,7 @@ while IFS= read -r package; do
 done <<< "$packages"
 ```
 
-- [ ] **Step 4: Replace `.github/workflows/forge-ghcr-cleanup.yml`**
+- [x] **Step 4: Replace `.github/workflows/forge-ghcr-cleanup.yml`**
 
 ```yaml
 name: 🧹 Forge GHCR Cleanup
@@ -2993,19 +3004,17 @@ jobs:
         run: bash forge/scripts/clean_ghcr.sh "$OWNER"
 ```
 
-- [ ] **Step 5: Validate**
+- [x] **Step 5: Validate**
 
 Run: `python3 -B -m unittest discover -s system/tests -v && shellcheck forge/scripts/clean_ghcr.sh && actionlint .github/workflows/forge-ghcr-cleanup.yml && python3 scripts/verify.py workflows`
 
 Expected: `Ran 41 tests` `OK`; the linters silent.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
-```bash
-git add forge/scripts/clean_ghcr.sh system/tests/test_clean_ghcr.py .github/workflows/forge-ghcr-cleanup.yml
-git commit -m "fix(ghcr-cleanup): exclude the kernel packages and move the janitor into its script" -m "The janitor deleted every untagged manifest, including the cosign bundles of azoth and azoth-nvidia that retention.sh keeps; azoth* now has a single pruner (doc_build_ordering.md, O6). The workflow calls clean_ghcr.sh, which fails on API errors instead of warning past them." -m "Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01EUnNXqv8jNWDVMA83G7eZ4"
-```
+Committed in PR A as `1a7f43dd` ("fix(ghcr-cleanup): exclude the kernel packages and move
+the janitor into its script"), ahead of PR B, per the final-review-pr-a.md finding 2 ruling
+above.
 
 ### Task 9: Documentation owed by the spec
 
