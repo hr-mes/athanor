@@ -152,27 +152,39 @@ def run_once(with_daemon):
     daemon = None
     panel_end = None
     if with_daemon:
-        daemon_end, panel_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
-        with daemon_end:
-            try:
-                daemon = spawn(
-                    [DAEMON], daemon_end, "DAEMON_NOTIFICATIONS_FD", preexec_fn=harden
-                )
-            except (OSError, subprocess.SubprocessError) as error:
-                # The daemon could not even be started: the binary is missing, SELinux
-                # refused the exec, harden() failed, the fork did not happen. Letting
-                # that out of here would start no panel at all and leave the unit to
-                # restart into the same wall until it failed for good -- the session
-                # losing its dock and launcher over the notification daemon, which is
-                # exactly what this wrapper exists to prevent. The panel runs without
-                # it, for the rest of the session.
-                log(
-                    f"cosmic-notifications could not be started ({error}); running "
-                    f"cosmic-panel without it -- this session has no notifications",
-                    ERR,
-                )
-                panel_end.close()
-                panel_end = None
+        # The daemon could fail to start in two ways, and both end the same: the panel
+        # runs without it, for the rest of the session. Letting either out of here would
+        # start no panel at all and leave the unit to restart into the same wall until it
+        # failed for good -- the session losing its dock and launcher over the
+        # notification daemon, which is exactly what this wrapper exists to prevent.
+        #
+        # The first way is a binary that is not there to be run, which is checked before
+        # the fork: a package that did not land, a file removed, a mode that cannot be
+        # executed. The second is everything that only shows up at the fork or the exec
+        # itself -- an SELinux denial, a failing harden(), a fork that does not happen --
+        # which arrives as an exception.
+        reason = None
+        if not os.access(DAEMON, os.X_OK):
+            reason = f"{DAEMON} is not there to be executed"
+
+        if reason is None:
+            daemon_end, panel_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+            with daemon_end:
+                try:
+                    daemon = spawn(
+                        [DAEMON], daemon_end, "DAEMON_NOTIFICATIONS_FD", preexec_fn=harden
+                    )
+                except (OSError, subprocess.SubprocessError) as error:
+                    reason = str(error)
+                    panel_end.close()
+                    panel_end = None
+
+        if reason is not None:
+            log(
+                f"cosmic-notifications could not be started ({reason}); running "
+                f"cosmic-panel without it -- this session has no notifications",
+                ERR,
+            )
 
     if panel_end is None:
         panel = subprocess.Popen([PANEL])

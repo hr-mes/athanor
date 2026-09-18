@@ -124,71 +124,99 @@ class CosmicPanelWrapper(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.exchange(tmp)
 
-    def test_a_daemon_that_cannot_be_started_costs_only_the_notifications(self):
-        """A daemon that will not exec must not cost the session its panel.
+    def assert_the_panel_survives_the_daemon(self, tmp):
+        """Run the wrapper with a daemon that cannot start, and hold it to the contract.
 
-        The wrapper spawns the daemon before the panel. An exec error there -- a missing
-        binary, an SELinux denial, a failing harden() -- used to leave main() with no
-        panel started at all, and the unit would have restarted into the same wall until
-        it failed for good. The panel has to come up anyway, without notifications, and
-        the journal has to say so at err priority.
+        Whatever stopped the daemon, the panel has to come up and stay up, the journal
+        has to say so once at err priority, and the pair must not be retried -- nothing
+        about a binary that will not run changes in two seconds, and every retry would
+        cost another panel. Returns what was written, for the caller to read further.
+        """
+        self.module.PANEL = write_stand_in(tmp, "panel", SURVIVES)
+        finished = threading.Event()
+        outcome = {}
+        journal = os.path.join(tmp, "stderr")
+
+        def run():
+            try:
+                outcome["code"] = self.module.main()
+            finally:
+                finished.set()
+
+        with open(journal, "w") as stderr, contextlib.redirect_stderr(stderr):
+            threading.Thread(target=run, daemon=True).start()
+
+            for _ in range(200):
+                self.assertFalse(
+                    finished.is_set(),
+                    "the wrapper exited because the daemon could not be started: "
+                    f"{said(journal)}",
+                )
+                if any("could not be started" in line for line in said(journal)):
+                    break
+                finished.wait(0.05)
+            else:
+                self.fail(f"the wrapper never reported the failure: {said(journal)}")
+            written = said(journal)
+
+        self.assertTrue(
+            written[0].startswith(f"{self.module.ERR}athanor-cosmic-panel: "),
+            f"the failure has to be an error in the journal: {written[0]!r}",
+        )
+        running = subprocess.run(
+            ["pgrep", "-f", self.module.PANEL],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.split()
+        self.assertEqual(
+            len(running), 1, f"expected exactly one panel running, found {running}"
+        )
+        self.assertEqual(
+            len([line for line in written if "could not be started" in line]),
+            1,
+            f"the pair should not be retried once the daemon cannot run: {written}",
+        )
+
+        os.kill(int(running[0]), signal.SIGTERM)
+        self.assertTrue(finished.wait(30), "the wrapper did not exit when the panel did")
+        self.assertEqual(outcome["code"], 0)
+        return written
+
+    def test_a_daemon_binary_that_is_not_there_costs_only_the_notifications(self):
+        """The commonest way for the daemon not to start: it is not installed.
+
+        Caught before the fork, so the journal says which file is missing rather than
+        repeating an errno at the reader.
         """
         with tempfile.TemporaryDirectory() as tmp:
             self.module.DAEMON = os.path.join(tmp, "no-such-notification-daemon")
-            self.module.PANEL = write_stand_in(tmp, "panel", SURVIVES)
             self.assertFalse(os.path.exists(self.module.DAEMON))
 
-            finished = threading.Event()
-            outcome = {}
-            journal = os.path.join(tmp, "stderr")
+            written = self.assert_the_panel_survives_the_daemon(tmp)
 
-            def run():
-                try:
-                    outcome["code"] = self.module.main()
-                finally:
-                    finished.set()
-
-            with open(journal, "w") as stderr, contextlib.redirect_stderr(stderr):
-                threading.Thread(target=run, daemon=True).start()
-
-                for _ in range(200):
-                    self.assertFalse(
-                        finished.is_set(),
-                        "the wrapper exited because the daemon could not be started: "
-                        f"{said(journal)}",
-                    )
-                    if any("could not be started" in line for line in said(journal)):
-                        break
-                    finished.wait(0.05)
-                else:
-                    self.fail(f"the wrapper never reported the failure: {said(journal)}")
-                written = said(journal)
-
-            self.assertTrue(
-                written[0].startswith(f"{self.module.ERR}athanor-cosmic-panel: "),
-                f"the failure has to be an error in the journal: {written[0]!r}",
-            )
-            running = subprocess.run(
-                ["pgrep", "-f", self.module.PANEL],
-                capture_output=True,
-                text=True,
-                check=False,
-            ).stdout.split()
-            self.assertEqual(
-                len(running), 1, f"expected exactly one panel running, found {running}"
-            )
-            # No restart loop either: the panel is started once and kept.
-            self.assertEqual(
-                len([line for line in written if "could not be started" in line]),
-                1,
-                f"the pair should not be retried once the daemon cannot exec: {written}",
+            self.assertIn(
+                f"{self.module.DAEMON} is not there to be executed",
+                written[0],
+                "the check that happens before the fork is what makes this message; "
+                f"without it the reader gets a raw errno: {written[0]!r}",
             )
 
-            os.kill(int(running[0]), signal.SIGTERM)
-            self.assertTrue(
-                finished.wait(30), "the wrapper did not exit when the panel did"
-            )
-            self.assertEqual(outcome["code"], 0)
+    def test_a_daemon_binary_that_cannot_be_exec_d_costs_only_the_notifications(self):
+        """The other way: the file is there and executable, and the kernel refuses it.
+
+        A file with the executable bit and no program in it is the honest stand-in for
+        everything that can only fail at the exec -- an SELinux denial, a failing
+        harden(), a fork that does not happen. os.access() says yes; execve does not.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = pathlib.Path(tmp, "unrunnable")
+            daemon.write_bytes(b"\x00 not a program, and not a script either\n")
+            daemon.chmod(0o755)
+            self.module.DAEMON = str(daemon)
+            self.assertTrue(os.access(self.module.DAEMON, os.X_OK))
+
+            self.assert_the_panel_survives_the_daemon(tmp)
 
     def test_a_daemon_dying_just_slowly_enough_still_reaches_the_give_up(self):
         """A 61-second death cycle must not reset the count forever.
