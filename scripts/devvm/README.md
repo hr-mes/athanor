@@ -48,7 +48,9 @@ scripts/devvm/reset.sh             # back to the freshly installed system
   `console.log`.
 - Graphics: `virtio-vga-gl`, a virgl GPU rendered by the host GPU, shown in a GTK window.
   `DISPLAY_BACKEND=egl-headless` renders without a window and serves the screen with SPICE
-  on `127.0.0.1:5930`. `start.sh` prints the guest's OpenGL renderer (`gl_renderer.py`,
+  on `127.0.0.1:5930`; that is what an agent verifying the image uses, because it has no
+  graphical session, and the screen is then watched with a SPICE client
+  (`nix profile add nixpkgs#virt-viewer`, `remote-viewer spice://127.0.0.1:5930`). `start.sh` prints the guest's OpenGL renderer (`gl_renderer.py`,
   surfaceless EGL, since the greeter runs without Xwayland): `virgl (zink ...)` is the
   host GPU, `llvmpipe` would be software.
 - Settings are in `devvm.env` and are overridden from the environment: `CPUS=4`,
