@@ -22,8 +22,13 @@ PartOf=graphical-session.target
 # segfault at the first JIT'd function with it on.
 MemoryDenyWriteExecute=no
 CPUWeight=200
-MemoryHigh=1G
-MemoryMax=1536M
+
+# The budget covers two programs now. cosmic-notifications.service had MemoryHigh=256M
+# and MemoryMax=384M of its own and the panel had 1G and 1536M; in one cgroup that is
+# 1G + 256M = 1280M and 1536M + 384M = 1920M. Leaving the panel's old numbers would have
+# charged the daemon's working set against the limit oomd already killed the panel at.
+MemoryHigh=1280M
+MemoryMax=1920M
 OOMScoreAdjust=-500
 Type=simple
 Slice=session.slice
