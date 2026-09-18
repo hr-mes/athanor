@@ -110,6 +110,12 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    env:
+      # The same knob kernel-build.yml sets, not the REGISTRY above (that one is for the
+      # forge package images this workflow builds, unrelated to the kernel path): a
+      # repository variable override must reach every resolve of the chain identically,
+      # or this job would see kernel-missing forever (doc_build_ordering.md, O9).
+      KERNEL_REGISTRY: ${{ vars.KERNEL_REGISTRY }}
     outputs:
       state: ${{ steps.artifacts.outputs.state }}
       cycle: ${{ steps.artifacts.outputs.cycle }}
@@ -153,6 +159,9 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    env:
+      # Same knob as the kernel-artifacts job above: require-ready resolves again.
+      KERNEL_REGISTRY: ${{ vars.KERNEL_REGISTRY }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
