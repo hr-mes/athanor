@@ -68,6 +68,10 @@ scripts/devvm/reset.sh             # back to the freshly installed system
   `ssh.sh sudo -u greetd env XDG_RUNTIME_DIR=/run/user/967 WAYLAND_DISPLAY=wayland-1 grim /tmp/greeter.png`
   then copy it off with `ssh.sh cat /tmp/greeter.png > greeter.png` (the greeter's uid can
   differ; `ssh.sh id -u greetd` confirms it).
+- `upgrade.sh` switches the guest to `$SYSTEM_IMAGE:latest` (`$REGISTRY/athanor-system` by
+  default) and reboots into it. `bootc upgrade` cannot do this on its own: the ISO's
+  kickstart pins the guest to the run-id tag it was installed from, and upgrade only
+  re-pulls that same tag.
 - Settings are in `devvm.env` and are overridden from the environment: `CPUS=4`,
   `MEMORY=8G`, `DISK_GIB=40`, `SSH_PORT`, `ISO_TAG`, `REGISTRY`. State (ISO, disks, logs)
   is in `${XDG_DATA_HOME:-~/.local/share}/athanor-devvm`: about 6 GB of ISO and up to
