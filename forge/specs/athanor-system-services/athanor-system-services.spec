@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-system-services
 Version:        1.0.1
-Release:        17%{?dist}
+Release:        18%{?dist}
 Summary:        Athanor OS athanor-system-services
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -41,6 +41,15 @@ install -m 0755 %{_sourcedir}/usr/bin/athanor-cosmic-panel %{buildroot}/usr/bin/
 %attr(0755,root,root) /usr/bin/athanor-cosmic-panel
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-18
+- A cosmic-notifications that cannot be started at all no longer costs the session its
+  panel. athanor-cosmic-panel spawns the daemon first, and an exec failure there -- a
+  missing binary, an SELinux denial, a failing no_new_privs call, a fork that does not
+  happen -- came out of main() with no panel started, leaving the unit to restart into
+  the same wall until it failed for good. The failure is caught, logged at err priority
+  and the panel runs alone for the rest of the session; the pair is not retried, since
+  nothing about it would have changed. A panel that cannot be started still goes up: there
+  is no substitute for it.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-17
 - Put the syslog priority prefix where systemd looks for it. athanor-cosmic-panel wrote
   "athanor-cosmic-panel: <3>...", and systemd reads <N> only at the very start of a line,

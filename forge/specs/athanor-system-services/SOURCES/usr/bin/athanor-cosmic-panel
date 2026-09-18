@@ -123,17 +123,47 @@ def run_once(with_daemon):
 
     Returns the program that exited first, its exit code (negative for a signal, as
     os.waitstatus_to_exitcode reports one) and the other child, or None when the panel
-    ran alone.
+    ran alone -- either because the caller asked for it or because the daemon could not
+    be started at all, which is reported here and costs notifications, never the panel.
     """
-    if not with_daemon:
+    daemon = None
+    panel_end = None
+    if with_daemon:
+        daemon_end, panel_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        with daemon_end:
+            try:
+                daemon = spawn(
+                    DAEMON, daemon_end, "DAEMON_NOTIFICATIONS_FD", preexec_fn=harden
+                )
+            except (OSError, subprocess.SubprocessError) as error:
+                # The daemon could not even be started: the binary is missing, SELinux
+                # refused the exec, harden() failed, the fork did not happen. Letting
+                # that out of here would start no panel at all and leave the unit to
+                # restart into the same wall until it failed for good -- the session
+                # losing its dock and launcher over the notification daemon, which is
+                # exactly what this wrapper exists to prevent. The panel runs without
+                # it, for the rest of the session.
+                log(
+                    f"cosmic-notifications could not be started ({error}); running "
+                    f"cosmic-panel without it -- this session has no notifications",
+                    ERR,
+                )
+                panel_end.close()
+                panel_end = None
+
+    if panel_end is None:
         panel = subprocess.Popen([PANEL])
         return PANEL, panel.wait(), None
 
-    daemon_end, panel_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
-    with daemon_end, panel_end:
-        daemon = spawn(DAEMON, daemon_end, "DAEMON_NOTIFICATIONS_FD", preexec_fn=harden)
-        panel = spawn(PANEL, panel_end, "PANEL_NOTIFICATIONS_FD")
-    # Leaving the block hands both ends to the children alone.
+    with panel_end:
+        try:
+            panel = spawn(PANEL, panel_end, "PANEL_NOTIFICATIONS_FD")
+        except BaseException:
+            # Nothing here can substitute for the panel, so this one goes up; the daemon
+            # must not be left behind running.
+            stop(daemon)
+            raise
+    # Leaving the blocks hands both ends to the children alone.
 
     first, status = os.wait()
     code = os.waitstatus_to_exitcode(status)
