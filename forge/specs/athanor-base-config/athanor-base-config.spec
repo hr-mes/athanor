@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-base-config
 Version:        43.0.0
-Release:        8%{?dist}
+Release:        9%{?dist}
 Summary:        Athanor OS Base Configuration (Systemd, Branding, GPG)
 
 License:        MIT
@@ -82,6 +82,17 @@ rm -rf %{buildroot}/etc/tmpfiles.d
 /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/override.conf
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 43.0.0-9
+- Rename 99-Athanor-Base.preset to 80-athanor-base.preset, so mcelog.service is really
+  disabled. systemd takes the FIRST preset line that matches a unit, in lexicographic
+  order of file name, and Fedora's 90-default.preset carries "enable mcelog.*": at 99
+  this file was read after it and the disable line was never reached, so preset-all
+  left the enablement symlink base-atomic ships and every installation booted a failing
+  mcelog.service. The same shadowing hid "disable NetworkManager-wait-online.service",
+  which 90-default.preset enables; both now take effect.
+- Drop the preset lines for plymouth-quit-wait.service and systemd-udev-settle.service.
+  Neither unit has an [Install] section, so neither can be enabled or disabled and the
+  lines never did anything.
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 43.0.0-8
 - Disable mcelog.service, which base-atomic ships, through the preset. The kernel
   reports machine checks on every vendor; mcelog is deprecated upstream and fails on

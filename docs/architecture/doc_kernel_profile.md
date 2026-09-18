@@ -921,7 +921,7 @@ Found on the running system and in the repository (2026-09-14):
   and kargs configuration moved to `athanor-nvidia-config`, installed only by the NVIDIA image
   variants (doc_system_image.md, S4). `athanor-base-config` overrides
   `bootc-fetch-apply-updates` to stage updates automatically, which conflicts with the
-  confirmation of section 8 once enabled (inactive today only because `99-Athanor.preset` names the non-existent
+  confirmation of section 8 once enabled (inactive today only because `80-athanor-system.preset` names the non-existent
   `bootc-fetch-apply.timer`).
 - **Command line sources:** `kargs.d` 02–06, `system/athanor-install.ks`,
   `system/scripts/assemble_uki.sh`, `forge/specs/athanor-secure-boot/SOURCES/usr/libexec/athanor-secure-boot-measure.sh`
