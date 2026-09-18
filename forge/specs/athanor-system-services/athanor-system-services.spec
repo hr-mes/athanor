@@ -1,12 +1,14 @@
 %global debug_package %{nil}
 Name:           athanor-system-services
 Version:        1.0.1
-Release:        11%{?dist}
+Release:        12%{?dist}
 Summary:        Athanor OS athanor-system-services
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
 BuildArch:      noarch
 Requires:       systemd
+# athanor-cosmic-panel, the notification socket pair's parent, is a Python script.
+Requires:       python3
 Requires:       cosmic-panel cosmic-applets cosmic-bg
 Requires:       cosmic-settings-daemon cosmic-notifications cosmic-osd
 Requires:       wayland-utils
@@ -24,6 +26,8 @@ Provides the session target, the COSMIC desktop units it gathers, and skeleton s
 mkdir -p %{buildroot}/usr/share/athanor-system-services
 mkdir -p %{buildroot}/usr/lib/systemd/user
 cp -a %{_sourcedir}/usr/lib/systemd/user/* %{buildroot}/usr/lib/systemd/user/
+mkdir -p %{buildroot}/usr/bin
+install -m 0755 %{_sourcedir}/usr/bin/athanor-cosmic-panel %{buildroot}/usr/bin/athanor-cosmic-panel
 
 %files
 %dir /usr/share/athanor-system-services
@@ -33,10 +37,25 @@ cp -a %{_sourcedir}/usr/lib/systemd/user/* %{buildroot}/usr/lib/systemd/user/
 /usr/lib/systemd/user/cosmic-panel.service
 /usr/lib/systemd/user/cosmic-bg.service
 /usr/lib/systemd/user/cosmic-settings-daemon.service
-/usr/lib/systemd/user/cosmic-notifications.service
 /usr/lib/systemd/user/cosmic-osd.service
+%attr(0755,root,root) /usr/bin/athanor-cosmic-panel
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-12
+- Wire the notifications applet up. cosmic-panel reaches cosmic-notifications over an
+  unnamed socket pair whose two ends are inherited, one per process, and named in
+  PANEL_NOTIFICATIONS_FD and DAEMON_NOTIFICATIONS_FD; upstream cosmic-session creates
+  the pair and starts both programs itself. As two systemd units they could never share
+  one, because systemd has no way to hand the same pair to two units: the daemon logged
+  "DAEMON_NOTIFICATIONS_FD is not set", the panel "Failed to connect to the notifications
+  daemon", and the applet was never started, so the session owned
+  org.freedesktop.Notifications and displayed nothing. cosmic-panel.service now starts
+  athanor-cosmic-panel, which creates the pair and runs both, and
+  cosmic-notifications.service is gone. The panel keeps its unit, its resource controls
+  and the launcher properties it is tuned for; the daemon runs as its child and no longer
+  carries its own sandbox, which no arrangement can give it while the pair is shared.
+  Either program exiting ends both, and Restart=on-failure brings them back on a fresh
+  socket, as cosmic-session restarts the two together.
 * Sun Sep 13 2026 Athanor Forge <forge@athanor.os> - 1.0.1-11
 - Lift the daemon sandbox from cosmic-panel.service. The panel forks the user's
   applications as its children, and a child inherits the mount namespace, the

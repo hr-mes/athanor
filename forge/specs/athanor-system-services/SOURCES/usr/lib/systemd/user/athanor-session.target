@@ -20,5 +20,7 @@ Before=xdg-desktop-autostart.target
 # and the desktop units below are ordered after it.
 Requires=athanor-desktop.service
 After=athanor-desktop.service
+# cosmic-panel.service is the notification daemon too: the panel and cosmic-notifications
+# share a socket pair, which only a common parent can give them, so one unit starts both.
 Wants=athanor-skel-sync.service cosmic-panel.service cosmic-bg.service
-Wants=cosmic-settings-daemon.service cosmic-notifications.service cosmic-osd.service
+Wants=cosmic-settings-daemon.service cosmic-osd.service
