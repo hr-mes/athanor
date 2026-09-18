@@ -72,7 +72,7 @@ COSMIC applications (`cosmic-files`, `cosmic-term`, `cosmic-edit`, `cosmic-store
 - **Contrast is validated:** every text/background pair of the tokens meets WCAG AA, checked in CI.
 - **The identity lives in form, not in colour,** because the colour is the user's. Two signatures carry it:
   - **The mark is the seal.** The Athanor mark is reserved for the trust shield (SH12) and appears nowhere else in the shell; the launcher uses a neutral glyph.
-  - **The hearth wallpaper.** The default wallpaper is a set of concentric discs rising from a corner, generated per accent and per theme as an image at build time. The shape is ours; the hue is the user's.
+  - **The hearth wallpaper.** The default wallpaper is a set of concentric discs rising from a corner. Stage 1 ships it as two images, light and dark, in the factory accent. It follows the user's accent only when the accent comes from a curated palette, because each hue is then an image built ahead of time; a free colour picker cannot be followed without a run-time generator, which stage 1 does not have.
 - **Shipped assets:** Inter (`rsms-inter-fonts`) as the only interface family, with tabular figures for clocks, to be confirmed on the dev VM; `cosmic-icon-theme` stays in stage 1; our own symbolic icons only for the seal and its states.
 - **Depth is reserved for what floats:** windows, popovers and notifications carry a marked shadow; panels and docks carry a hairline and a faint one.
 - Nothing in the identity relies on an effect GTK4 cannot draw.
