@@ -13,8 +13,10 @@ PartOf=graphical-session.target
 # ExecStart is athanor-cosmic-panel, which starts cosmic-notifications beside the panel
 # on a shared socket pair. The panel reaches the notification daemon over an inherited
 # descriptor, never over the session bus, so the two have to share a parent and systemd
-# cannot be it; the script says the rest. The daemon is a child of this unit, under its
-# resource controls, and cosmic-notifications.service is gone.
+# cannot be it; the script says the rest. The daemon is a descendant of this unit but
+# lives in a transient scope with a memory limit of its own, so a runaway daemon is killed
+# in its own cgroup rather than pushing this unit past MemoryMax -- where the kernel would
+# have picked the largest task, the panel. cosmic-notifications.service is gone.
 #
 # W^X cannot hold for a GL client: Mesa JIT-compiles shaders on the CPU wherever there
 # is no GPU driver (llvmpipe, the case of every VM), and the freshly written page must
@@ -23,12 +25,13 @@ PartOf=graphical-session.target
 MemoryDenyWriteExecute=no
 CPUWeight=200
 
-# The budget covers two programs now. cosmic-notifications.service had MemoryHigh=256M
-# and MemoryMax=384M of its own and the panel had 1G and 1536M; in one cgroup that is
-# 1G + 256M = 1280M and 1536M + 384M = 1920M. Leaving the panel's old numbers would have
-# charged the daemon's working set against the limit oomd already killed the panel at.
-MemoryHigh=1280M
-MemoryMax=1920M
+# The panel's own numbers, unchanged: athanor-cosmic-panel starts cosmic-notifications in
+# a transient scope of its own (systemd-run --user --scope, a sibling under app.slice,
+# with the 256M/384M cosmic-notifications.service used to carry), so the daemon's memory
+# is not charged here and the panel does not have to share the budget oomd already killed
+# it at once.
+MemoryHigh=1G
+MemoryMax=1536M
 OOMScoreAdjust=-500
 Type=simple
 Slice=session.slice
