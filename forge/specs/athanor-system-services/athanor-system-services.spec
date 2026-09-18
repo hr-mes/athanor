@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-system-services
 Version:        1.0.1
-Release:        12%{?dist}
+Release:        13%{?dist}
 Summary:        Athanor OS athanor-system-services
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -41,6 +41,11 @@ install -m 0755 %{_sourcedir}/usr/bin/athanor-cosmic-panel %{buildroot}/usr/bin/
 %attr(0755,root,root) /usr/bin/athanor-cosmic-panel
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-13
+- Bound the wait athanor-cosmic-panel makes on the program it is stopping. An unbounded
+  Popen.wait() after SIGTERM hangs the wrapper for good on a child that does not answer,
+  and a wrapper that never exits is a unit that never restarts. Ten seconds, then SIGKILL,
+  and the kill is logged.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-12
 - Wire the notifications applet up. cosmic-panel reaches cosmic-notifications over an
   unnamed socket pair whose two ends are inherited, one per process, and named in
