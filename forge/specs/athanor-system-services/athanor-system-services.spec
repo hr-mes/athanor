@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-system-services
 Version:        1.0.1
-Release:        19%{?dist}
+Release:        20%{?dist}
 Summary:        Athanor OS athanor-system-services
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -41,6 +41,19 @@ install -m 0755 %{_sourcedir}/usr/bin/athanor-cosmic-panel %{buildroot}/usr/bin/
 %attr(0755,root,root) /usr/bin/athanor-cosmic-panel
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-20
+- Give cosmic-notifications a cgroup of its own again. Sharing cosmic-panel.service's,
+  a daemon that ran away would have pushed the unit past MemoryMax and the kernel would
+  have killed the largest task in it -- the panel -- while the daemon sat behind the
+  panel's inherited OOMScoreAdjust=-500; before this work it could only ever have killed
+  itself. athanor-cosmic-panel now starts it through systemd-run --user --scope with the
+  MemoryHigh=256M and MemoryMax=384M cosmic-notifications.service used to carry, and
+  resets the inherited OOM shield in the child (upwards only: an unprivileged process
+  cannot lower oom_score_adj). --scope execs the command in its own process, so the
+  socket descriptor, the environment and no_new_privs pass through and the pid supervised
+  is the daemon's; a test proves the descriptor survives it, and skips where there is no
+  user manager to make a scope in. The panel's MemoryHigh and MemoryMax go back to 1G and
+  1536M, the daemon no longer being charged to them.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-19
 - Count the notification daemon's failures over a sliding ten-minute window instead of
   clearing them after any run longer than a minute. Under the old rule a daemon that died
