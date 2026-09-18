@@ -17,6 +17,7 @@ going and to settle on running the panel alone.
 Run it: python3 -B -m unittest discover -s forge/specs/athanor-system-services/tests
 """
 
+import contextlib
 import importlib.machinery
 import importlib.util
 import os
@@ -74,6 +75,14 @@ def load_script():
     return module
 
 
+def said(journal):
+    """What the wrapper has written to its stderr so far."""
+    try:
+        return pathlib.Path(journal).read_text().splitlines()
+    except FileNotFoundError:
+        return []
+
+
 def write_stand_in(directory, name, source, **fields):
     path = pathlib.Path(directory, name)
     path.write_text(source.format(python=sys.executable, **fields))
@@ -123,7 +132,10 @@ class CosmicPanelWrapper(unittest.TestCase):
         restart the pair, back off, give up on the daemon after GIVE_UP_AFTER short runs
         and then run the panel alone -- still running, with one live panel, until the
         panel itself goes. The wrapper's own log is the record of the policy, so the
-        test reads it instead of counting processes, which the restarts race with.
+        test reads it instead of counting processes, which the restarts race with -- and
+        it reads what is really written to stderr, because the priority prefix systemd
+        reads is part of the rendered line and nothing else would catch it being in the
+        wrong place.
         """
         with tempfile.TemporaryDirectory() as tmp:
             self.module.DAEMON = write_stand_in(tmp, "daemon", DIES)
@@ -131,11 +143,10 @@ class CosmicPanelWrapper(unittest.TestCase):
             # The real delays are 1, 2, 4 ... seconds; what is under test is the
             # sequence and the give-up, not the wall clock.
             self.module.BACKOFF_CEILING_SECONDS = 0.01
-            said = []
-            self.module.log = said.append
 
             finished = threading.Event()
             outcome = {}
+            journal = os.path.join(tmp, "stderr")
 
             def run():
                 try:
@@ -143,26 +154,44 @@ class CosmicPanelWrapper(unittest.TestCase):
                 finally:
                     finished.set()
 
-            threading.Thread(target=run, daemon=True).start()
+            with open(journal, "w") as stderr, contextlib.redirect_stderr(stderr):
+                threading.Thread(target=run, daemon=True).start()
 
-            for _ in range(600):
-                self.assertFalse(
-                    finished.is_set(),
-                    f"the wrapper exited although only the daemon was failing: {said}",
-                )
-                if any("without it" in message for message in said):
-                    break
-                finished.wait(0.05)
-            else:
-                self.fail(f"the wrapper never gave up on the daemon: {said}")
+                for _ in range(600):
+                    self.assertFalse(
+                        finished.is_set(),
+                        "the wrapper exited although only the daemon was failing: "
+                        f"{said(journal)}",
+                    )
+                    if any("without it" in line for line in said(journal)):
+                        break
+                    finished.wait(0.05)
+                else:
+                    self.fail(f"the wrapper never gave up on the daemon: {said(journal)}")
 
-            restarts = [message for message in said if "restarting it" in message]
+                written = said(journal)
+
+            restarts = [line for line in written if "restarting it" in line]
             self.assertEqual(
                 len(restarts),
                 self.module.GIVE_UP_AFTER - 1,
                 f"the pair should be restarted until the {self.module.GIVE_UP_AFTER}th "
-                f"failure, then dropped: {said}",
+                f"failure, then dropped: {written}",
             )
+
+            # systemd reads the <N> priority only at the very start of the line, so the
+            # give-up line has to begin with it or `journalctl -p err` shows nothing.
+            gave_up = [line for line in written if "without it" in line]
+            self.assertEqual(len(gave_up), 1, written)
+            self.assertTrue(
+                gave_up[0].startswith(f"{self.module.ERR}athanor-cosmic-panel: "),
+                f"the give-up line is not rendered at err priority: {gave_up[0]!r}",
+            )
+            for line in restarts:
+                self.assertFalse(
+                    line.startswith(self.module.ERR),
+                    f"an ordinary restart should not be an error: {line!r}",
+                )
 
             running = subprocess.run(
                 ["pgrep", "-f", self.module.PANEL],

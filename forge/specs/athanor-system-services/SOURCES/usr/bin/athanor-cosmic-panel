@@ -49,8 +49,10 @@ BACKOFF_CEILING_SECONDS = 60
 
 # systemd reads a <N> prefix on a line of a service's output as its syslog priority
 # (SyslogLevelPrefix, on by default), so the one line that has to stand out in the
-# journal does, without another process to write it.
+# journal does, without another process to write it. It only reads the prefix at the
+# very start of the line, before anything else.
 ERR = "<3>"
+INFO = "<6>"
 
 # How long a program gets to answer SIGTERM before it is killed. Without a bound, one
 # child ignoring SIGTERM would hang this process and the unit would never restart.
@@ -63,8 +65,8 @@ PR_SET_NO_NEW_PRIVS = 38  # linux/prctl.h
 _LIBC = ctypes.CDLL(None, use_errno=True)
 
 
-def log(message):
-    print(f"athanor-cosmic-panel: {message}", file=sys.stderr, flush=True)
+def log(message, priority=INFO):
+    print(f"{priority}athanor-cosmic-panel: {message}", file=sys.stderr, flush=True)
 
 
 def harden():
@@ -165,9 +167,10 @@ def main():
 
         if failures >= GIVE_UP_AFTER:
             log(
-                f"{ERR}cosmic-notifications failed {failures} times in a row, each run "
+                f"cosmic-notifications failed {failures} times in a row, each run "
                 f"shorter than {SHORT_RUN_SECONDS}s (last exit {code}); "
-                f"running cosmic-panel without it -- this session has no notifications"
+                f"running cosmic-panel without it -- this session has no notifications",
+                ERR,
             )
             continue
 
