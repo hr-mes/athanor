@@ -3,7 +3,7 @@
 %global crate_dir forge/specs/%{name}/%{name}-%{version}
 Name:           athanor-settings-rs
 Version:        1.0.0
-Release:        12%{?dist}
+Release:        13%{?dist}
 Summary:        Pure Rust native System Settings for Athanor OS
 
 License:        GPLv3+
@@ -37,6 +37,15 @@ install -m 0644 %{crate_dir}/os.athanor.Settings.desktop $RPM_BUILD_ROOT/%{_data
 %{_datadir}/applications/os.athanor.Settings.desktop
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.0-13
+- Remove the "Non Disturbare" switch from the notifications page. It ran
+  `makoctl mode -s dnd` and threw the result away, so with mako gone from the image it
+  silenced nothing while telling the user every notification was muted. A control that
+  lies about muting notifications is worse than no control. It is removed rather than
+  reimplemented: cosmic-notifications keeps do-not-disturb in its own cosmic-config and
+  exposes no interface for it, and writing another daemon's configuration from here would
+  be a second wrong answer. Do not disturb belongs in COSMIC Settings, which owns that
+  configuration.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.0-12
 - Drop Requires: mako. It was the only thing in the tree that pulled a second notification
   daemon into the image, and mako ships
