@@ -11,8 +11,11 @@ name: Kernel Build
 # built kernel-devel (nvidia-build.yml, reusable). gate: the single "Kernel gate" check
 # that the branch protection requires on PRs, including those of the bump bot (phase
 # K5): that is why the workflow runs on every PR, with no path filter. A PR builds and
-# boots but does not publish. nvidia: on pushes, downstream of publish, dispatches
-# nvidia-kmod.yml (signing, boot with Secure Boot, publication of the modules). inputs:
+# boots but does not publish. orchestrator: on pushes, downstream of publish, dispatches the
+# Athanor Forge Orchestrator for this commit with force_image when a new kernel was published
+# or system/kernel-artifacts.sh does not answer ready; the Orchestrator calls nvidia-kmod.yml
+# (signing, boot with Secure Boot, publication of the modules) and builds the system images
+# (docs/architecture/doc_build_ordering.md, O1). inputs:
 # when the image with this NVR already carries the attestation of identical build
 # inputs, build and publish do not run, and the boot matrix and kmod use the published
 # images.
@@ -42,7 +45,7 @@ permissions:
 
 env:
   STAGE: ${{ inputs.stage || 'build' }}
-  IMAGE: ghcr.io/${{ github.repository_owner }}/azoth
+  IMAGE: ${{ vars.REGISTRY || 'ghcr.io' }}/${{ github.repository_owner }}/azoth
 
 jobs:
   inputs:
@@ -293,7 +296,7 @@ jobs:
           set -euo pipefail
           nvr=$(cat out/nvr)
           [[ $nvr == "$NVR_EXPECTED" ]] || { echo "NVR built ${nvr}, expected from the pins ${NVR_EXPECTED}"; exit 1; }
-          echo "${GH_TOKEN}" | buildah login -u "${GITHUB_ACTOR}" --password-stdin ghcr.io
+          echo "${GH_TOKEN}" | buildah login -u "${GITHUB_ACTOR}" --password-stdin "${IMAGE%%/*}"
           mkdir -p digests
           for group in kernel devel debuginfo microvm; do
             case $group in
@@ -327,7 +330,8 @@ jobs:
         # registry.
         run: |
           set -euo pipefail
-          echo "${GH_TOKEN}" | cosign login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          export SYFT_REGISTRY_AUTH_AUTHORITY="${IMAGE%%/*}"
+          echo "${GH_TOKEN}" | cosign login "${IMAGE%%/*}" -u "${GITHUB_ACTOR}" --password-stdin
           mkdir -p sbom
           python3 forge/specs/azoth/build-inputs.py > pins.json
           # The RPM every image must contain: an SBOM that does not list it is empty
@@ -345,7 +349,6 @@ jobs:
             cosign attest --yes --type custom --predicate pins.json "$ref"
           done
         env:
-          SYFT_REGISTRY_AUTH_AUTHORITY: ghcr.io
           SYFT_REGISTRY_AUTH_USERNAME: ${{ github.actor }}
           SYFT_REGISTRY_AUTH_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
@@ -386,18 +389,32 @@ jobs:
             digests/
           if-no-files-found: error
 
-  nvidia:
-    # The module chain (nvidia-kmod.yml: signing, boot with Secure Boot, publication)
-    # starts here, downstream of the publication or the reuse of the kernel: workflow_run
-    # only works from the default branch, and the modules are needed even when publish
-    # does not run.
+  orchestrator:
+    # The kernel is published or reused: the Orchestrator owns the chain from here (modules,
+    # then images). A dispatch, because workflow_run only fires from the default branch. A
+    # push that published nothing and leaves the artifacts ready (a document under the kernel
+    # directory) costs no image cycle.
     needs: [inputs, boot, kmod, publish]
     if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.boot.result == 'success' && needs.kmod.result == 'success' && (needs.publish.result == 'success' || (needs.publish.result == 'skipped' && needs.inputs.outputs.reuse == 'true')) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
+      contents: read
       actions: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - run: gh workflow run nvidia-kmod.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+
+      - name: Resolve the kernel artifacts (system/kernel-artifacts.sh)
+        id: artifacts
+        run: |
+          set -euo pipefail
+          bash system/kernel-artifacts.sh resolve
+          grep -E '^state=' kernel-artifacts/kernel-artifacts.env >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch the Orchestrator
+        if: ${{ needs.publish.result == 'success' || steps.artifacts.outputs.state != 'ready' }}
+        run: gh workflow run athanor-forge-orchestrator.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" -f sha="$GITHUB_SHA" -f force_image=true

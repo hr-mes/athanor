@@ -12,6 +12,10 @@ on:
       # already published ISO. Rebuilding the whole DAG when one of its files changes
       # costs an hour and produces the same images.
       - "!forge/test/**"
+      # The kernel directory belongs to Kernel Build, which dispatches this workflow when a
+      # kernel is published or its modules are missing (docs/architecture/doc_build_ordering.md,
+      # O1). No DAG node hashes anything under it.
+      - "!forge/specs/azoth/**"
       # Workspace crates under system/ feed the DAG packages; the Containerfile,
       # scripts and disk configuration under it feed the system image.
       - "system/**"
@@ -21,6 +25,9 @@ on:
       - "flake.lock"
       - ".github/workflows/athanor-forge-orchestrator.yml"
       - ".github/workflows/call-*.yml"
+      # The module chain this workflow calls.
+      - ".github/workflows/nvidia-kmod.yml"
+      - ".github/workflows/nvidia-build.yml"
   workflow_dispatch:
     inputs:
       sha:
