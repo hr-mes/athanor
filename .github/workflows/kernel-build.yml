@@ -422,6 +422,12 @@ jobs:
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
 
       - name: Resolve the kernel artifacts (system/kernel-artifacts.sh)
+        # Only when publish did not just succeed: its answer cannot change the dispatch
+        # decision below in that case (publish succeeding already forces the dispatch), so
+        # skipping it here means a transient registry or Rekor error does not cost the
+        # freshly published kernel its dispatch. Skipped, steps.artifacts.outputs.state is
+        # empty, and empty != 'ready' keeps the dispatch condition true.
+        if: ${{ needs.publish.result != 'success' }}
         id: artifacts
         run: |
           set -euo pipefail
