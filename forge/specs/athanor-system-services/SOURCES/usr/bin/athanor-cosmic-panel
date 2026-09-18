@@ -19,7 +19,9 @@ org.freedesktop.Notifications name and displayed nothing.
 This is that parent, and it runs as cosmic-panel.service, so the panel keeps the unit it
 is tuned for: the resource controls that stopped oomd from killing it, and the
 deliberate absence of the sandbox directives that would otherwise propagate to every
-application launched from the dock.
+application launched from the dock. The daemon is a plain child of this process, inside
+that same unit and cgroup, as cosmic-session runs it; the unit's comment says what that
+costs.
 
 The panel is what the session cannot lose, so this process exits only when the panel
 exits; the unit's Restart= never sees a failing daemon. A daemon that dies is restarted
@@ -66,29 +68,6 @@ INFO = "<6>"
 # child ignoring SIGTERM would hang this process and the unit would never restart.
 TERMINATE_TIMEOUT_SECONDS = 10
 
-# The daemon runs in a transient scope of its own, so that its memory is its own problem.
-# In one cgroup with the panel, a daemon that ran away would push cosmic-panel.service
-# past MemoryMax and the kernel would pick the largest task in the cgroup -- the panel --
-# while the daemon sat behind the panel's inherited OOMScoreAdjust=-500. Its own
-# MemoryMax is the limit cosmic-notifications.service used to carry, so a runaway daemon
-# is killed inside its own scope and the session keeps its panel.
-#
-# systemd-run --scope execs the command in its own process rather than handing it to the
-# manager, so the socket descriptor, the environment and no_new_privs all pass straight
-# through and the pid waited on here is the daemon's own. It needs the user bus, which
-# every user unit is given. Verified from inside a transient user unit: the descriptor
-# arrives, the process lands in its own scope cgroup, and its comm is the daemon's.
-DAEMON_SCOPE = [
-    "systemd-run",
-    "--user",
-    "--scope",
-    "--quiet",
-    "--description=COSMIC notifications",
-    "--property=MemoryHigh=256M",
-    "--property=MemoryMax=384M",
-    "--",
-]
-
 PR_SET_NO_NEW_PRIVS = 38  # linux/prctl.h
 
 # Opened here, in the parent, so that harden() -- which runs in the forked child, where
@@ -120,12 +99,13 @@ def harden():
     """
     os.umask(0o077)
 
-    # The panel is shielded from the OOM killer with OOMScoreAdjust=-500 because the
-    # session cannot lose it; the daemon inherits that shield and has no claim to it, so
-    # it goes back to being an ordinary candidate. Only upwards: an unprivileged process
-    # may raise oom_score_adj and not lower it, so a value already at or above zero --
-    # anywhere but under the panel's unit -- is left as it was found rather than being
-    # written back and refused.
+    # The daemon shares the panel's cgroup, so under memory pressure the kernel chooses
+    # between the two by badness, and the panel is shielded with OOMScoreAdjust=-500
+    # because the session cannot lose it. The daemon inherits that shield and has no claim
+    # to it; putting it back to zero is what makes the daemon, not the panel, the one the
+    # kernel takes. Only upwards: an unprivileged process may raise oom_score_adj and not
+    # lower it, so a value already at or above zero -- anywhere but under the panel's unit
+    # -- is left as it was found rather than written back and refused.
     with open("/proc/self/oom_score_adj", "r+", encoding="ascii") as adjustable:
         if int(adjustable.read().strip() or "0") < 0:
             adjustable.seek(0)
@@ -176,10 +156,7 @@ def run_once(with_daemon):
         with daemon_end:
             try:
                 daemon = spawn(
-                    DAEMON_SCOPE + [DAEMON],
-                    daemon_end,
-                    "DAEMON_NOTIFICATIONS_FD",
-                    preexec_fn=harden,
+                    [DAEMON], daemon_end, "DAEMON_NOTIFICATIONS_FD", preexec_fn=harden
                 )
             except (OSError, subprocess.SubprocessError) as error:
                 # The daemon could not even be started: the binary is missing, SELinux
