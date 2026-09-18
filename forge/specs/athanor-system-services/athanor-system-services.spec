@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-system-services
 Version:        1.0.1
-Release:        14%{?dist}
+Release:        15%{?dist}
 Summary:        Athanor OS athanor-system-services
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -41,6 +41,17 @@ install -m 0755 %{_sourcedir}/usr/bin/athanor-cosmic-panel %{buildroot}/usr/bin/
 %attr(0755,root,root) /usr/bin/athanor-cosmic-panel
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-15
+- A failing cosmic-notifications no longer costs the session its panel. athanor-cosmic-panel
+  used to end when either program exited, leaving the restart to the unit; a daemon that
+  cannot start would then have taken the panel with it five times in ten seconds and left
+  cosmic-panel.service in failed for good -- no panel, no dock, no applets. The wrapper now
+  exits only when the panel exits. A daemon that dies is restarted here, with the panel,
+  which is not a choice: the panel holds its end of the dead pair for life and nothing in
+  it can reconnect, which is why cosmic-session force-restarts the other side too.
+  Restarts back off 1, 2, 4 ... up to 60 seconds, and after five runs shorter than a
+  minute the daemon is dropped, logged at err priority, and the panel runs alone -- a
+  session without notifications rather than a panel that disappears every minute.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-14
 - Give cosmic-notifications back what it can keep without a unit. It parses the summary,
   the body and the image of every notification any application sends, and sharing a
