@@ -14,50 +14,21 @@ pub fn build_page() -> GtkBox {
 
     // Title
     let title = Label::builder()
-        .label("<span size='xx-large' weight='bold'>Focus Modes &amp; Non Disturbare (DND)</span>")
+        .label("<span size='xx-large' weight='bold'>Focus Modes</span>")
         .use_markup(true)
         .halign(Align::Start)
         .build();
     container.append(&title);
 
-    // DND Master Toggle
-    let dnd_switch = Switch::builder()
-        .valign(Align::Center)
-        .build();
-
-    let dnd_status = Label::builder().label("🔔 Notifiche normali").halign(Align::Start).build();
-    let dnd_status_clone = dnd_status.clone();
-
-    dnd_switch.connect_active_notify(move |switch| {
-        if switch.is_active() {
-            dnd_status_clone.set_text("🔕 Non Disturbare ATTIVO");
-        } else {
-            dnd_status_clone.set_text("🔔 Notifiche normali");
-        }
-    });
-
-    dnd_switch.connect_state_set(move |_, state| {
-        relm4::spawn_local(async move {
-            if let Ok(conn) = crate::get_connection().await {
-                let _ = conn.call_method(
-                    Some("org.athanor.Settings"),
-                    "/org/athanor/Settings",
-                    Some("org.freedesktop.DBus.Properties"),
-                    "Set",
-                    &("org.athanor.Settings", "DoNotDisturb", zbus::zvariant::Value::from(state))
-                ).await;
-            }
-            crate::crdt_store::update_dnd_crdt(state).await;
-        });
-        glib::Propagation::Proceed
-    });
-
-    let dnd_row = ActionRow::builder("Non Disturbare")
-        .subtitle("Blocca tutte le notifiche popup ed i suoni di sistema")
-        .suffix(&dnd_switch)
-        .build();
-    container.append(&dnd_row);
-    container.append(&dnd_status);
+    // The second "Non Disturbare" switch used to live here, and lied in the same way as
+    // the one on the notifications page: it set a DoNotDisturb property on
+    // org.athanor.Settings, discarded the result, and turned a label to
+    // "Non Disturbare ATTIVO" whether or not the call arrived. Nothing in the tree reads
+    // that property -- its only other mention is this call -- and the daemon that owned
+    // the name is not in the image either, so the switch blocked no notification while
+    // reporting that it had blocked all of them. cosmic-notifications keeps do-not-disturb
+    // in its own cosmic-config, behind no interface this program can call; it belongs in
+    // COSMIC Settings, which owns that configuration.
 
     // Profiles
     let prof_title = Label::builder()

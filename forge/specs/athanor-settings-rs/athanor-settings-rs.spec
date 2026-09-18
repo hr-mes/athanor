@@ -3,7 +3,7 @@
 %global crate_dir forge/specs/%{name}/%{name}-%{version}
 Name:           athanor-settings-rs
 Version:        1.0.0
-Release:        13%{?dist}
+Release:        14%{?dist}
 Summary:        Pure Rust native System Settings for Athanor OS
 
 License:        GPLv3+
@@ -37,6 +37,16 @@ install -m 0644 %{crate_dir}/os.athanor.Settings.desktop $RPM_BUILD_ROOT/%{_data
 %{_datadir}/applications/os.athanor.Settings.desktop
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.0-14
+- Remove the second "Non Disturbare" switch, on the Focus Modes page. It set a
+  DoNotDisturb property on org.athanor.Settings with the result discarded, and turned a
+  label to "Non Disturbare ATTIVO" whether or not the call arrived. Nothing in the tree
+  reads that property -- the only other mention of it is the call itself -- and the daemon
+  that owned the bus name is not in the image, so the switch blocked no notification while
+  reporting that it had blocked all of them. Removed for the same reason as the one on the
+  notifications page, and not reimplemented for the same reason: cosmic-notifications keeps
+  do-not-disturb in its own cosmic-config behind no interface this program can call, so it
+  belongs in COSMIC Settings.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.0-13
 - Remove the "Non Disturbare" switch from the notifications page. It ran
   `makoctl mode -s dnd` and threw the result away, so with mako gone from the image it
