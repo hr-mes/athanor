@@ -1,6 +1,8 @@
 # Athanor shell: direction, layout model, stage 1
 
-Status: **revision 3, under validation.** The maintainer took the decisions below on 2026-09-18 and delegated the validation of this document. Revision 1 failed two independent reviews, an adversarial one and a security one (`.superpowers/shell-spec-review.md`, `.superpowers/shell-spec-security-review.md`): the direction held, the update and trust part did not. Revision 2 took their findings; both reviewers then found it approvable with changes (`…-r2.md` beside the first reports), and revision 3 takes those. Section 5 lists what is still unverified. No code is written before this document is approved.
+Status: **approved on 2026-09-18, revision 3.** The maintainer took the decisions below and delegated the validation. Revision 1 failed two independent reviews, an adversarial one and a security one: the direction held, the update and trust part did not. Revision 2 took their findings, both reviewers then found it approvable with changes, and revision 3 takes those changes. The four reports are `.superpowers/shell-spec-review.md`, `shell-spec-security-review.md` and their `-r2` successors.
+
+The approval covers the direction and packages 1a, 1b-shield and 1c. Package 1b-system starts only when `doc_update_trust.md` exists, has passed the `auditor` and has the maintainer's consent, because it changes the signing pipeline (SH12). Section 5 lists what is still unverified; doubt 10 waits for a maintainer decision.
 
 The document replaces `doc_shell_ui.md` and amends `doc_platform_experience.md`, section 3. Section 6 lists the changes other documents take.
 
