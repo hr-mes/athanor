@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-system-services
 Version:        1.0.1
-Release:        15%{?dist}
+Release:        16%{?dist}
 Summary:        Athanor OS athanor-system-services
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -41,6 +41,12 @@ install -m 0755 %{_sourcedir}/usr/bin/athanor-cosmic-panel %{buildroot}/usr/bin/
 %attr(0755,root,root) /usr/bin/athanor-cosmic-panel
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-16
+- Widen cosmic-panel.service's memory budget to cover the notification daemon it now
+  runs: 1G + 256M = MemoryHigh 1280M, 1536M + 384M = MemoryMax 1920M, the panel's old
+  numbers plus the ones cosmic-notifications.service carried. Left as they were, the
+  daemon's working set would have been charged against the limit oomd already killed
+  the panel at.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-15
 - A failing cosmic-notifications no longer costs the session its panel. athanor-cosmic-panel
   used to end when either program exited, leaving the restart to the unit; a daemon that
