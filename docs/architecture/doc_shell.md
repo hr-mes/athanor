@@ -207,7 +207,7 @@ Out of stage 1: our own panel, dock, launcher, notifications, lock and Settings;
 
 ## 6. Changes to other documents
 
-- `doc_shell_ui.md` describes niri, relm4 and `athanor-settings-rs`. It is replaced by this document and deleted when this one is approved; the links to it in `README.md` and `forge/README.md` move here.
+- `doc_shell_ui.md` describes niri, relm4 and `athanor-settings-rs`. This document replaces it: the file is deleted, and the links to it in `README.md` and `forge/README.md` point here.
 - `doc_update_trust.md` is a new document (SH12).
 - `doc_platform_experience.md`, section 3, names "the native GTK4/Relm4 panel and the horizontal strip of `Niri`". It takes a pointer to this document.
 - `doc_kernel_profile.md`, the note on the existing override that "stages updates automatically": it takes a pointer to SH11, which removes that override.
