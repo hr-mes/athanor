@@ -2,7 +2,7 @@
 # Il crate vive nel workspace: la spec compila il checkout in place, non un tarball.
 Name:           athanor-shell-rs
 Version:        1.0.0
-Release:        31%{?dist}
+Release:        32%{?dist}
 Summary:        Athanor OS Native Rust GTK4 Shell
 
 License:        MIT
@@ -29,6 +29,15 @@ install -m 0755 target/release/athanor-shell-rs %{buildroot}/usr/bin/athanor-she
 /usr/bin/athanor-shell-rs
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.0-32
+- The greeter card states only what it can back. The badge under the user name is built
+  from the session request the greeter sends to greetd instead of being written out, so
+  it cannot keep reading "WAYLAND - NIRI" a release after cosmic-comp replaced niri. The
+  pill claiming "BIOMETRIA (TPM 2.0 / FPRINTD) & KEYRING UNLOCK ATTIVI" is gone: it was
+  shown whenever a system bus socket existed, which is evidence of none of the three,
+  and the greeter cannot earn the claim either, its bus being filtered down to three
+  logind methods. The top bar pill drawing a connected network, a full battery and a
+  keyboard layout is gone for the same reason, none of the three being readable there.
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-31
 - Remove the greeter's keyring unlock. It called os.athanor.Bedrock.SecretEnroller on
   the greetd user's session bus, handing the plaintext password to whichever process
