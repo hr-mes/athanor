@@ -14,27 +14,15 @@ pub fn build_page() -> Box {
     title.set_halign(Align::Start);
     container.append(&title);
 
-    // Do Not Disturb section
-    let dnd_switch = Switch::new();
-    dnd_switch.set_valign(Align::Center);
-    dnd_switch.connect_active_notify(|switch| {
-        let is_active = switch.is_active();
-        relm4::spawn_local(async move {
-            let mode = if is_active { "dnd" } else { "default" };
-            let _ = tokio::process::Command::new("makoctl")
-                .args(["mode", "-s", mode])
-                .output()
-                .await;
-            crate::crdt_store::update_dnd_crdt(is_active).await;
-        });
-    });
-
-    let dnd_row = ActionRow::builder("Non Disturbare")
-        .subtitle("Silenzia tutte le notifiche di sistema ed avvisi popup (mako)")
-        .suffix(&dnd_switch)
-        .build();
-
-    container.append(&dnd_row);
+    // The "Non Disturbare" switch used to live here. It ran `makoctl mode -s dnd`,
+    // discarding the result, and mako is not the session's notification daemon --
+    // cosmic-notifications is, and it is not driven by makoctl. The switch therefore
+    // silenced nothing while presenting itself as having silenced everything: a control
+    // that lies about muting notifications is worse than no control. cosmic-notifications
+    // keeps do-not-disturb in its own cosmic-config, not behind an interface this program
+    // can call, and reaching into another daemon's configuration from here would be a
+    // second wrong answer. The switch is gone; do not disturb belongs in COSMIC Settings,
+    // which owns that configuration.
 
     // Apps section
     let apps_title = Label::new(Some("Applicazioni"));
