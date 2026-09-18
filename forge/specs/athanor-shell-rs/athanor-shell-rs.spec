@@ -2,7 +2,7 @@
 # Il crate vive nel workspace: la spec compila il checkout in place, non un tarball.
 Name:           athanor-shell-rs
 Version:        1.0.0
-Release:        32%{?dist}
+Release:        33%{?dist}
 Summary:        Athanor OS Native Rust GTK4 Shell
 
 License:        MIT
@@ -29,6 +29,12 @@ install -m 0755 target/release/athanor-shell-rs %{buildroot}/usr/bin/athanor-she
 /usr/bin/athanor-shell-rs
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.0-33
+- The session-command test checks what its name says. It asserted only that the result
+  ends in "athanor-session", which is true of every branch including the fallback, so it
+  would have passed on a function that always returned the bare name. The candidate paths
+  are a named constant now, and the test requires the first installed one, absolute, or
+  the fallback when none is installed.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.0-32
 - The greeter card states only what it can back. The badge under the user name is built
   from the session request the greeter sends to greetd instead of being written out, so
