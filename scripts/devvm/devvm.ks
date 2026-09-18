@@ -20,6 +20,15 @@ keyboard us
 lang en_US.UTF-8
 bootloader --append="console=tty0 console=ttyS0,115200n8"
 
+# A fixed address, so start.sh's hostfwd (`-:22`, meaning slirp's own default guest
+# address, 10.0.2.15) always reaches this guest -- including after it reboots itself
+# (deploy.sh --restart-unit, upgrade.sh). Left to DHCP, slirp's built-in server does not
+# reliably hand the same lease back to the guest on every renewal (seen going from .15 to
+# .16 across an in-place reboot), and nothing short of a new hostfwd on the QEMU monitor
+# recovers from that; a fixed address removes the lease from the picture entirely.
+network --bootproto=static --device=link --ip=10.0.2.15 --netmask=255.255.255.0 \
+    --gateway=10.0.2.2 --nameserver=10.0.2.3 --activate --onboot=yes
+
 # The developer: the host user's name, so ssh needs no user@. The password is for the
 # greeter; SSH takes the key only.
 user --name=@USER@ --password=@USER@ --plaintext --groups=wheel
