@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:40.fc43}
+Release:        %{?autorelease}%{!?autorelease:41.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -90,6 +90,9 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) %attr(0600,root,root) /etc/usbguard/rules.d/10-athanor-baseline.conf
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.0-41
+- greetd.service.d/10-athanor-wantedby.conf still explained itself by naming
+  99-Athanor.preset, which no longer exists. Name the file that does.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.0-40
 - Rename 99-Athanor.preset to 80-athanor-system.preset. systemd takes the first preset
   line that matches a unit, in lexicographic order of file name, so a file numbered 99
