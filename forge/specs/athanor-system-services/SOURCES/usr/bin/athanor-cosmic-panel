@@ -65,6 +65,7 @@ BACKOFF_CEILING_SECONDS = 60
 # journal does, without another process to write it. It only reads the prefix at the
 # very start of the line, before anything else.
 ERR = "<3>"
+WARNING = "<4>"
 INFO = "<6>"
 
 # How long a program gets to answer SIGTERM before it is killed. Without a bound, one
@@ -72,6 +73,10 @@ INFO = "<6>"
 TERMINATE_TIMEOUT_SECONDS = 10
 
 PR_SET_NO_NEW_PRIVS = 38  # linux/prctl.h
+
+# Named rather than written in place so that a test can point it somewhere that cannot be
+# opened, which is the case the daemon must survive.
+OOM_SCORE_ADJ = "/proc/self/oom_score_adj"
 
 # Opened here, in the parent, so that harden() -- which runs in the forked child, where
 # dlopen is not safe to call -- only has to make the syscall.
@@ -122,10 +127,23 @@ def harden():
     # kernel takes. Only upwards: an unprivileged process may raise oom_score_adj and not
     # lower it, so a value already at or above zero -- anywhere but under the panel's unit
     # -- is left as it was found rather than written back and refused.
-    with open("/proc/self/oom_score_adj", "r+", encoding="ascii") as adjustable:
-        if int(adjustable.read().strip() or "0") < 0:
-            adjustable.seek(0)
-            adjustable.write("0\n")
+    #
+    # Best effort, and the only step here that is: a /proc that cannot be read or written
+    # -- hidepid, a container, a kernel built without the knob -- costs the daemon its
+    # place ahead of the panel in the OOM queue and nothing else, while raising here would
+    # cost the session its notifications for good, since a harden() that fails is a daemon
+    # that never starts. That trade is worth one line in the journal, not the daemon.
+    try:
+        with open(OOM_SCORE_ADJ, "r+", encoding="ascii") as adjustable:
+            if int(adjustable.read().strip() or "0") < 0:
+                adjustable.seek(0)
+                adjustable.write("0\n")
+    except (OSError, ValueError) as error:
+        log(
+            f"{OOM_SCORE_ADJ} could not be adjusted ({error}); cosmic-notifications "
+            f"keeps the panel's OOM shield",
+            WARNING,
+        )
 
     if _LIBC.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
         raise OSError(ctypes.get_errno(), "prctl(PR_SET_NO_NEW_PRIVS) failed")
