@@ -1,0 +1,86 @@
+#!/usr/bin/python3
+"""athanor-cosmic-panel - cosmic-panel and cosmic-notifications over one socket pair.
+
+The notifications applet in the panel does not reach the notification daemon over the
+session bus. cosmic-notifications serves it a second, peer-to-peer D-Bus connection on
+an unnamed socket pair and hands the applet its own descriptor over that connection
+(com.system76.NotificationsSocket.GetFd). Upstream, cosmic-session creates the pair and
+starts both programs itself, naming each end in the child's environment:
+PANEL_NOTIFICATIONS_FD for the panel, DAEMON_NOTIFICATIONS_FD for the daemon
+(cosmic-session, src/notifications.rs).
+
+A descriptor is inherited, never looked up, so the two programs must share a parent.
+Ours did not: both were systemd user units, and systemd has no way to hand the same
+socket pair to two of them. The daemon logged "Failed to setup panel dbus server
+DAEMON_NOTIFICATIONS_FD is not set", the panel "Failed to connect to the notifications
+daemon", and the notifications applet was never started -- the session owned the
+org.freedesktop.Notifications name and displayed nothing.
+
+This is that parent, and it runs as cosmic-panel.service, so the panel keeps the unit it
+is tuned for: the resource controls that stopped oomd from killing it, and the
+deliberate absence of the sandbox directives that would otherwise propagate to every
+application launched from the dock. The daemon becomes a child of the same unit.
+
+Either program exiting ends both, and the unit's Restart=on-failure brings the pair back
+on a fresh socket -- what cosmic-session does when it force-restarts the other side.
+Keeping the survivor would leave it holding a descriptor whose peer is gone.
+"""
+
+import os
+import socket
+import subprocess
+import sys
+
+DAEMON = "/usr/bin/cosmic-notifications"
+PANEL = "/usr/bin/cosmic-panel"
+
+
+def log(message):
+    print(f"athanor-cosmic-panel: {message}", file=sys.stderr, flush=True)
+
+
+def spawn(command, end, variable):
+    """Start `command` with `end` as an inherited descriptor named by `variable`.
+
+    pass_fds keeps that one descriptor open across the exec and closes every other, so
+    neither child inherits the peer's end. Each end then belongs to exactly one process,
+    which is what makes closing it tell the other side that its peer is gone.
+    """
+    return subprocess.Popen(
+        [command],
+        env={**os.environ, variable: str(end.fileno())},
+        pass_fds=(end.fileno(),),
+    )
+
+
+def main():
+    daemon_end, panel_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    with daemon_end, panel_end:
+        children = [
+            spawn(DAEMON, daemon_end, "DAEMON_NOTIFICATIONS_FD"),
+            spawn(PANEL, panel_end, "PANEL_NOTIFICATIONS_FD"),
+        ]
+    # Leaving the block hands both ends to the children alone.
+
+    first, status = os.wait()
+    exited = f"pid {first}"
+    for child, command in zip(children, (DAEMON, PANEL)):
+        if child.pid == first:
+            exited = command
+            # os.wait() already reaped it; tell Popen so it does not wait on it again.
+            child.returncode = os.waitstatus_to_exitcode(status)
+    clean = os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0
+    log(f"{exited} exited (wait status {status}); ending the pair so both come back")
+
+    for child in children:
+        if child.returncode is None:
+            child.terminate()
+            child.wait()
+
+    # The panel exiting cleanly is the session ending. Anything else is a failure, and
+    # the unit restarts the pair.
+    return 0 if clean and exited == PANEL else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

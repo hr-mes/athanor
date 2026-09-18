@@ -1,5 +1,5 @@
 [Unit]
-Description=COSMIC panel and dock
+Description=COSMIC panel, dock and notification daemon
 Documentation=https://github.com/pop-os/cosmic-panel
 After=graphical-session.target athanor-desktop.service athanor-skel-sync.service
 Requisite=athanor-desktop.service
@@ -9,6 +9,12 @@ PartOf=graphical-session.target
 # One process draws every entry of /usr/share/cosmic/com.system76.CosmicPanel (the top
 # panel and the dock) and spawns the applets as its children, so they live and are
 # accounted for in this unit's cgroup.
+#
+# ExecStart is athanor-cosmic-panel, which starts cosmic-notifications beside the panel
+# on a shared socket pair. The panel reaches the notification daemon over an inherited
+# descriptor, never over the session bus, so the two have to share a parent and systemd
+# cannot be it; the script says the rest. The daemon is a child of this unit, under its
+# resource controls, and cosmic-notifications.service is gone.
 #
 # W^X cannot hold for a GL client: Mesa JIT-compiles shaders on the CPU wherever there
 # is no GPU driver (llvmpipe, the case of every VM), and the freshly written page must
@@ -21,7 +27,7 @@ MemoryMax=1536M
 OOMScoreAdjust=-500
 Type=simple
 Slice=session.slice
-ExecStart=/usr/bin/cosmic-panel
+ExecStart=/usr/bin/athanor-cosmic-panel
 Restart=on-failure
 RestartSec=2s
 
