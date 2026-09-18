@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-system-services
 Version:        1.0.1
-Release:        21%{?dist}
+Release:        22%{?dist}
 Summary:        Athanor OS athanor-system-services
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -41,6 +41,15 @@ install -m 0755 %{_sourcedir}/usr/bin/athanor-cosmic-panel %{buildroot}/usr/bin/
 %attr(0755,root,root) /usr/bin/athanor-cosmic-panel
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-22
+- Check that cosmic-notifications is there to be executed before forking for it, so the
+  journal names the missing file instead of repeating an errno, and keep the exception
+  guard for everything that can only fail at the fork or the exec -- an SELinux denial, a
+  failing no_new_privs call, a fork that does not happen. Both end the same way: one err
+  line, the panel started without the daemon and kept, and no retry. The tests exercise
+  the real spawn, with a binary that is absent and a binary that the kernel refuses; the
+  stub that used to neutralise the daemon command line for every test is gone with the
+  transient scope it belonged to.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-21
 - Revert 1.0.1-20: cosmic-notifications is a plain child of athanor-cosmic-panel again,
   inside cosmic-panel.service's own cgroup, the way cosmic-session runs it. The transient
