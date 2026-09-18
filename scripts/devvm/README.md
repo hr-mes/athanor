@@ -59,6 +59,15 @@ scripts/devvm/reset.sh             # back to the freshly installed system
   (`nix profile add nixpkgs#virt-viewer`, `remote-viewer spice://127.0.0.1:5930`). `start.sh` prints the guest's OpenGL renderer (`gl_renderer.py`,
   surfaceless EGL, since the greeter runs without Xwayland): `virgl (zink ...)` is the
   host GPU, `llvmpipe` would be software.
+- `screenshot.sh [DEST]` saves a PNG of the logged-in session (default `./screenshot.png`).
+  QEMU's `screendump` monitor command does not work with `virtio-vga-gl`
+  (`Error: no surface`); the working way is `grim`, already in the image, run inside the
+  guest as the session user against its own compositor socket and streamed back over SSH
+  -- `screenshot.sh` is exactly that. To shoot the greeter instead (before login, a
+  different user and compositor), run `grim` as `greetd`, e.g.
+  `ssh.sh sudo -u greetd env XDG_RUNTIME_DIR=/run/user/967 WAYLAND_DISPLAY=wayland-1 grim /tmp/greeter.png`
+  then copy it off with `ssh.sh cat /tmp/greeter.png > greeter.png` (the greeter's uid can
+  differ; `ssh.sh id -u greetd` confirms it).
 - Settings are in `devvm.env` and are overridden from the environment: `CPUS=4`,
   `MEMORY=8G`, `DISK_GIB=40`, `SSH_PORT`, `ISO_TAG`, `REGISTRY`. State (ISO, disks, logs)
   is in `${XDG_DATA_HOME:-~/.local/share}/athanor-devvm`: about 6 GB of ISO and up to
