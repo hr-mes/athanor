@@ -129,13 +129,22 @@ const SESSION_COMMAND_PATHS: [&str; 3] = [
 /// greetd's own PATH.
 const SESSION_COMMAND_FALLBACK: &str = "athanor-session";
 
+/// The first of `candidates` that is installed, or `fallback`. Split out of
+/// session_command so that the choice can be tested against a tree the test owns: on a
+/// build machine none of the real paths exists, and a test that only ever sees the
+/// fallback would pass on a function that never looked at the filesystem.
+fn first_installed<'a>(candidates: &[&'a str], fallback: &'a str) -> &'a str {
+    candidates
+        .iter()
+        .copied()
+        .find(|candidate| std::path::Path::new(candidate).exists())
+        .unwrap_or(fallback)
+}
+
 /// The command the greeter asks greetd to run once the password is accepted: the first
 /// of SESSION_COMMAND_PATHS that is installed, or SESSION_COMMAND_FALLBACK.
 pub fn session_command() -> String {
-    SESSION_COMMAND_PATHS
-        .iter()
-        .find(|candidate| std::path::Path::new(candidate).exists())
-        .map_or_else(|| SESSION_COMMAND_FALLBACK.to_string(), |c| c.to_string())
+    first_installed(&SESSION_COMMAND_PATHS, SESSION_COMMAND_FALLBACK).to_string()
 }
 
 /// The badge under the user name on the greeter card: what this greeter is about to
@@ -239,30 +248,70 @@ mod tests {
         }
     }
 
+    /// A directory of this test's own, named after the case, removed at the end.
+    fn scratch(case: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "athanor-session-command-{}-{}",
+            std::process::id(),
+            case
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a scratch directory");
+        dir
+    }
+
     #[test]
-    fn session_command_is_the_first_installed_path_or_the_bare_name() {
-        let installed = SESSION_COMMAND_PATHS
-            .iter()
-            .find(|candidate| std::path::Path::new(candidate).exists());
-        match installed {
-            Some(path) => {
-                assert_eq!(
-                    session_command(),
-                    *path,
-                    "with {path} installed the greeter must ask greetd for it, and for \
-                     no later candidate"
-                );
-                assert!(
-                    path.starts_with('/'),
-                    "an installed session command is an absolute path: {path}"
-                );
-            }
-            None => assert_eq!(
-                session_command(),
-                SESSION_COMMAND_FALLBACK,
-                "with none of {SESSION_COMMAND_PATHS:?} installed the greeter falls back \
-                 to the bare command name"
-            ),
+    fn session_command_takes_the_first_candidate_that_is_installed() {
+        let dir = scratch("first");
+        let first = dir.join("first").to_str().expect("utf-8 path").to_string();
+        let second = dir.join("second").to_str().expect("utf-8 path").to_string();
+        std::fs::write(&first, b"").expect("the first candidate");
+        std::fs::write(&second, b"").expect("the second candidate");
+
+        assert_eq!(
+            first_installed(&[&first, &second], "fallback"),
+            first,
+            "with both installed the greeter must ask for the first"
+        );
+
+        std::fs::remove_file(&first).expect("removing the first candidate");
+        assert_eq!(
+            first_installed(&[&first, &second], "fallback"),
+            second,
+            "with the first missing the greeter must fall through to the second"
+        );
+
+        std::fs::remove_dir_all(&dir).expect("cleaning up");
+    }
+
+    #[test]
+    fn session_command_falls_back_to_the_bare_name_when_nothing_is_installed() {
+        let dir = scratch("none");
+        let missing = dir.join("missing").to_str().expect("utf-8 path").to_string();
+        assert!(!std::path::Path::new(&missing).exists());
+
+        assert_eq!(first_installed(&[&missing], SESSION_COMMAND_FALLBACK), SESSION_COMMAND_FALLBACK);
+        assert!(
+            !SESSION_COMMAND_FALLBACK.contains('/'),
+            "the fallback is a bare command name, left to greetd's PATH"
+        );
+
+        std::fs::remove_dir_all(&dir).expect("cleaning up");
+    }
+
+    #[test]
+    fn the_real_candidates_are_absolute_and_end_in_the_session_command() {
+        for candidate in SESSION_COMMAND_PATHS {
+            assert!(
+                candidate.starts_with('/'),
+                "an installed session command is an absolute path: {candidate}"
+            );
+            assert!(candidate.ends_with(SESSION_COMMAND_FALLBACK), "{candidate}");
         }
+        assert_eq!(
+            session_command(),
+            first_installed(&SESSION_COMMAND_PATHS, SESSION_COMMAND_FALLBACK),
+            "session_command must be first_installed over the real candidates"
+        );
     }
 }
