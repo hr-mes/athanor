@@ -26,6 +26,7 @@ on a fresh socket -- what cosmic-session does when it force-restarts the other s
 Keeping the survivor would leave it holding a descriptor whose peer is gone.
 """
 
+import ctypes
 import os
 import socket
 import subprocess
@@ -39,9 +40,39 @@ PANEL = "/usr/bin/cosmic-panel"
 # restart it.
 TERMINATE_TIMEOUT_SECONDS = 10
 
+PR_SET_NO_NEW_PRIVS = 38  # linux/prctl.h
+
+# Opened here, in the parent, so that harden() -- which runs in the forked child, where
+# dlopen is not safe to call -- only has to make the syscall.
+_LIBC = ctypes.CDLL(None, use_errno=True)
+
 
 def log(message):
     print(f"athanor-cosmic-panel: {message}", file=sys.stderr, flush=True)
+
+
+def harden():
+    """Confine the daemon, in the child, between fork and exec.
+
+    cosmic-notifications parses the summary, the body and the image of every
+    notification any application sends, and it used to carry a unit sandbox. Sharing a
+    socket pair with the panel costs it that unit, and most of what the unit gave it
+    cannot be reproduced from here: ProtectSystem=strict, ProtectHome=read-only,
+    PrivateTmp and the ProtectKernelTunables/Modules/Logs and ProtectControlGroups
+    directives are mount namespaces, and SystemCallFilter=@system-service,
+    RestrictRealtime, RestrictSUIDSGID and LockPersonality are seccomp filters --
+    systemd installs all of them while exec'ing a unit, and the daemon is no longer one.
+    Those are lost, and saying otherwise would be exactly the unbacked claim this work
+    is about.
+
+    What does not need a unit is applied here: NoNewPrivileges, a process flag inherited
+    across exec, and a umask the unit did not even set. The panel gets neither -- it
+    forks the user's applications, and no_new_privs on it would reach every one of them,
+    which is the defect its own unit comment records.
+    """
+    os.umask(0o077)
+    if _LIBC.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "prctl(PR_SET_NO_NEW_PRIVS) failed")
 
 
 def stop(child):
@@ -55,7 +86,7 @@ def stop(child):
         child.wait()
 
 
-def spawn(command, end, variable):
+def spawn(command, end, variable, preexec_fn=None):
     """Start `command` with `end` as an inherited descriptor named by `variable`.
 
     pass_fds keeps that one descriptor open across the exec and closes every other, so
@@ -66,6 +97,7 @@ def spawn(command, end, variable):
         [command],
         env={**os.environ, variable: str(end.fileno())},
         pass_fds=(end.fileno(),),
+        preexec_fn=preexec_fn,
     )
 
 
@@ -73,7 +105,7 @@ def main():
     daemon_end, panel_end = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
     with daemon_end, panel_end:
         children = [
-            spawn(DAEMON, daemon_end, "DAEMON_NOTIFICATIONS_FD"),
+            spawn(DAEMON, daemon_end, "DAEMON_NOTIFICATIONS_FD", preexec_fn=harden),
             spawn(PANEL, panel_end, "PANEL_NOTIFICATIONS_FD"),
         ]
     # Leaving the block hands both ends to the children alone.

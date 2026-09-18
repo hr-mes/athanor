@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-system-services
 Version:        1.0.1
-Release:        13%{?dist}
+Release:        14%{?dist}
 Summary:        Athanor OS athanor-system-services
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -41,6 +41,16 @@ install -m 0755 %{_sourcedir}/usr/bin/athanor-cosmic-panel %{buildroot}/usr/bin/
 %attr(0755,root,root) /usr/bin/athanor-cosmic-panel
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-14
+- Give cosmic-notifications back what it can keep without a unit. It parses the summary,
+  the body and the image of every notification any application sends, and sharing a
+  socket pair with the panel cost it its unit sandbox. athanor-cosmic-panel now sets
+  no_new_privs and a 0077 umask on the daemon, and on the daemon only, between fork and
+  exec. Still lost, and not recoverable from a parent process: ProtectSystem=strict,
+  ProtectHome=read-only, PrivateTmp and the ProtectKernel*/ProtectControlGroups
+  directives, which are mount namespaces, and SystemCallFilter=@system-service,
+  RestrictRealtime, RestrictSUIDSGID and LockPersonality, which are seccomp filters --
+  systemd installs both while exec'ing a unit.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-13
 - Bound the wait athanor-cosmic-panel makes on the program it is stopping. An unbounded
   Popen.wait() after SIGTERM hangs the wrapper for good on a child that does not answer,
