@@ -45,7 +45,13 @@ scripts/devvm/reset.sh             # back to the freshly installed system
   `--restart-unit U` restarts a system unit.
 - QEMU runs in the user unit `athanor-devvm` (`journalctl --user -u athanor-devvm`), outside
   the sandbox greetd puts on the graphical session. The serial console goes to
-  `console.log`.
+  `console.log`, and live to `console.sock` (`scripts/devvm/console.sh`, a real
+  bidirectional terminal for when SSH is unreachable -- a hung boot, a dead network,
+  typing at a boot menu). QEMU's own monitor is at `monitor.sock`
+  (`socat - unix:$STATE/monitor.sock`, or any client that speaks the QEMU HMP), for
+  things the guest OS cannot do for itself, such as typing at the greeter with no
+  keyboard focus or adding a one-off `hostfwd_add` if the network ever needs it. Both
+  sockets are created user-only (`start.sh` sets `umask 077` on the QEMU process itself).
 - Graphics: `virtio-vga-gl`, a virgl GPU rendered by the host GPU, shown in a GTK window.
   `DISPLAY_BACKEND=egl-headless` renders without a window and serves the screen with SPICE
   on `127.0.0.1:5930`; that is what an agent verifying the image uses, because it has no
