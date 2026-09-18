@@ -3,7 +3,7 @@
 %global crate_dir forge/specs/%{name}/%{name}-%{version}
 Name:           athanor-settings-rs
 Version:        1.0.0
-Release:        11%{?dist}
+Release:        12%{?dist}
 Summary:        Pure Rust native System Settings for Athanor OS
 
 License:        GPLv3+
@@ -13,7 +13,6 @@ BuildRequires:  rust cargo
 BuildRequires:  gtk4-devel
 
 Requires: power-profiles-daemon
-Requires: mako
 Requires:       ostree
 
 %description
@@ -38,6 +37,16 @@ install -m 0644 %{crate_dir}/os.athanor.Settings.desktop $RPM_BUILD_ROOT/%{_data
 %{_datadir}/applications/os.athanor.Settings.desktop
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.0-12
+- Drop Requires: mako. It was the only thing in the tree that pulled a second notification
+  daemon into the image, and mako ships
+  /usr/share/dbus-1/services/fr.emersion.mako.service: the one D-Bus activation file in
+  the image that claims org.freedesktop.Notifications, so any client calling that name
+  before cosmic-notifications owns it would have started mako instead, and the session's
+  own daemon would then have failed to take its name. This package left the image in
+  1.0.0-11 and is no longer built; the line is removed so that reviving it cannot bring
+  the second daemon back. A desktop needs a notification daemon, not this one: the session
+  starts cosmic-notifications.
 * Thu Sep 03 2026 Athanor Forge <forge@athanor.os> - 1.0.0-11
 - Compila il crate dal workspace in place (rpmbuild --build-in-place) invece di
   un tarball mai tracciato in git; file di dati riferiti tramite %%{crate_dir}
