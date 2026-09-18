@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-system-services
 Version:        1.0.1
-Release:        16%{?dist}
+Release:        17%{?dist}
 Summary:        Athanor OS athanor-system-services
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -41,6 +41,12 @@ install -m 0755 %{_sourcedir}/usr/bin/athanor-cosmic-panel %{buildroot}/usr/bin/
 %attr(0755,root,root) /usr/bin/athanor-cosmic-panel
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-17
+- Put the syslog priority prefix where systemd looks for it. athanor-cosmic-panel wrote
+  "athanor-cosmic-panel: <3>...", and systemd reads <N> only at the very start of a line,
+  so the one line that says the session has lost its notifications was filed at info and
+  `journalctl -p err` showed nothing. The prefix comes first now, and the test asserts the
+  rendered line rather than the message the code meant to send.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-16
 - Widen cosmic-panel.service's memory budget to cover the notification daemon it now
   runs: 1G + 256M = MemoryHigh 1280M, 1536M + 384M = MemoryMax 1920M, the panel's old
