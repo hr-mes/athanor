@@ -27,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 
 SCRIPT = (
@@ -73,6 +74,13 @@ def load_script():
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     return module
+
+
+def panels(path):
+    """The pids of the stand-in panels running from `path`."""
+    return subprocess.run(
+        ["pgrep", "-f", path], capture_output=True, text=True, check=False
+    ).stdout.split()
 
 
 def said(journal):
@@ -163,12 +171,7 @@ class CosmicPanelWrapper(unittest.TestCase):
             written[0].startswith(f"{self.module.ERR}athanor-cosmic-panel: "),
             f"the failure has to be an error in the journal: {written[0]!r}",
         )
-        running = subprocess.run(
-            ["pgrep", "-f", self.module.PANEL],
-            capture_output=True,
-            text=True,
-            check=False,
-        ).stdout.split()
+        running = panels(self.module.PANEL)
         self.assertEqual(
             len(running), 1, f"expected exactly one panel running, found {running}"
         )
@@ -254,6 +257,88 @@ class CosmicPanelWrapper(unittest.TestCase):
         self.assertEqual(
             self.module.recent_failures([0.0], window + 1.0),
             [window + 1.0],
+        )
+
+    def test_the_failure_window_counts_a_suspend(self):
+        """A suspend must age the window out, not be skipped over.
+
+        time.monotonic() stops while the machine is suspended. Four exits, a laptop shut
+        for the night, one more exit in the morning, and a window measured on
+        CLOCK_MONOTONIC would call that five failures inside ten minutes and drop the
+        daemon for a session that had been healthy all night. main() takes the clock as
+        an argument so the eight hours can be played out here for nothing -- and so that
+        a loop reading the wrong clock again fails this test rather than a laptop.
+        """
+        night = 8 * 60 * 60
+        readings = []
+
+        def slept_through_the_night():
+            """1, 2, 3, 4 seconds -- then every reading is a night later."""
+            readings.append(len(readings) + 1)
+            if len(readings) < self.module.GIVE_UP_AFTER:
+                return float(len(readings))
+            return float(len(readings)) + (len(readings) - 4) * night
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.module.DAEMON = write_stand_in(tmp, "daemon", DIES)
+            self.module.PANEL = write_stand_in(tmp, "panel", SURVIVES)
+            self.module.BACKOFF_START_SECONDS = 0.01
+            self.module.BACKOFF_CEILING_SECONDS = 0.01
+
+            finished = threading.Event()
+            journal = os.path.join(tmp, "stderr")
+
+            def run():
+                try:
+                    self.module.main(clock=slept_through_the_night)
+                finally:
+                    finished.set()
+
+            with open(journal, "w") as stderr, contextlib.redirect_stderr(stderr):
+                threading.Thread(target=run, daemon=True).start()
+
+                # Well past the point a window that ignored the suspend would have given
+                # up: every exit after the fourth is a night away from the last.
+                wanted = self.module.GIVE_UP_AFTER + 3
+                for _ in range(600):
+                    if len(said(journal)) >= wanted:
+                        break
+                    finished.wait(0.05)
+                else:
+                    self.fail(f"the wrapper stopped restarting: {said(journal)}")
+                written = said(journal)
+
+                self.assertFalse(
+                    any("without it" in line for line in written),
+                    "a session healthy all night lost its notifications: the window is "
+                    f"not counting the suspend: {written}",
+                )
+                self.assertFalse(finished.is_set())
+
+                # The pair is being restarted the whole time, so there is a moment
+                # between the old panel going and the new one arriving: wait for one
+                # rather than sampling into the gap.
+                for _ in range(600):
+                    running = panels(self.module.PANEL)
+                    if len(running) == 1:
+                        break
+                    finished.wait(0.05)
+                else:
+                    self.fail(f"no panel came back: {said(journal)}")
+                os.kill(int(running[0]), signal.SIGTERM)
+                self.assertTrue(finished.wait(30))
+
+    def test_the_window_is_measured_on_a_clock_that_survives_suspend(self):
+        """The default clock is CLOCK_BOOTTIME, which keeps counting while suspended."""
+        self.assertAlmostEqual(
+            self.module.boottime(),
+            time.clock_gettime(time.CLOCK_BOOTTIME),
+            delta=1.0,
+        )
+        self.assertGreaterEqual(
+            time.clock_gettime(time.CLOCK_BOOTTIME),
+            time.monotonic() - 1.0,
+            "sanity: BOOTTIME never runs behind MONOTONIC",
         )
 
     def test_it_supervises_the_programs_the_image_installs(self):

@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 Name:           athanor-system-services
 Version:        1.0.1
-Release:        22%{?dist}
+Release:        23%{?dist}
 Summary:        Athanor OS athanor-system-services
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -41,6 +41,13 @@ install -m 0755 %{_sourcedir}/usr/bin/athanor-cosmic-panel %{buildroot}/usr/bin/
 %attr(0755,root,root) /usr/bin/athanor-cosmic-panel
 
 %changelog
+* Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-23
+- Measure the notification daemon's failure window on CLOCK_BOOTTIME. time.monotonic()
+  stops while the machine is suspended, so four exits, a laptop shut for the night and one
+  more exit in the morning read as five failures inside ten minutes, and a session that had
+  been healthy all night would have lost its notifications. CLOCK_BOOTTIME keeps counting
+  across suspend, so the window means the ten minutes it says. main() takes the clock as an
+  argument and the test plays the eight hours out through the real loop.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.1-22
 - Check that cosmic-notifications is there to be executed before forking for it, so the
   journal names the missing file instead of repeating an errno, and keep the exception

@@ -44,7 +44,9 @@ import time
 DAEMON = "/usr/bin/cosmic-notifications"
 PANEL = "/usr/bin/cosmic-panel"
 
-# GIVE_UP_AFTER exits inside FAILURE_WINDOW_SECONDS and the daemon is dropped for the
+# GIVE_UP_AFTER exits inside FAILURE_WINDOW_SECONDS, measured on CLOCK_BOOTTIME so that
+# a suspend counts against the window like any other ten minutes, and the daemon is
+# dropped for the
 # rest of the session. A sliding window rather than a run of consecutive short runs: the
 # rule used to be "a run longer than 60 seconds clears the count", and a daemon that died
 # every 61 seconds -- the shape of a leak, or of a driver that gives out after a while --
@@ -55,6 +57,7 @@ PANEL = "/usr/bin/cosmic-panel"
 # restarting, and the window forgets it.
 FAILURE_WINDOW_SECONDS = 600
 GIVE_UP_AFTER = 5
+BACKOFF_START_SECONDS = 1
 BACKOFF_CEILING_SECONDS = 60
 
 # systemd reads a <N> prefix on a line of a service's output as its syslog priority
@@ -73,6 +76,19 @@ PR_SET_NO_NEW_PRIVS = 38  # linux/prctl.h
 # Opened here, in the parent, so that harden() -- which runs in the forked child, where
 # dlopen is not safe to call -- only has to make the syscall.
 _LIBC = ctypes.CDLL(None, use_errno=True)
+
+
+def boottime():
+    """Seconds since boot, suspend included.
+
+    time.monotonic() is CLOCK_MONOTONIC, which stops while the machine is suspended, and
+    the failure window is measured in wall-clock terms: four exits, a laptop closed for
+    the night, one more exit in the morning, and CLOCK_MONOTONIC would still call that
+    five failures inside ten minutes and drop the daemon for a session that had been
+    healthy all night. CLOCK_BOOTTIME keeps counting across suspend, so the window means
+    what it says.
+    """
+    return time.clock_gettime(time.CLOCK_BOOTTIME)
 
 
 def log(message, priority=INFO):
@@ -220,9 +236,15 @@ def recent_failures(failures, now):
     return [when for when in failures if now - when < FAILURE_WINDOW_SECONDS] + [now]
 
 
-def main():
+def main(clock=boottime):
+    """Supervise the pair until the panel exits.
+
+    `clock` is the one the failure window is measured on; it is an argument so that a
+    test can play out a suspend, which is the case the window has to get right and the
+    one that cannot be waited for.
+    """
     failures = []
-    delay = 1
+    delay = BACKOFF_START_SECONDS
     while True:
         exited, code, other = run_once(with_daemon=len(failures) < GIVE_UP_AFTER)
 
@@ -233,10 +255,10 @@ def main():
             return code if code >= 0 else 1
 
         stop(other)
-        failures = recent_failures(failures, time.monotonic())
+        failures = recent_failures(failures, clock())
         if len(failures) == 1:
             # Nothing recent: the daemon had been healthy, so start the backoff over.
-            delay = 1
+            delay = BACKOFF_START_SECONDS
 
         if len(failures) >= GIVE_UP_AFTER:
             log(
