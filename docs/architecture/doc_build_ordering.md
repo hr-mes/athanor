@@ -115,6 +115,8 @@ and the same with `-legacy-<NVIDIA_LEGACY_VERSION>`. A republished kernel with t
 
 On a pure pin bump the variants are therefore built and gated only after the merge, in the Orchestrator, where they fail closed.
 
+**Known limitation.** `kernel-bump.yml` emits one PR carrying both `pins.env` and `system/Containerfile` whenever the base image digest moves on the same day as the kernel or NVIDIA pins. `KERNEL_PIN_FILES` excludes `system/Containerfile` by design (a base bump is reviewed with its package delta, O8), so that PR's diff is never "only the pin files" and System Image Check fails every time by the last row of the table above, with no code path able to tell the two bumps apart after the bot has merged them into one PR. The bot cannot split them itself today. Follow-up: teach `bump.py` to open the base bump as its own PR when it coincides with a pin bump.
+
 **O8. Bump PRs.**
 
 - **Pure kernel or NVIDIA pin bumps:** they keep auto-merge on a green prep.
@@ -146,6 +148,12 @@ On a pure pin bump the variants are therefore built and gated only after the mer
 - **Unanswered approvals:** a run waiting for the `signing` approval holds its concurrency group for up to 30 days; `timeout-minutes` does not count that wait. An approval nobody answers stops image builds on that branch, and on a pin bump there are two such waits. Rejecting the pending approval is how to unblock it.
 - **Queueing:** `cancel-in-progress: false` means a long cycle delays the next one instead of being cut. GitHub keeps only the newest pending run.
 - **Variants on pin bumps:** they are tested only after the merge (O7).
+- **Combined bump PRs red System Image Check by design:** a bump PR carrying `pins.env`
+  and `system/Containerfile` together (the bot emits one PR when the base image moves the
+  same day as the kernel pins) always fails System Image Check, because the pins can no
+  longer be isolated from the base bump it is designed to reject (O7). Not merge-blocking,
+  since only "Kernel gate" is required, but it recurs until `bump.py` splits the base bump
+  into its own PR.
 
 **Out of scope:**
 - **ISO acceptance `newest`:** after a failed cycle it silently picks an older ISO.
