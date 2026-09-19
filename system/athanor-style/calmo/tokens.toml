@@ -1,0 +1,201 @@
+# Calmo design tokens: the single source of the Athanor identity (doc_shell.md, SH5).
+# Values are the ones of the approved mockup (interfaccia-athanor-v3). A colour is a hex
+# string, or a table: { s, l } in HSL on the accent hue, with optional dh (hue offset in
+# degrees), a (alpha), and s = "accent" / "accent+N" for the accent saturation.
+schema = 1
+
+[accent]
+hue = 231
+saturation = 62
+
+[font]
+family = "Inter"
+features = '"tnum", "cv11"'
+
+[radius]
+control = 8
+chip = 10
+field = 11
+card = 18
+round = 9999
+
+[size]
+clock = 74
+date = 14
+title = 16
+body = 13
+small = 11.5
+
+[hearth]
+# Concentric discs rising from the bottom right corner. Centre in fractions of the
+# image; radii in fractions of the distance from the centre to the farthest corner,
+# which is how the mockup's CSS radial gradients measure them. Disc colours are d1..d4.
+center = [0.80, 1.22]
+radii = [0.22, 0.37, 0.54, 0.74]
+gradient_angle = 165
+
+[variant.light.color]
+bg1 = { s = 42, l = 95 }
+bg2 = { s = 44, l = 88 }
+d1 = { s = 88, l = 76, a = 0.50 }
+d2 = { s = 84, l = 80, a = 0.42 }
+d3 = { s = 80, l = 84, a = 0.36 }
+d4 = { dh = -38, s = 72, l = 86, a = 0.42 }
+surf = { s = 40, l = 99.5 }
+surf2 = { s = 36, l = 96.5 }
+bar = { s = 40, l = 99 }
+line = { s = 26, l = 87 }
+ink = { s = 32, l = 15 }
+ink2 = { s = 14, l = 40 }
+ink3 = { s = 12, l = 58 }
+chip = { s = 30, l = 93.5 }
+acc = { s = "accent", l = 47 }
+acc_ink = "#ffffff"
+acc_soft = { s = "accent", l = 93 }
+acc_soft_ink = { s = "accent", l = 32 }
+clock_ink = { s = 40, l = 18 }
+shadow_near = { s = 40, l = 20, a = 0.10 }
+shadow_panel = { s = 40, l = 20, a = 0.08 }
+shadow_float = { s = 50, l = 18, a = 0.22 }
+ok = "#12805f"
+ok_bg = "#dbf4ec"
+warn = "#a36a00"
+warn_bg = "#fdf0d2"
+bad = "#b3261e"
+bad_bg = "#fde1de"
+
+[variant.dark.color]
+bg1 = { s = 38, l = 10 }
+bg2 = { s = 42, l = 5.5 }
+d1 = { s = 70, l = 42, a = 0.50 }
+d2 = { s = 66, l = 34, a = 0.42 }
+d3 = { s = 60, l = 26, a = 0.38 }
+d4 = { dh = -38, s = 60, l = 20, a = 0.45 }
+surf = { s = 26, l = 14.5 }
+surf2 = { s = 28, l = 11.5 }
+bar = { s = 28, l = 15.5 }
+line = { s = 22, l = 25 }
+ink = { s = 40, l = 95 }
+ink2 = { s = 18, l = 72 }
+ink3 = { s = 14, l = 54 }
+chip = { s = 24, l = 21 }
+acc = { s = "accent+25", l = 75 }
+acc_ink = { s = 50, l = 10 }
+acc_soft = { s = 42, l = 26 }
+acc_soft_ink = { s = 95, l = 90 }
+clock_ink = { s = 60, l = 96 }
+shadow_near = { hex = "#000000", a = 0.60 }
+shadow_panel = { hex = "#000000", a = 0.40 }
+shadow_float = { hex = "#000000", a = 0.73 }
+ok = "#5fdcc0"
+ok_bg = "#103d38"
+warn = "#ffcf70"
+warn_bg = "#4a3812"
+bad = "#ffa79d"
+bad_bg = "#4a1a17"
+
+# High contrast is not in the mockup. It is derived by one rule: every secondary ink
+# moves one step towards the primary ink, hairlines become visible boundaries, and the
+# accent moves away from the surface. Trust colours stay fixed.
+[variant.light-hc]
+inherits = "light"
+[variant.light-hc.color]
+ink = { s = 32, l = 8 }
+ink2 = { s = 20, l = 25 }
+ink3 = { s = 14, l = 40 }
+line = { s = 14, l = 45 }
+acc = { s = "accent", l = 38 }
+clock_ink = { s = 40, l = 10 }
+
+[variant.dark-hc]
+inherits = "dark"
+[variant.dark-hc.color]
+ink = { s = 40, l = 98 }
+ink2 = { s = 18, l = 84 }
+ink3 = { s = 18, l = 72 }
+line = { s = 14, l = 54 }
+acc = { s = "accent+25", l = 82 }
+clock_ink = { s = 60, l = 99 }
+
+# Every foreground/background pair a surface uses. kind: "text" needs 4.5:1, "large"
+# (24 px and up, or 19 px bold) and "ui" (icons, badges, component boundaries) need
+# 3:1 (WCAG 2.1 AA, 1.4.3 and 1.4.11). bg may be a list, composited bottom to top.
+# only = [...] restricts a pair to the named variants.
+[[pair]]
+fg = "ink"
+bg = ["surf", "surf2", "bar", "chip"]
+each = true
+kind = "text"
+[[pair]]
+fg = "ink2"
+bg = ["surf", "surf2", "bar"]
+each = true
+kind = "text"
+[[pair]]
+fg = "ink3"
+bg = ["surf", "surf2", "bar"]
+each = true
+kind = "ui"
+[[pair]]
+fg = "acc_ink"
+bg = "acc"
+kind = "text"
+[[pair]]
+fg = "acc_soft_ink"
+bg = "acc_soft"
+kind = "text"
+[[pair]]
+fg = "acc"
+bg = ["surf", "surf2", "bar"]
+each = true
+kind = "ui"
+[[pair]]
+fg = "bad"
+bg = ["surf", "bar"]
+each = true
+kind = "text"
+[[pair]]
+fg = "ok"
+bg = "surf"
+kind = "text"
+[[pair]]
+fg = "ok"
+bg = ["bar", "ok_bg"]
+each = true
+kind = "ui"
+[[pair]]
+fg = "warn"
+bg = ["bar", "surf", "warn_bg"]
+each = true
+kind = "ui"
+[[pair]]
+fg = "bad"
+bg = "bad_bg"
+kind = "ui"
+[[pair]]
+fg = "bar"
+bg = ["ok", "warn", "bad"]
+each = true
+kind = "ui"
+[[pair]]
+fg = "clock_ink"
+bg = ["bg1", "d4"]
+kind = "large"
+[[pair]]
+fg = "clock_ink"
+bg = ["bg2", "d4", "d3", "d2", "d1"]
+kind = "large"
+[[pair]]
+fg = "ink"
+bg = ["bg1", "d4"]
+kind = "text"
+[[pair]]
+fg = "ink"
+bg = ["bg2", "d4", "d3", "d2", "d1"]
+kind = "text"
+[[pair]]
+fg = "line"
+bg = ["surf", "bar"]
+each = true
+kind = "ui"
+only = ["light-hc", "dark-hc"]
