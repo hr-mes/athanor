@@ -22,12 +22,13 @@ What is available: `skopeo` 1.22 and `bootc` 1.16 are in the image; `bootc upgra
 
 ## 2. Decisions
 
-**UT1. One package, one binary, three units.** `forge/specs/athanor-update` ships the Rust binary `athanor-update` and:
+**UT1. One package, one binary, four units.** `forge/specs/athanor-update` ships the Rust binary `athanor-update` and:
 
 | Unit | Runs | Does |
 |---|---|---|
 | `athanor-update-check.timer` | 15 minutes after boot, then every 6 hours, with a randomised delay | starts the check |
 | `athanor-update-check.service` | `athanor-update check`, oneshot, root | re-derives the verification of the booted digest, checks the registry, downloads, publishes the state |
+| `athanor-update-state.service` | `athanor-update check --offline`, oneshot at boot, root, `PrivateNetwork=yes` | the verification of the booted digest that UT5 requires before the network is up |
 | `athanor-update.service` | `athanor-update serve`, root, D-Bus activated on `os.athanor.Update1` | the two requests of UT6, then publishes the state |
 
 - Both services take one lock, `/run/athanor-update/lock`, so a request never races a download.
@@ -46,7 +47,7 @@ What is available: `skopeo` 1.22 and `bootc` 1.16 are in the image; `bootc upgra
 
 **UT3. The policy lives under `/usr` and is scoped to our images.** *(constraints 2, 3)*
 
-- `athanor-update` ships `/usr/share/athanor/containers/policy.json`, `/usr/share/athanor/containers/registries.d/athanor.yaml` with `use-sigstore-attachments: true`, and the public keys under `/usr/share/athanor/keys/`.
+- The image carries `/usr/share/athanor/containers/policy.json`, `/usr/share/athanor/containers/registries.d/athanor.yaml` with `use-sigstore-attachments: true`, and the public keys under `/usr/share/athanor/keys/`. They are rendered at image build by one script the RPM ships with its templates, because the registry is a build variable and a key rotation should be a file commit, not an RPM bump. The signing job and the acceptance harness call the same script.
 - The container tools read only `/etc/containers`. The image build replaces `/etc/containers/policy.json` with a symbolic link to the file under `/usr` and links the `registries.d` entry; `verify.py shipped` checks both links.
 - **`default` is `reject`,** because `bootc switch --enforce-container-sigpolicy` refuses to run against a policy whose top-level default is `insecureAcceptAnything`. Users lose nothing: `transports.docker[""]` and every other transport podman, buildah and skopeo use today (`docker-archive`, `oci`, `oci-archive`, `dir`, `containers-storage`, `docker-daemon`) are `insecureAcceptAnything`, which bootc does not inspect, and the acceptance proves `podman pull`, `podman load` and `podman build` still work. The three system image repositories override that with `sigstoreSigned`, a `keyPaths` list and `matchRepository`. The registry and owner come from the build's variables through a template; no literal `ghcr.io/hr-mes` enters the source.
 - **Rotation:** key *n+1* ships in the `keyPaths` of an image signed with key *n*. Key *n* leaves one release after the first image signed with *n+1*. Two keys are therefore in force during a rotation, and the acceptance tests it.
@@ -100,9 +101,9 @@ What is available: `skopeo` 1.22 and `bootc` 1.16 are in the image; `bootc upgra
 
 **UT10. Retention keeps what a machine can still use.** *(constraint 8)* `clean_ghcr.sh` never deletes a system image digest that is tagged `stable` or `latest`, was tagged so in the last 90 days, or is the previous `stable`; nor any `sha256-<hex>.sig`, `sha256-<hex>` or `.att` tag whose digest it keeps: cosign 3 and containers/image write signatures of one digest to two different tags. It treats signature tags as referrers of their image, as `forge/specs/azoth/retention.sh` already does: a signature is never deleted while its digest is kept. Ninety days is an interim number; the document that sets how long an installed version is supported replaces it.
 
-**UT11. The notifier.** `athanor-update-notify`, a user service in the same package: it watches the state file, sends one notification per downloaded digest per user through `org.freedesktop.Notifications` with the actions "Restart to update" and "Later", one after the first boot into a new deployment, and, while no shield exists, offers a pending digest again once per session start. It calls `Apply()` and `GoBack()` and nothing else. It accepts `ActionInvoked` only from the unique name that owns `org.freedesktop.Notifications` and only for an id it holds, because any session process can emit that signal, and a forged one would summon the administrator prompt of `GoBack()` out of nowhere. It restricts itself with Landlock at start as the greeter does (`ensure_single_threaded`, then the ruleset): read access to the state file and its own libraries, no write access.
+**UT11. The notifier.** `athanor-update-notify`, a user service in the same package: it watches the state file, sends one notification per downloaded digest per user through `org.freedesktop.Notifications` with the actions "Restart to update" and "Later", one after the first boot into a new deployment, and, while no shield exists, offers a pending digest again once per session start. It calls `Apply()` and `GoBack()` and nothing else. It accepts `ActionInvoked` only from the unique name that owns `org.freedesktop.Notifications` and only for an id it holds, because any session process can emit that signal, and a forged one would summon the administrator prompt of `GoBack()` out of nowhere. It restricts itself with Landlock at start as the greeter does (`ensure_single_threaded`, then the ruleset): read access to the state file and its own libraries, and write access to one directory, `$XDG_STATE_HOME/athanor-update-notify`, where it records per user which digests it has announced.
 
-**UT12. Metered connections.** The check always runs `bootc upgrade --check`, which costs a manifest. It downloads unless NetworkManager's `Metered` is 1 or 3; this desktop reports 4, guessed unmetered, and downloads.
+**UT12. Metered connections.** The check always asks the registry for the digest and build time with `skopeo inspect --config` (UT5), which costs a manifest. It downloads unless NetworkManager's `Metered` is 1 or 3; this desktop reports 4, guessed unmetered, and downloads.
 
 ## 3. What spike U1 had to prove (done 2026-09-19; item 6 reasoned from the files, not executed)
 
