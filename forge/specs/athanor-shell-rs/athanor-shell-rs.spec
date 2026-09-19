@@ -2,7 +2,7 @@
 # Il crate vive nel workspace: la spec compila il checkout in place, non un tarball.
 Name:           athanor-shell-rs
 Version:        1.0.0
-Release:        34%{?dist}
+Release:        35%{?dist}
 Summary:        Athanor OS Native Rust GTK4 Shell
 
 License:        MIT
@@ -18,17 +18,21 @@ Pure Rust native shell for Athanor OS, replacing AGS/GJS.
 
 %build
 %set_build_flags
-# cargo generate-lockfile // FORBIDDEN BY RULE 4 (Offline Build)
-cargo build --release --locked -p %{name}
+# The old shell is frozen at GTK 0.7 in a workspace of its own (doc_shell.md, SH4).
+cargo build --release --locked --manifest-path forge/specs/athanor-shell-rs/Cargo.toml -p %{name}
 
 %install
 mkdir -p %{buildroot}/usr/bin
-install -m 0755 target/release/athanor-shell-rs %{buildroot}/usr/bin/athanor-shell-rs
+install -m 0755 forge/specs/athanor-shell-rs/target/release/athanor-shell-rs %{buildroot}/usr/bin/athanor-shell-rs
 
 %files
 /usr/bin/athanor-shell-rs
 
 %changelog
+* Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-35
+- Frozen at GTK 0.7 in a workspace of its own, forge/specs/athanor-shell-rs/, with its
+  own lock file (doc_shell.md, SH4: one crate per program). The package stays in the
+  image for xdg-desktop-portal-athanor, which runs its file chooser and privacy prompt.
 * Fri Sep 18 2026 Athanor Forge <forge@athanor.os> - 1.0.0-34
 - Test the session-command choice against a directory the test owns. The branch that
   matters only ran where /usr/bin/athanor-session exists, so on a build machine the test
