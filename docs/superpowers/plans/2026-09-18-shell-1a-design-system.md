@@ -4,9 +4,9 @@
 
 **Goal:** Ship the "Calmo" design system: one tokens file that generates the GTK4 CSS of our surfaces and the default `CosmicTheme`, gated in CI by GTK's own parser and a WCAG AA contrast check, together with the font, the hearth wallpaper, the seal icons, and the greeter re-skinned on the tokens with accessible roles and gettext.
 
-**Architecture:** A Python standard-library toolchain under `system/athanor-style/calmo/` owns the tokens, the contrast gate and the generators; everything it emits is committed under `calmo/generated/` and a `--check` mode fails CI when the committed output drifts from the tokens. The `athanor-style` crate embeds the generated CSS (`include_str!`) and exposes it per variant, so a surface cannot start without its stylesheet and the RPM carries no CSS file. COSMIC receives Calmo through a data directory of our own placed ahead of `/usr/share` in `XDG_DATA_DIRS`, never by touching a file a COSMIC RPM owns. The screenshot and accessibility rig is spike P3's container recipe turned into maintained scripts under `forge/test/shell/`.
+**Architecture:** A Python standard-library toolchain under `system/athanor-style/calmo/` owns the tokens, the contrast gate and the generators; everything it emits is committed under `calmo/generated/` and a `--check` mode fails CI when the committed output drifts from the tokens. The `athanor-style` crate embeds the generated CSS (`include_str!`) and exposes it per variant, so a surface cannot start without its stylesheet and the RPM carries no CSS file. COSMIC receives Calmo through a data directory of our own placed ahead of `/usr/share` in `XDG_DATA_DIRS`, never by touching a file a COSMIC RPM owns. The greeter becomes a program of its own, the crate `athanor-greeter-ui` (SH4, "one crate per program"), and the old `athanor-shell-rs` binary is frozen at GTK 0.7 in a workspace of its own instead of being bumped. The screenshot and accessibility rig is spike P3's container recipe turned into maintained scripts under `forge/test/shell/`.
 
-**Tech Stack:** Python 3.11+ standard library (`tomllib`, `colorsys`, `zlib`, `unittest`); PyGObject with GTK 4.20 inside the rig container only; Rust with gtk4 0.11.4, gtk4-layer-shell 0.8.1, glib 0.22.9, relm4 0.11.0, gettext-rs 0.7; GNU gettext tools (`xgettext`, `msgfmt`); podman rootless, `registry.fedoraproject.org/fedora:43`; cosmic-theme at libcosmic revision `2a73fbc0edfe1525381bf999e241d73def79b222` (the one cosmic-settings `epoch-1.8.0` locks) in a standalone tool outside the workspace.
+**Tech Stack:** Python 3.11+ standard library (`tomllib`, `colorsys`, `zlib`, `unittest`); PyGObject with GTK 4.20 inside the rig container only; Rust with gtk4 0.11.4, gtk4-layer-shell 0.8.1, glib 0.22.9, relm4 0.11.0 (for `athanor-recovery` only), translations in gettext's format read by our own dependency-free crate `athanor-i18n`; GNU gettext tools (`xgettext`, `msgfmt`); podman rootless, `registry.fedoraproject.org/fedora:43`; cosmic-theme at libcosmic revision `2a73fbc0edfe1525381bf999e241d73def79b222` (the one cosmic-settings `epoch-1.8.0` locks) in a standalone tool outside the workspace.
 
 **Spec:** `docs/architecture/doc_shell.md` (approved 2026-09-18, revision 3): SH4, SH5, SH12 (the seal's look only), SH13, section 3 row 1a, section 5, acceptance items 1, 2, 3 (greeter part) and 11 (the greeter's 12 surface cases). Evidence: `.superpowers/spike-p1-applet.md`, `.superpowers/spike-p2-gtk-bump.md`, `.superpowers/spike-p3-headless.md`, and the approved mockup `.superpowers/brainstorm/89841-1789751828/content/interfaccia-athanor-v3.html` (`.superpowers/` is git-ignored: the values this plan needs from it are copied here).
 
@@ -20,11 +20,12 @@
 - Python tests live in `<area>/tests/` and run with `python3 -B -m unittest discover -s <dir>`.
 - Scratch files go under `/.scratch/` (git-ignored) and are never committed.
 - Do not edit `system/athanor-bus-api/src/polkit.rs`, `forge/specs/athanor-gatekeeper-rs/`, or `system/confidential_computing/athanor-attestation/`. No task in this plan touches them.
-- Rust: `panic = "abort"` on dev and release; no `.unwrap()`/`.expect()` outside tests; versions live in `[workspace.dependencies]` and crates use `{ workspace = true }`; a new workspace dependency needs the maintainer's confirmation (`deny.toml`). This plan adds two: `gettext-rs` and `async-channel` (Tasks 16 and 11), each flagged at the top of its task.
-- Factory accent (SH5): "indigo, hue 231 and saturation 62 % in the HSL tokens". The mockup's CSS derives the accent as `hsl(231 62% 47%)` = `#2e44c2` on light and `hsl(231 87% 75%)` = `#8898f7` on dark. The spec's parenthesis "(`#3f56d8` on light)" is the colour of the mockup's accent *picker swatch* (`hsl(231 66% 55%)`), not of `--acc`; this plan follows the mockup's CSS. See "Spec findings" at the end.
+- Rust: `panic = "abort"` on dev and release; no `.unwrap()`/`.expect()` outside tests; versions live in `[workspace.dependencies]` and crates use `{ workspace = true }`. **This plan adds no third-party crate that is new to the project.** `greetd_ipc 0.10.3` and `landlock 0.4`, which `athanor-shell-rs` pins directly today, move into `[workspace.dependencies]` with the greeter (Task 11).
+- Factory accent (SH5, as corrected on 2026-09-19): hue 231, saturation 62 % in the HSL tokens; `#2e44c2` on light (`hsl(231 62% 47%)`), `#8898f7` on dark (`hsl(231 87% 75%)`).
 - Trust colours (SH5) "are fixed and never derived from the accent": light `#12805f` / `#a36a00` / `#b3261e`, dark `#5fdcc0` / `#ffcf70` / `#ffa79d`.
 - Contrast (SH5): "every text/background pair of the tokens meets WCAG AA in four variants, light and dark, each normal and high-contrast": 4.5:1 for text, 3:1 for large text and for non-text UI (WCAG 2.1, 1.4.3 and 1.4.11).
 - CSS (SH5): "CI parses the generated CSS with GTK's own parser; a parse warning fails the build." "Nothing in the identity relies on an effect GTK4 cannot draw."
+- One crate per program (SH4, maintainer's decision of 2026-09-19): "Every surface is its own binary in its own crate, with only the dependencies, the Landlock rules and the review surface it needs: the greeter first"; "`athanor-shell-rs` … is not bumped: it leaves the workspace frozen at GTK 0.7 and is mined for the code worth keeping until it is empty, then deleted."
 - Shim (SH4): "the package's `%check` asserts the `DT_NEEDED` order, and every layer-shell surface asserts at start that it is a layer surface and exits with an error when it is not."
 - Seal (SH12, SH1): the greeter's seal shows the exclamation badge and the words "Not verified" as a constant until package 1b-shield binds the state file. It never shows the check. "No facades."
 - Tests (SH13): surfaces run "scale {1.0, 1.5} × theme {light, dark} × text {English, German for length, a right-to-left pseudo-locale}"; "isolated `XDG_*` directories per case, a frozen wall clock with a live monotonic clock, `TZ=UTC`, `LC_ALL` per case, a fixed set of running clients, the runner label `ubuntu-24.04` and the container pinned by digest". "Italian and English are the shipped locales." "All strings go through gettext from the first commit."
@@ -62,22 +63,29 @@
 - **GTK parse gate:** `forge/test/shell/css_parse_gate.py`, PyGObject, `Gtk.CssProvider` with the `parsing-error` signal, exit 1 on any report. It runs in the rig image, because the hosted runner's Ubuntu GTK is older than Fedora 43's 4.20 and the product's parser is the one that counts.
 - Both, and the surface cases, are jobs of one thin workflow, `.github/workflows/shell-surfaces.yml`, that only calls `forge/test/shell/rig.sh`.
 
-### D4. The GTK bump
+### D4. One crate per program, and the GTK bump that is left
 
-- Versions from spike P2: gtk4 0.11.4, gtk4-layer-shell 0.8.1, glib 0.22.9, relm4 0.11.0.
-- **Recommended workspace change (Task 9, needs the maintainer's confirmation):** the unshipped GTK crates leave `[workspace.members]` and enter `[workspace] exclude`, files untouched: `athanor-settings-rs`, `athanor-store-rs`, `athanor-daemon-rs`, `system/athanor-oobe`. `system/athanor-greeter` stays a member and loses its dead optional `gtk` feature. `athanor-dock` cannot leave: it is a path dependency of the shipped `athanor-shell-rs`. Verified against the tree on 2026-09-19: the nine manifests P2 lists are exactly the ones that mention gtk4, relm4 or `athanor-style`; `athanor-style` is an implicit member (path dependency inside the workspace root), not a listed one.
-- Bumped: `athanor-style` (1 error), `athanor-dock` (12), `athanor-shell-rs` (54, enumerated per site in Task 11), `athanor-recovery` (not measured by P2: Task 12 starts by measuring).
-- **`#![allow(clippy::all, warnings)]`** leaves `athanor-shell-rs/src/main.rs` (`athanor-style` never carried it; `athanor-dock` keeps it, the greeter path does not enter that crate). In `athanor-shell-rs` it is replaced by the same attribute on each non-greeter module declaration, so the greeter path (`main.rs`, `ui/greeter/`, `sys/auth.rs`, `sys/sandbox.rs`, the new `i18n.rs`) compiles under the default lints with `-D warnings`. Cost: the greeter path's own warnings, which Task 14 measures and fixes, and an honest admission that about 13,000 lines stay silenced until the stage that replaces or deletes each surface.
+- **The greeter is the crate `athanor-greeter-ui`,** at `forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/`, package and binary `athanor-greeter-ui`, RPM `athanor-greeter-ui`, short name `greeter-ui` in `packages.json`. The name avoids `system/athanor-greeter`, which is the PAM/TPM daemon (unshipped, in `experimental/EXEMPT`) and keeps its name. The application id stays `os.athanor.Greeter`, because the confinement wrapper's D-Bus filter names it.
+- **What moves into it, and nothing else:** `ui/greeter/greeter.rs` (as `src/ui.rs`), `sys/auth.rs` (`src/auth.rs`), `sys/sandbox.rs` (`src/sandbox.rs`, with a smaller write set), the three-method logind proxy out of `ipc/power.rs` (`src/power.rs`), and from `main.rs` the Landlock-first start, the Tokio runtime (the workspace's zbus is built on Tokio) and the tracing set-up. **No theme code moves:** the old `theme::init_css()` loads `/usr/share/athanor/style.css`, which no package installs, the glass sheet GTK rejects, and writes a Material palette into the configuration directory; the greeter's own inline sheet is what draws it, and Task 16 replaces that sheet with Calmo. The global `mimalloc` allocator, `GSK_RENDERER=ngl`, `GDK_BACKEND` and `GDK_SCALE=1` do not move either.
+- **The old `athanor-shell-rs` RPM cannot leave the image yet.** Checked on the tree: the shipped `xdg-desktop-portal-athanor` (tier 3, `UseIn=athanor`, selected by `XDG_CURRENT_DESKTOP=Athanor:COSMIC`) runs `athanor-shell-rs --privacy-prompt` for Camera, Microphone and Location and `athanor-shell-rs --file-chooser` for FileChooser, and denies by default when the binary is missing. Removing the package would break every file dialog of a sandboxed application. `athanor-desktop-ui` and the portal keep their `Requires: athanor-shell-rs`; `athanor-system-config` switches to `athanor-greeter-ui`. Moving those two prompts out is the next mining step and belongs to the portal's own plan.
+- **Frozen, and still buildable: measured.** `links = "gtk-4"` constrains one dependency graph, which is one lock file, not the machine: two workspaces with two lock files build side by side. What does not work is the naive version, for two reasons found by trying: the crate's dependencies say `{ workspace = true }`, which needs a workspace root, and its path dependency `athanor-style` would drag the live crate at gtk4 0.11 into the 0.7 graph. The frozen tree therefore gets a workspace root of its own, `forge/specs/athanor-shell-rs/Cargo.toml` (members: the shell, `athanor-dock` through `package.workspace`, and `athanor-style-0.7`, a frozen copy of today's `system/athanor-style` sources, 1,733 lines), its own `[workspace.dependencies]` copied from the root at today's versions, and its own `Cargo.lock` pruned from the root's. Built on a scratch copy on 2026-09-19 in the P2 image: `cargo check -p athanor-shell-rs` finishes in 45 s at gtk4 0.7.3 with 274 locked packages, while the main workspace on the same tree resolves gtk4 0.11.4; `athanor-niri-ipc` stays a member of the main workspace and is used across the boundary as a path dependency without trouble.
+- **Workspace change (Task 9, confirmed by the maintainer on 2026-09-19):** `athanor-shell-rs`, `athanor-dock`, `athanor-settings-rs`, `athanor-store-rs`, `athanor-daemon-rs` and `system/athanor-oobe` leave `[workspace.members]` and enter `exclude`; files stay. `system/athanor-greeter` stays a member and loses its dead optional `gtk` feature. Verified against the tree: the nine manifests spike P2 lists are exactly the ones that mention gtk4, relm4 or `athanor-style`; `athanor-style` is an implicit member (a path dependency inside the workspace root). The four unshipped crates that path-depend on the live `athanor-style` are built by nothing after this; that is what "retired" means here.
+- **What is left of the bump: one line.** Versions from spike P2: gtk4 0.11.4, gtk4-layer-shell 0.8.1, glib 0.22.9, relm4 0.11.0. Measured on the scratch copy with the six crates out: `athanor-style` has its 1 known error (`glib::ObjectExt::downgrade(win)` → `win.downgrade()`), and **`athanor-recovery` has 0 errors** at relm4 0.11.0. It is bumped with `athanor-style`, not given a frozen workspace of its own, because a second frozen workspace would cost more than zero. `async-channel` is no longer needed: every removed `glib::MainContext::channel` was in the shell or the dock.
+- **Lints.** The new crate never carries `#![allow(clippy::all, warnings)]` and is gated by `cargo clippy -- -D warnings` from its first commit. `athanor-style`'s three legacy modules (`accent_engine`, `appearance_engine`, `glass`), which only `athanor-recovery` still uses, get a module-level `#[allow]` so that the gate covers the crate's new code, `calmo`; they leave when recovery is re-skinned. The frozen shell keeps its crate-level allow: nobody edits it except to remove code.
 
-### D5. Greeter re-skin
+### D5. The greeter, extracted and then re-skinned
 
-- CSS only from `athanor_style::calmo`; the 190-line inline `GREETER_CSS` and the greeter's use of `theme::init_css()` (which loads the never-installed `/usr/share/athanor/style.css`, the glass theme and a Material palette written to the config directory) are removed from the greeter path.
+- Two steps, two reviews: Task 11 **moves** the greeter as it is (same look, same strings, one `Some(...)`), so that the diff of the security-relevant code, `auth.rs` and `sandbox.rs`, is a move and little else; Task 16 **rewrites** `ui.rs` on the tokens.
 - The greeter **reads nothing from COSMIC**: factory accent, variant from `ATHANOR_GREETER_VARIANT` (`light` default, `dark`, `light-hc`, `dark-hc`), and a real high-contrast toggle on the accessibility button. The old "🎨 Theme" button, which was connected to nothing, is deleted.
 - Native widgets over hand-made ones: `gtk4::PasswordEntry` with `show-peek-icon` replaces the `Entry`, the reveal button, the Caps Lock pill and the key controller (GTK draws its own Caps Lock warning and exposes the right accessible role).
 - Every interactive widget gets an accessible label through `update_property(&[Property::Label(..)])`; the AT-SPI check in the rig enforces it.
 - The keyboard-layout chip shows `gdk::Device::layout_names()` of the seat keyboard (GTK 4.18 API, real data) and is hidden when the seat reports none; it is never a constant.
 - The seal: `athanor-seal-attention-symbolic` and the words "Not verified", constant, with a comment and a changelog entry saying that 1b-shield replaces the constant with the state file.
-- Sandbox: `athanor-greeter-client` binds the whole of `/usr` read-only, and the Landlock policy restricts writes only. Fonts (`/usr/share/fonts/rsms-inter-fonts`), icons (`/usr/share/icons/hicolor`), catalogs (`/usr/share/locale`) and the embedded CSS are all readable; **the wrapper needs no change**. greetd hands the session only PAM's environment, so `LANG` is unset there today: `athanor-greeter-session` reads `/etc/locale.conf` (Task 16).
+- **gettext's format, our own reader (maintainer's decision, 2026-09-19).** Translations stay `.po`/`.mo`: that is the permanent asset, the one Weblate, Poedit and GTK itself use. Our programs do not read them through glibc. A small library crate, `system/athanor-i18n`, loads `.mo` catalogs in safe Rust with no dependency and gives `tr`, `tr_n` (plurals) and `tr_c` (context). Why: (1) no C FFI and no process-global `setlocale`/`textdomain` state in the process that handles the password; (2) glibc's gettext translates only when the system locale is installed, so it is silently English inside the greeter's bubblewrap sandbox or in a test container that lacks the locale; (3) it is toolkit-agnostic logic (SH4), which the notifier of 1b-system can use without GTK. Language: `LC_ALL`, `LC_MESSAGES`, `LANG` from the environment, else `LANG` of `/etc/locale.conf`, else English; catalog `/usr/share/locale/<lang>/LC_MESSAGES/<domain>.mo` with the `it_IT` → `it` fallback; `ATHANOR_I18N_CATALOG=<file.mo>` loads one file directly, which is how the rig's German and pseudo-RTL cases work. GTK's own strings keep going through the system's gettext, so the greeter session still has to export the locale (Task 15).
+- **The crates.io crate `gettext` (the pure-Rust catalog parser, not `gettext-rs`) was checked and rejected:** version 0.4.0 of 2019-06-04 is the last release, the last commit is of 2021-09, eight issues are open; MIT; it parses both byte orders and evaluates arbitrary `Plural-Forms` expressions, but it depends on `encoding` 0.2.33 (2016), which RustSec lists as unmaintained (RUSTSEC-2021-0153) and which brings five multi-megabyte index crates for charsets we refuse anyway, and its plural evaluator computes `lhs % rhs` on catalog data, a division by zero, which under `panic = "abort"` is a dead greeter. Our reader was written and tested while revising this plan: 291 lines, 10 tests against real `msgfmt` output of both byte orders, UTF-8 only, every offset bounds-checked, and a **table** of plural rules (the languages we ship or test) instead of an expression evaluator.
+- **Text direction comes from the catalog's language,** through a four-entry table (`ar`, `he`, `fa`, `ur`), and the greeter applies it with `gtk4::Widget::set_default_direction`. It no longer comes from a process locale, in production or in the rig; the pseudo-RTL test catalog declares `Language: ar`.
+- Sandbox: `athanor-greeter-client` binds the whole of `/usr` read-only, and the Landlock policy restricts writes only. Fonts, icons, catalogs and the embedded CSS are all readable. The wrapper changes in two places only: the last line execs `/usr/bin/athanor-greeter-ui`, and the `theme.css` binds go, because the new program reads no such file. greetd hands the session only PAM's environment, so `LANG` is unset there today: `athanor-greeter-session` reads `/etc/locale.conf` (Task 15).
+- The greeter's Landlock write set shrinks to what it uses: `/tmp`, `$XDG_RUNTIME_DIR`, and `WriteFile` beneath `/dev/dri`. The configuration and state directories were there for the shell's `theme.css` and notification history.
 
 ### D6. Assets
 
@@ -118,14 +126,26 @@
 | `forge/specs/athanor-system-config/athanor-system-config.spec` | Modify. `Requires: athanor-calmo`, release bump, changelog. |
 | `scripts/verify.py` | Modify. `shipped` asserts the overlay wiring. |
 | `scripts/tests/test_verify_shipped.py` | Create. Tests of those assertions. |
-| `Cargo.toml` | Modify. Members/exclude; GTK versions; two new workspace dependencies. |
-| `forge/specs/athanor-dock/athanor-dock-1.0.0/src/**` | Modify. 12 bump fixes. |
-| `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/src/**` | Modify. 54 bump fixes; lint scoping; greeter. |
-| `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/src/i18n.rs` | Create. gettext initialisation and the `tr` helper. |
-| `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/src/wayland/layer_guard.rs` | Create. The start-up layer-surface assertion. |
-| `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/po/{POTFILES.in,athanor-greeter.pot,it.po,en.po}` | Create. Catalogs. |
-| `forge/specs/athanor-shell-rs/athanor-shell-rs.spec` | Modify. `%check` for `DT_NEEDED`, `.mo` files, `Requires`. |
-| `forge/specs/athanor-recovery/**` | Modify. Bump fixes, same `%check`. |
+| `Cargo.toml` | Modify. Members/exclude; GTK versions; `greetd_ipc`, `landlock` as workspace dependencies. |
+| `forge/specs/athanor-shell-rs/Cargo.toml`, `Cargo.lock` | Create. The frozen GTK 0.7 workspace of the old shell. |
+| `forge/specs/athanor-shell-rs/athanor-style-0.7/` | Create. Frozen copy of today's `system/athanor-style` sources, for the old shell and dock. |
+| `forge/specs/athanor-shell-rs/athanor-shell-rs.spec`, `forge/specs/athanor-dock/athanor-dock-1.0.0/Cargo.toml` | Modify. Build from the frozen workspace. |
+| `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/src/{main.rs,ui/mod.rs,sys/mod.rs}`, `src/ui/greeter/`, `src/sys/auth.rs` | Modify/Delete. The greeter is mined out of the old shell. |
+| `forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/Cargo.toml` | Create. The greeter's crate. |
+| `…/athanor-greeter-ui-1.0.0/src/main.rs` | Create. Landlock first, tracing, Tokio runtime, the GTK application. |
+| `…/src/ui.rs` | Create (moved in Task 11, rewritten in Task 16). The surface. |
+| `…/src/auth.rs` | Create (moved). greetd IPC. |
+| `…/src/sandbox.rs` | Create (moved, smaller write set). Landlock. |
+| `…/src/power.rs` | Create. The three-method logind proxy. |
+| `…/src/layer_guard.rs` | Create. The start-up layer-surface assertion. |
+| `…/src/i18n.rs` | Create. The process's catalog; `tr`, `tr_with` for the surface. |
+| `system/athanor-i18n/{Cargo.toml,src/lib.rs,tests/catalog.rs,tests/fixtures/*}` | Create. The `.mo` reader: `Catalog`, `PluralRule`, `languages`. |
+| `…/po/{POTFILES.in,update.sh,athanor-greeter-ui.pot,it.po,en.po}` | Create. Catalogs. |
+| `forge/specs/athanor-greeter-ui/athanor-greeter-ui.spec` | Create. Binary, `%check` for `DT_NEEDED`, `.mo` files. |
+| `forge/scripts/check_shim_link_order.py`, `forge/scripts/tests/test_check_shim_link_order.py` | Create. The `DT_NEEDED` contract. |
+| `forge/specs/athanor-system-config/SOURCES/usr/libexec/athanor-greeter-client` | Modify. Exec the new binary; drop the `theme.css` binds. |
+| `forge/test/iso/console.py` | Modify. The greeter-alive probe looks for `athanor-greeter`. |
+| `forge/specs/athanor-recovery/athanor-recovery.spec` | Modify. Release and changelog only: the crate needs no source change. |
 | `forge/test/shell/Containerfile` | Create. P3's image, maintained: targets `rig` and `build`. |
 | `forge/test/shell/rig.sh` | Create. Entry point: `build-image`, `css-parse`, `build-greeter`, `surface`, `atspi`, `update-goldens`. |
 | `forge/test/shell/scene.sh`, `sway.conf`, `session.sh` | Create. P3's scene, parameterised per case. |
@@ -150,20 +170,19 @@ Part A, toolkit-independent and permanent:
 7. Default `CosmicTheme` (Builder inputs, derive tool, committed output)
 8. Package `athanor-calmo`, the overlay wiring and `verify.py shipped`
 
-Part B, the GTK bump:
-9. Workspace membership (**requires the maintainer's confirmation**)
-10. Bump the workspace, `athanor-style` and `athanor-dock`
-11. Bump `athanor-shell-rs`
-12. Bump `athanor-recovery`
-13. Shim guards: `%check` and the start-up assertion
-14. Lint scope: the greeter path under default lints
+Part B, one crate per program:
+9. Workspace membership (confirmed by the maintainer on 2026-09-19) and the frozen workspace of the old shell
+10. Bump the workspace: `athanor-style` (one line) and `athanor-recovery` (none)
+11. Extract the greeter into `athanor-greeter-ui`, package it, switch the image to it
+12. Shim guards: `%check` and the start-up assertion
+13. Lint gate: clippy `-D warnings` on the new crate and on `athanor-style`
 
-Part C, the greeter:
-15. `athanor_style::calmo`
-16. gettext, catalogs, `.mo` packaging, the greeter's locale
-17. Greeter re-skin
-18. AT-SPI check in the rig
-19. The 12 surface cases, goldens and the workflow
+Part C, the greeter on the tokens:
+14. `athanor_style::calmo`
+15. `athanor-i18n`, catalogs, `.mo` packaging, the greeter's locale
+16. Greeter re-skin
+17. AT-SPI check in the rig
+18. The 12 surface cases, goldens and the workflow
 
 ---
 
@@ -1457,7 +1476,7 @@ RUN dnf5 -y install --setopt=install_weak_deps=False \
   && dnf5 clean all
 ```
 
-`GSK_RENDERER=cairo` makes GTK's output independent of the GL stack of the runner; the greeter's own renderer choice is settled in Task 17.
+`GSK_RENDERER=cairo` makes GTK's output independent of the GL stack of the runner; the greeter itself forces no renderer (Task 11 leaves the old `GSK_RENDERER=ngl` behind).
 
 - [ ] **Step 2: Write the parent compositor's files**
 
@@ -1737,13 +1756,13 @@ on:
     branches: [iso-v0]
     paths:
       - "system/athanor-style/**"
-      - "forge/specs/athanor-shell-rs/**"
+      - "forge/specs/athanor-greeter-ui/**"
       - "forge/test/shell/**"
       - ".github/workflows/shell-surfaces.yml"
   pull_request:
     paths:
       - "system/athanor-style/**"
-      - "forge/specs/athanor-shell-rs/**"
+      - "forge/specs/athanor-greeter-ui/**"
       - "forge/test/shell/**"
       - ".github/workflows/shell-surfaces.yml"
   workflow_dispatch:
@@ -2311,7 +2330,7 @@ In `forge/specs/athanor-system-config/SOURCES/usr/bin/athanor-session`, after th
 export XDG_DATA_DIRS="/usr/share/athanor/cosmic-defaults:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 ```
 
-In `forge/specs/athanor-system-config/athanor-system-config.spec`: add `Requires: athanor-calmo` next to `Requires: athanor-shell-rs`, raise `Release` by one, and add at the top of `%changelog` (keep the spec's date and author format, with the new release number in place of `N`):
+In `forge/specs/athanor-system-config/athanor-system-config.spec`: add `Requires: athanor-calmo` next to `Requires: athanor-shell-rs` (Task 11 later replaces that one with `athanor-greeter-ui`), in `Release`, change the fallback `41.fc43` to `42.fc43`, and add at the top of `%changelog` (keep the spec's date and author format, with `42` in place of `N`):
 
 ```
 * Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-N
@@ -2435,7 +2454,7 @@ git commit -m "feat(verify): assert that the COSMIC defaults overlay is shipped 
 
 The check lands last, so no commit in between has a red `shipped`.
 
-# Part B: the GTK bump
+# Part B: one crate per program
 
 All cargo commands of Parts B and C run in the rig's build image, because the host has no `gtk4-devel`. Define this once per shell session and use it wherever a step says `cargo-in-rig`:
 
@@ -2447,44 +2466,98 @@ cargo-in-rig() {
 }
 ```
 
-### Task 9: Workspace membership
+`cargo-in-rig check --workspace` also needs `systemd-devel` (`libudev-sys`, unrelated to GTK): add it to the `build` stage's package list in `forge/test/shell/Containerfile` with Task 9's commit and rebuild the image.
 
-> **Requires the maintainer's confirmation before execution.** This task removes four crates from the build. Their files stay on disk, but from this commit on nothing compiles, lints or tests them, which in practice retires them (doc_shell.md, SH4: "the maintainer decides, because it retires code"). Ask, quoting the table below; do not start Task 10 until the answer is in.
+### Task 9: Workspace membership and the frozen workspace of the old shell
 
-| Crate | Ships today | Why it must move with GTK | Proposal |
-|---|---|---|---|
-| `forge/specs/athanor-settings-rs/athanor-settings-rs-1.0.0` | no (`experimental/EXEMPT`, out of the image since 2026-09-17) | gtk4, relm4 in 21 of 28 files | leave the workspace |
-| `forge/specs/athanor-store-rs/athanor-store-rs-1.0.0` | no (`EXEMPT`) | only through `athanor-style` | leave the workspace |
-| `forge/specs/athanor-daemon-rs/athanor-daemon-rs-0.2.1` | no (`EXEMPT`) | only through `athanor-style` | leave the workspace |
-| `system/athanor-oobe` | no (no spec, not in `packages.json`) | gtk4, relm4 | leave the workspace |
-| `system/athanor-greeter` | no (`EXEMPT`) | an optional `gtk` feature nothing enables, zero GTK imports | stay; delete the dead feature |
-| `forge/specs/athanor-dock/athanor-dock-1.0.0` | as a library inside `athanor-shell-rs` | path dependency of a shipped crate | stay; bumped in Task 10 |
-| `system/athanor-style` | inside its consumers | the hub | stay; bumped in Task 10 |
-| `athanor-shell-rs`, `athanor-recovery` | **yes** | | stay; bumped in Tasks 11 and 12 |
+> **Confirmed by the maintainer on 2026-09-19:** `athanor-shell-rs`, `athanor-dock`, `athanor-settings-rs`, `athanor-store-rs`, `athanor-daemon-rs` and `athanor-oobe` leave `[workspace.members]`; their files stay.
 
-If the maintainer prefers to keep any of the four in the workspace, that crate gets its own bump task modelled on Task 12 (measure, apply the three mechanical rules, build) before Task 10's final `cargo check --workspace`, and this plan's estimates grow by that crate's error count.
+| Crate | Ships today | After this task |
+|---|---|---|
+| `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0` | **yes**: the portal runs its `--file-chooser` and `--privacy-prompt` | frozen at GTK 0.7 in a workspace of its own; still built and shipped; mined until empty |
+| `forge/specs/athanor-dock/athanor-dock-1.0.0` | as a library inside the old shell | member of the frozen workspace |
+| `forge/specs/athanor-settings-rs/…`, `athanor-store-rs/…`, `athanor-daemon-rs/…`, `system/athanor-oobe` | no | excluded; built by nothing |
+| `system/athanor-greeter` (PAM/TPM daemon) | no (`EXEMPT`) | stays a member; its dead `gtk` feature is deleted |
+| `system/athanor-style`, `athanor-recovery` | yes | stay; bumped in Task 10 |
 
 **Files:**
-- Modify: `Cargo.toml` (`[workspace] members` and `exclude`)
-- Modify: `system/athanor-greeter/Cargo.toml` (drop the optional GTK dependencies and the `gtk` feature)
-- Modify: `experimental/EXEMPT` (the four names leave the list: `verify.py shipped` reads members only)
+- Modify: `Cargo.toml` (`members`, `exclude`)
+- Create: `forge/specs/athanor-shell-rs/Cargo.toml`, `forge/specs/athanor-shell-rs/Cargo.lock`
+- Create: `forge/specs/athanor-shell-rs/athanor-style-0.7/{Cargo.toml,src/*}` (copy of `system/athanor-style` as it is today)
+- Delete: `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/Cargo.lock` (a member has no lock file of its own)
+- Modify: `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/Cargo.toml`, `forge/specs/athanor-dock/athanor-dock-1.0.0/Cargo.toml`
+- Modify: `forge/specs/athanor-shell-rs/athanor-shell-rs.spec`
+- Modify: `system/athanor-greeter/Cargo.toml`, `experimental/EXEMPT`, `forge/test/shell/Containerfile`
 
 **Interfaces:**
-- Consumes: the maintainer's answer.
-- Produces: a workspace whose GTK consumers are exactly `athanor-style`, `athanor-dock`, `athanor-shell-rs`, `athanor-recovery`.
+- Consumes: nothing.
+- Produces: a main workspace whose GTK consumers are exactly `athanor-style` and `athanor-recovery`; the frozen workspace `forge/specs/athanor-shell-rs/` with the build command `cargo build --release --locked --manifest-path forge/specs/athanor-shell-rs/Cargo.toml -p athanor-shell-rs` and the binary at `forge/specs/athanor-shell-rs/target/release/athanor-shell-rs`.
+
+This construction was built on a scratch copy of `6f4fdeda` while revising the plan: the frozen workspace checks in 45 s at gtk4 0.7.3 with 274 locked packages, beside a main workspace at 0.11.4.
 
 - [ ] **Step 1: Record the baseline**
 
 Run: `cargo-in-rig metadata --no-deps --format-version 1 | python3 -c "import json,sys; print(len(json.load(sys.stdin)['packages']))"`
 Expected: `34` (33 listed members and the implicit member `athanor-style`).
 
-- [ ] **Step 2: Edit the root manifest**
+- [ ] **Step 2: Freeze a copy of `athanor-style` for the old shell**
 
-In `Cargo.toml`, delete these four lines from `members`:
+```bash
+mkdir -p forge/specs/athanor-shell-rs/athanor-style-0.7
+cp -a system/athanor-style/Cargo.toml system/athanor-style/src forge/specs/athanor-shell-rs/athanor-style-0.7/
+```
+
+Only `Cargo.toml` and `src/`: the `calmo/` directory is the live design system and is not part of the frozen crate. Put this comment at the top of the copied `Cargo.toml`:
+
+```toml
+# Frozen copy of system/athanor-style as of 2026-09-19, at GTK 0.7, for the old shell
+# and dock only (doc_shell.md, SH4). The live crate moves to GTK 0.11, and one dependency
+# graph links one gtk4-sys. Do not develop here: this directory is deleted with the shell.
+```
+
+- [ ] **Step 3: The frozen workspace root**
+
+Generate `forge/specs/athanor-shell-rs/Cargo.toml` from the root manifest as it is **before** the bump, so that every `{ workspace = true }` of the frozen members keeps resolving to today's version:
+
+```bash
+python3 - <<'EOF'
+import re
+from pathlib import Path
+root = Path("Cargo.toml").read_text()
+deps = re.search(r"\[workspace\.dependencies\]\n(.*?)\n\[profile\.dev\]", root, re.S).group(1)
+profiles = root[root.index("[profile.dev]"):]
+Path("forge/specs/athanor-shell-rs/Cargo.toml").write_text(
+    "# The frozen workspace of the old shell (doc_shell.md, SH4; decision of 2026-09-19).\n"
+    "# athanor-shell-rs is not ported to GTK 0.11: it stays here at GTK 0.7 with its own lock\n"
+    "# file and is mined for the code worth keeping until it is empty, then deleted. It still\n"
+    "# ships, because xdg-desktop-portal-athanor runs its file chooser and privacy prompt.\n"
+    "# The dependency table is the root's as of the freeze. Do not bump it.\n"
+    "[workspace]\n"
+    "members = [\n"
+    '    "athanor-shell-rs-1.0.0",\n'
+    '    "athanor-style-0.7",\n'
+    '    "../athanor-dock/athanor-dock-1.0.0"\n'
+    "]\n"
+    'resolver = "2"\n\n'
+    "[workspace.dependencies]\n" + deps + "\n" + profiles)
+EOF
+```
+
+Then three manifest edits:
+
+- `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/Cargo.toml`: `athanor-style = { path = "../athanor-style-0.7" }`. The dependency on `athanor-niri-ipc` keeps its path: that crate stays in the main workspace and has no GTK.
+- `forge/specs/athanor-dock/athanor-dock-1.0.0/Cargo.toml`: under `[package]` add `workspace = "../../athanor-shell-rs"` (the crate lives outside the frozen root's directory, so it names its root), and `athanor-style = { path = "../../athanor-shell-rs/athanor-style-0.7" }`.
+- `git rm forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/Cargo.lock`.
+
+- [ ] **Step 4: The main workspace**
+
+In the root `Cargo.toml`, delete from `members`:
 
 ```toml
     "forge/specs/athanor-daemon-rs/athanor-daemon-rs-0.2.1",
+    "forge/specs/athanor-dock/athanor-dock-1.0.0",
     "forge/specs/athanor-settings-rs/athanor-settings-rs-1.0.0",
+    "forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0",
     "forge/specs/athanor-store-rs/athanor-store-rs-1.0.0",
     "system/athanor-oobe",
 ```
@@ -2492,12 +2565,15 @@ In `Cargo.toml`, delete these four lines from `members`:
 and make the exclusion list (already extended in Task 7):
 
 ```toml
-# Out of the build since the GTK 0.11 bump (doc_shell.md, SH4): gtk4-sys declares
-# links = "gtk-4", so every GTK crate in a workspace moves together, and these four ship
-# nothing. Their sources stay for the stage that redesigns or deletes each of them.
+# Out of this workspace since 2026-09-19 (doc_shell.md, SH4): gtk4-sys declares
+# links = "gtk-4", so every GTK crate of one workspace moves together. The old shell and
+# its dock are frozen at GTK 0.7 in forge/specs/athanor-shell-rs/, a workspace of their
+# own; the other four ship nothing and are built by nothing until they are redesigned.
 exclude = [
     "tests/fuzz",
     "forge/tools/calmo-cosmic-theme",
+    "forge/specs/athanor-shell-rs",
+    "forge/specs/athanor-dock/athanor-dock-1.0.0",
     "forge/specs/athanor-daemon-rs/athanor-daemon-rs-0.2.1",
     "forge/specs/athanor-settings-rs/athanor-settings-rs-1.0.0",
     "forge/specs/athanor-store-rs/athanor-store-rs-1.0.0",
@@ -2505,127 +2581,106 @@ exclude = [
 ]
 ```
 
-- [ ] **Step 3: Remove the dead feature of `system/athanor-greeter`**
-
-In `system/athanor-greeter/Cargo.toml` delete the three optional dependencies (`gtk4`, `gtk4-layer-shell`, `glib`, lines 20 to 22) and the line `gtk = ["dep:gtk4", "dep:gtk4-layer-shell", "dep:glib"]` of `[features]`. First prove nothing uses it:
-
-Run: `grep -rn 'feature = "gtk"\|features = \[.*"gtk"' system/athanor-greeter forge system --include=*.rs --include=Cargo.toml`
-Expected: no output.
-
-- [ ] **Step 4: Update `experimental/EXEMPT`**
-
-Remove the entries `athanor-store-rs`, `athanor-settings-rs` and `athanor-daemon-rs` **and keep their comment blocks**, rewording each block's first line to start with "Out of the workspace since the GTK 0.11 bump, and out of the system image since 2026-09-17:". (`athanor-oobe` was never listed: it has no binary target the check looks at.)
-
-- [ ] **Step 5: Verify**
-
-Run: `cargo-in-rig metadata --no-deps --format-version 1 | python3 -c "import json,sys; print(len(json.load(sys.stdin)['packages']))"`
-Expected: `30`.
-
-Run: `cargo-in-rig check --workspace --locked`
-Expected: `Finished`; GTK is still 0.7.3 at this point, so nothing else changes. If cargo says the lock file needs an update, run `cargo-in-rig check --workspace` once: removing members only deletes entries from `Cargo.lock`; commit that diff with this task.
-
-Run: `python3 scripts/verify.py shipped`
-Expected: `PASS`.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: The frozen lock file**
 
 ```bash
-git add Cargo.toml Cargo.lock system/athanor-greeter/Cargo.toml experimental/EXEMPT
-git commit -m "build(workspace): take the unshipped GTK crates out of the workspace before the GTK bump"
+cp Cargo.lock forge/specs/athanor-shell-rs/Cargo.lock
+cargo-in-rig metadata --manifest-path forge/specs/athanor-shell-rs/Cargo.toml --format-version 1 > /dev/null
 ```
 
-### Task 10: Bump the workspace, `athanor-style` and `athanor-dock`
+cargo prunes the copied lock to the frozen graph and changes no version. `git diff --stat Cargo.lock` must be empty at this point.
 
-> **New workspace dependency: `async-channel` 2.** gtk-rs removed `glib::MainContext::channel` in 0.19 and names `async-channel` as the replacement in its migration notes; the crate is MIT/Apache-2.0 and already in the dependency graph through zbus. Confirm with the maintainer (`deny.toml`) before adding it.
+Run: `grep -A1 '^name = "gtk4"$' forge/specs/athanor-shell-rs/Cargo.lock`
+Expected: `version = "0.7.3"`.
 
-The tree cannot build between this task and the end of Task 12, because cargo resolves one GTK for the whole workspace. Tasks 10, 11 and 12 are therefore developed on the same branch as separate commits and **pushed together**; each task's own gate is `cargo check -p <its crate>`, and the gate of the three is `cargo check --workspace` at the end of Task 12.
+- [ ] **Step 6: Remove the dead feature of `system/athanor-greeter`**
+
+Run: `grep -rn 'feature = "gtk"' system/athanor-greeter`
+Expected: no output. Then delete from `system/athanor-greeter/Cargo.toml` the three optional dependencies (`gtk4`, `gtk4-layer-shell`, `glib`, lines 20 to 22) and the line `gtk = ["dep:gtk4", "dep:gtk4-layer-shell", "dep:glib"]`.
+
+- [ ] **Step 7: Build the old shell from its new home**
+
+In `forge/specs/athanor-shell-rs/athanor-shell-rs.spec`:
+
+```spec
+%build
+%set_build_flags
+# The old shell is frozen at GTK 0.7 in a workspace of its own (doc_shell.md, SH4).
+cargo build --release --locked --manifest-path forge/specs/athanor-shell-rs/Cargo.toml -p %{name}
+
+%install
+mkdir -p %{buildroot}/usr/bin
+install -m 0755 forge/specs/athanor-shell-rs/target/release/athanor-shell-rs %{buildroot}/usr/bin/athanor-shell-rs
+```
+
+`Release: 35`, and at the top of `%changelog`:
+
+```
+* Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-35
+- Frozen at GTK 0.7 in a workspace of its own, forge/specs/athanor-shell-rs/, with its
+  own lock file (doc_shell.md, SH4: one crate per program). The package stays in the
+  image for xdg-desktop-portal-athanor, which runs its file chooser and privacy prompt.
+```
+
+- [ ] **Step 8: `experimental/EXEMPT`**
+
+Remove the entries `athanor-store-rs`, `athanor-settings-rs`, `athanor-daemon-rs` and `athanor-dock`, keep their comment blocks, and start each block with "Out of the workspace since 2026-09-19, and". `verify.py shipped` reads members only, so an excluded crate needs no exemption.
+
+- [ ] **Step 9: Verify both workspaces**
+
+Run: `cargo-in-rig metadata --no-deps --format-version 1 | python3 -c "import json,sys; print(len(json.load(sys.stdin)['packages']))"`
+Expected: `28`.
+
+Run: `cargo-in-rig check --workspace`
+Expected: `Finished`; GTK is still 0.7.3 here. If cargo rewrites `Cargo.lock`, it only deletes the entries of the crates that left: commit that diff.
+
+Run: `cargo-in-rig build --release --locked --manifest-path forge/specs/athanor-shell-rs/Cargo.toml -p athanor-shell-rs && cargo-in-rig test --manifest-path forge/specs/athanor-shell-rs/Cargo.toml -p athanor-shell-rs`
+Expected: `Finished`, 24 tests pass.
+
+Run: `python3 scripts/verify.py shipped specs && just lint`
+Expected: green. If `just lint` runs cargo from a directory that no longer holds a member, point that recipe at the root workspace; do not add the frozen workspace to lint.
+
+- [ ] **Step 10: Commit**
+
+One commit: a crate cannot be a member of two workspaces, so there is no buildable state in between.
+
+```bash
+git add Cargo.toml Cargo.lock forge/specs/athanor-shell-rs forge/specs/athanor-dock/athanor-dock-1.0.0/Cargo.toml system/athanor-greeter/Cargo.toml experimental/EXEMPT forge/test/shell/Containerfile
+git commit -m "build(workspace): freeze the old shell at GTK 0.7 in a workspace of its own"
+```
+
+### Task 10: Bump the workspace: `athanor-style` and `athanor-recovery`
+
+Measured on a scratch copy of `6f4fdeda` with Task 9 applied, in the P2 image, versions as below: `athanor-style` fails on one line; with that line fixed **`athanor-recovery` compiles with 0 errors** at relm4 0.11.0. The lock resolves to gtk4 0.11.4, glib 0.22.9, relm4 0.11.0.
 
 **Files:**
-- Modify: `Cargo.toml` (`[workspace.dependencies]`)
+- Modify: `Cargo.toml` (`[workspace.dependencies]`), `Cargo.lock`
 - Modify: `system/athanor-style/src/appearance_engine.rs:291`
-- Modify: `forge/specs/athanor-dock/athanor-dock-1.0.0/Cargo.toml`, `src/dock.rs`, `src/dock_watcher.rs`, `src/ui.rs`
+- Modify: `forge/specs/athanor-recovery/athanor-recovery.spec` (`Release: 5`, changelog)
 
 **Interfaces:**
 - Consumes: the workspace of Task 9.
-- Produces: `gtk4 0.11.4`, `gtk4-layer-shell 0.8.1`, `glib 0.22.9`, `relm4 0.11.0`, `async-channel 2` as workspace dependencies. The three mechanical rules below, which Tasks 11 and 12 apply as well.
+- Produces: `gtk4 0.11.4` with the feature `v4_18`, `gtk4-layer-shell 0.8.1`, `glib 0.22.9`, `relm4 0.11.0` as workspace dependencies.
 
-**The three mechanical rules** (every error of the bump except five is one of these):
+- [ ] **Step 1: Bump**
 
-Rule 1, layer-shell setters take an `Option`:
-
-```rust
-// before
-window.set_namespace("dock");
-window.set_monitor(m);
-// after
-window.set_namespace(Some("dock"));
-window.set_monitor(Some(m));
-```
-
-Rule 2, `glib::clone!` takes attributes instead of `@` sigils, and a weak reference that is gone needs an explicit `#[upgrade_or]` policy when the closure returns a value:
-
-```rust
-// before
-btn.connect_clicked(glib::clone!(@weak window => move |_| { window.close(); }));
-entry.connect_changed(glib::clone!(@strong state, @weak list => move |e| { /* … */ }));
-ctrl.connect_key_pressed(glib::clone!(@weak window => @default-return glib::Propagation::Proceed, move |_, key, _, _| { /* … */ }));
-// after
-btn.connect_clicked(glib::clone!(#[weak] window, move |_| { window.close(); }));
-entry.connect_changed(glib::clone!(#[strong] state, #[weak] list, move |e| { /* … */ }));
-ctrl.connect_key_pressed(glib::clone!(#[weak] window, #[upgrade_or] glib::Propagation::Proceed, move |_, key, _, _| { /* … */ }));
-```
-
-A renamed capture, `@weak self.window as window`, becomes `#[weak(rename_to = window)] self.window`.
-
-Rule 3, the GLib channel becomes an `async-channel` drained by a local future:
-
-```rust
-// before
-let (tx, rx) = glib::MainContext::channel::<Event>(glib::Priority::DEFAULT);
-spawn_producer(tx);                         // fn spawn_producer(sender: glib::Sender<Event>)
-rx.attach(None, move |event| { handle(event); glib::ControlFlow::Continue });
-// inside the producer:  let _ = sender.send(event);
-
-// after
-let (tx, rx) = async_channel::unbounded::<Event>();
-spawn_producer(tx);                         // fn spawn_producer(sender: async_channel::Sender<Event>)
-glib::spawn_future_local(async move {
-    // Ends when every sender is gone, which is what ControlFlow::Break used to say.
-    while let Ok(event) = rx.recv().await {
-        handle(event);
-    }
-});
-// inside the producer, on a plain thread or a Tokio worker; an unbounded channel
-// never blocks, and the only error is "the receiver is gone":
-if sender.send_blocking(event).is_err() {
-    return;
-}
-```
-
-The old code discarded the send result with `let _ =`; the replacement stops the producer when the receiver is gone instead, which is what `.claude/rules/rust.md` asks of a `Result`.
-
-- [ ] **Step 1: Bump the versions**
-
-In the root `Cargo.toml`, replace the four GTK lines and add the channel crate under them:
+In the root `Cargo.toml`:
 
 ```toml
 gtk4 = { version = "0.11.4", features = ["v4_18"] }
 gtk4-layer-shell = "0.8.1"
 glib = "0.22.9"
 relm4 = "0.11.0"
-async-channel = "2"
 ```
 
-`v4_18` exposes `gdk::Device::layout_names()`, which the greeter's keyboard chip reads in Task 17; Fedora 43 ships GTK 4.20.
+`v4_18` exposes `gdk::Device::layout_names()`, which the greeter's keyboard chip reads in Task 16; Fedora 43 ships GTK 4.20.
 
-- [ ] **Step 2: See the expected failure**
+- [ ] **Step 2: See the one expected failure**
 
 Run: `cargo-in-rig check -p athanor-style --message-format=short`
-Expected: exactly one error, `appearance_engine.rs:291`, on `glib::ObjectExt::downgrade(win)`.
+Expected: exactly one error, at `appearance_engine.rs:291`.
 
-- [ ] **Step 3: Fix `athanor-style`**
-
-`system/athanor-style/src/appearance_engine.rs:291`:
+- [ ] **Step 3: Fix it**
 
 ```rust
 // before
@@ -2634,187 +2689,341 @@ Expected: exactly one error, `appearance_engine.rs:291`, on `glib::ObjectExt::do
         *w.borrow_mut() = Some(win.downgrade());
 ```
 
-Run: `cargo-in-rig check -p athanor-style --message-format=short`
-Expected: `Finished`.
+- [ ] **Step 4: The gate**
 
-- [ ] **Step 4: Fix `athanor-dock` (12 errors)**
+Run: `cargo-in-rig check --workspace && cargo-in-rig test -p athanor-style -p athanor-recovery`
+Expected: `Finished`; tests pass. **If `athanor-recovery` reports an error after all** (the measurement enabled no extra feature and used the default target), list them with `cargo-in-rig check -p athanor-recovery --message-format=short 2>&1 | grep "^forge.*error"`; every kind spike P2 met is mechanical: a layer-shell setter takes `Some(...)`, `glib::clone!(@weak x => move |..| ..)` becomes `glib::clone!(#[weak] x, move |..| ..)`, `connect_command_line` returns `glib::ExitCode::SUCCESS`.
 
-Add `async-channel = { workspace = true }` to `[dependencies]` of `forge/specs/athanor-dock/athanor-dock-1.0.0/Cargo.toml`, then:
+Run: `grep -A1 '^name = "gtk4"$' Cargo.lock forge/specs/athanor-shell-rs/Cargo.lock`
+Expected: `0.11.4` in the first, `0.7.3` in the second.
 
-| Site | Rule |
-|---|---|
-| `src/dock.rs:118` `set_namespace("dock-taskbar")` | 1 |
-| `src/ui.rs:436` `set_namespace("dock")`, `src/ui.rs:457` `set_namespace("dock-trigger")` | 1 |
-| `src/ui.rs:433` `window.set_monitor(m)`, `src/ui.rs:455` `trigger_win.set_monitor(m)` | 1 |
-| `src/dock.rs:266` channel, `src/dock.rs:284` `rx.attach` | 3 |
-| `src/ui.rs:317`, `:318`, `:319` channels; `:360`, `:372`, `:389` `attach` | 3 |
-| `src/dock_watcher.rs:55` to `:57`, three `glib::Sender<…>` fields, and every `.send(` on them in that file | 3 (`async_channel::Sender<…>`, `send_blocking`) |
+- [ ] **Step 5: Look at recovery once**
 
-Run: `cargo-in-rig check -p athanor-dock --message-format=short`
-Expected: `Finished`. The crate keeps its `#![allow(clippy::all, warnings)]`: the greeter path does not enter it.
-
-- [ ] **Step 5: Commit**
+The recovery kiosk has no rig case (it is not a 1a surface), so compile success is not proof that it still draws. Run it in the rig's scene and look at the capture:
 
 ```bash
-git add Cargo.toml system/athanor-style/src/appearance_engine.rs forge/specs/athanor-dock
-git commit -m "build(gtk): move the workspace to gtk4 0.11, and athanor-style and athanor-dock with it"
+cargo-in-rig build --release -p athanor-recovery
+podman run --rm --memory 6g --security-opt label=disable -v "$PWD:/repo:ro" -v "$PWD/.scratch/shell-rig:/out" \
+  localhost/athanor-shell-rig:rig dbus-run-session -- /repo/forge/test/shell/scene.sh 1280 800 1.0 recovery-after-bump -- /repo/target/release/athanor-recovery-ui
 ```
 
-`Cargo.lock` is committed at the end of Task 12, when the workspace resolves again.
+Expected: `.scratch/shell-rig/recovery-after-bump.png` shows the recovery card with its buttons. Attach it to the pull request.
 
-### Task 11: Bump `athanor-shell-rs`
+- [ ] **Step 6: Release, changelog, commit**
+
+`forge/specs/athanor-recovery/athanor-recovery.spec`, `Release: 5`:
+
+```
+* Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-5
+- Build against gtk4 0.11 and relm4 0.11 (doc_shell.md, SH4). No source change was needed.
+```
+
+```bash
+git add Cargo.toml Cargo.lock system/athanor-style/src/appearance_engine.rs forge/specs/athanor-recovery/athanor-recovery.spec
+git commit -m "build(gtk): move the workspace to gtk4 0.11 and relm4 0.11"
+```
+
+### Task 11: Extract the greeter into `athanor-greeter-ui`
+
+A move, reviewed as a move: the greeter keeps its look and its strings until Task 16. What is new is only what a program of its own needs (`main.rs`, `power.rs`, the manifest, the spec) and what the move makes possible (a smaller Landlock write set, no theme code, no forced renderer).
 
 **Files:**
-- Modify: `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/Cargo.toml` (add `async-channel = { workspace = true }`)
-- Modify: the 22 files of the table below
+- Create: `forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/Cargo.toml`, `src/main.rs`, `src/power.rs`
+- Move: `…/athanor-shell-rs-1.0.0/src/ui/greeter/greeter.rs` → `…/athanor-greeter-ui-1.0.0/src/ui.rs`; `…/src/sys/auth.rs` → `src/auth.rs`
+- Copy: `…/src/sys/sandbox.rs` → `src/sandbox.rs` (the old shell keeps its own)
+- Create: `forge/specs/athanor-greeter-ui/athanor-greeter-ui.spec`
+- Modify: `Cargo.toml` (member; `greetd_ipc`, `landlock` as workspace dependencies), `Cargo.lock`
+- Modify: `forge/config/packages.json` (`custom_packages`, `custom_tier3` gain `"greeter-ui"`)
+- Modify: `forge/specs/athanor-system-config/SOURCES/usr/libexec/athanor-greeter-client`, `athanor-system-config.spec`
+- Modify: `forge/test/iso/console.py` (the greeter-alive probe)
+- Modify (mining): `…/athanor-shell-rs-1.0.0/src/main.rs`, `src/ui/mod.rs`, `src/sys/mod.rs`, `Cargo.toml`; Delete: `src/ui/greeter/`; `forge/specs/athanor-shell-rs/Cargo.lock`, `athanor-shell-rs.spec`
 
 **Interfaces:**
-- Consumes: the three rules of Task 10.
-- Produces: `athanor-shell-rs` compiling against gtk4 0.11.4. No behaviour change.
+- Consumes: the bumped workspace (Task 10), the frozen workspace (Task 9).
+- Produces:
+  - crate and binary `athanor-greeter-ui`; `/usr/bin/athanor-greeter-ui`, no arguments; application id `os.athanor.Greeter`
+  - `crate::auth::{UserInfo, discover_target_user, authenticate, authenticate_interactive, session_command, session_badge, SESSION_TYPE}` (unchanged signatures)
+  - `crate::sandbox::{ensure_single_threaded, apply_landlock_sandbox}`
+  - `crate::power::LogindProxy` with `suspend(bool)`, `reboot(bool)`, `power_off(bool)`
+  - `crate::ui::build_ui(app: &gtk4::Application)`
+  - the gate `cargo clippy -p athanor-greeter-ui -- -D warnings`, green from this commit on.
 
-The 54 errors spike P2 counted, located on the tree on 2026-09-19 (line numbers at `62fee1d4`):
+- [ ] **Step 1: The manifest**
 
-| Rule | Count | Sites |
-|---|---:|---|
-| 1 (`Option` wrap) | 20 | `launcher.rs:453`; `desktop_canvas/context_menu.rs:152`; `ui/notifications.rs:32`, `:199`; `ui/mission_control.rs:147`; `ui/osd.rs:121`; `control_center/panel.rs:184`; `ui/clipboard.rs:21`; `ui/prompts/privacy.rs:14`; `ui/widgets_board.rs:431`; `ui/prompts/gatekeeper.rs:15`; `wayland/popup.rs:28` (`set_namespace(Some(tag))`), `:37`; `ui/powermenu.rs:19`; `ui/prompts/biometrics.rs:39`; `ui/topbar.rs:220`; `ui/quicklook.rs:310`, `:359`; `ui/spotlight.rs:546`; **`ui/greeter/greeter.rs:234`** |
-| 2 (`clone!`) | 25 | `ui/control_center/main_cc.rs` (10), `ui/spotlight.rs` (9), `ui/desktop_widgets.rs` (3), `ui/clipboard.rs:75`, `ui/notifications.rs` (1), `ui/store.rs:78`. List them with `grep -n "clone!(" <file>` |
-| 3 (channel) | 4 | `ui/topbar.rs:264` with its `attach` at `:268`, and the producer `wayland/niri.rs:13` (`sender: async_channel::Sender<Vec<NiriWorkspace>>`, sends at `:17` and `:27`); `ui/notifications.rs:117` with its `attach`, and the field `ipc/notifications.rs:258` with its send at `:358` |
-| `ExitCode` | 3 | `main.rs:225`, `:246`, `:279` |
-| `DesktopAppInfo` | 2 | `launcher.rs:11` and `:108`; `ui/spotlight.rs:74` |
+In the root `Cargo.toml`: add `"forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0",` to `members` (alphabetical place, after `athanor-gatekeeper-rs`), and under `[workspace.dependencies]`, in the "System Utilities" block:
 
-The two remaining kinds:
-
-```rust
-// connect_command_line returns glib::ExitCode now. main.rs:225, :246 and :279:
-// before
-        app.connect_command_line(|app, _cmdline| {
-            app.activate();
-            0
-        });
-// after
-        app.connect_command_line(|app, _cmdline| {
-            app.activate();
-            glib::ExitCode::SUCCESS
-        });
+```toml
+greetd_ipc = "0.10.3"
+landlock = "0.4"
 ```
 
-```rust
-// gio::DesktopAppInfo moved to the gio-unix crate, re-exported as gtk4::gio::gio_unix
-// behind nothing we need to enable on Linux. launcher.rs:11:
-// before
-use gtk4::gio::{self, AppInfo, DesktopAppInfo};
-// after
-use gtk4::gio::{self, AppInfo};
-use gtk4::gio::DesktopAppInfo;
+Both are the versions `athanor-shell-rs` pins today; they are not new to the project.
+
+Create `forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/Cargo.toml`:
+
+```toml
+[package]
+name = "athanor-greeter-ui"
+version = "1.0.0"
+edition = "2021"
+authors = ["Athanor Forge <forge@athanor.os>"]
+license = "MIT"
+description = "The Athanor greeter: one surface, one binary, the process that reads the password"
+
+[dependencies]
+gtk4 = { workspace = true }
+gtk4-layer-shell = { workspace = true }
+glib = { workspace = true }
+zbus = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "time"] }
+greetd_ipc = { workspace = true }
+landlock = { workspace = true }
+serde_json = { workspace = true }
+chrono = "0.4"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 ```
 
-If the second form still fails with "no `DesktopAppInfo` in `gio`", the type is `gio_unix::DesktopAppInfo`: add `gio-unix = "0.22"` to `[workspace.dependencies]` and `gio-unix = { workspace = true }` to the crate, and import `gio_unix::DesktopAppInfo` in `launcher.rs` and `ui/spotlight.rs:74`. Run `cargo-in-rig doc -p gio --no-deps` and search the output for `DesktopAppInfo` to see which of the two applies to 0.22.9 before editing.
+`chrono` is what the moved date code uses; Task 16 replaces it with `glib::DateTime` and deletes the line. Against the old shell's 24 dependencies this is 11: no relm4, no clap, no mimalloc, no notify, no meval (and with it no `nom 1.2.4`), no `athanor-dock`, no `athanor-niri-ipc`.
 
-- [ ] **Step 1: See the expected failure**
-
-Run: `cargo-in-rig check -p athanor-shell-rs --message-format=short 2>&1 | grep -c "^forge.*error"`
-Expected: `54`.
-
-- [ ] **Step 2: The greeter's line first**
-
-`src/ui/greeter/greeter.rs:234`:
-
-```rust
-    window.set_namespace(Some("greeter"));
-```
-
-- [ ] **Step 3: Apply rule 1 to the other 19 sites, rule 2 to the 25, rule 3 to the 4, then the two special kinds**
-
-Work one rule at a time and re-run the count after each: 54 → 34 (rule 1) → 9 (rule 2) → 5 (rule 3) → 0.
-
-Run: `cargo-in-rig check -p athanor-shell-rs --message-format=short 2>&1 | grep -c "^forge.*error"`
-Expected after the last edit: `0`, and `Finished`.
-
-- [ ] **Step 4: Run the crate's tests**
-
-Run: `cargo-in-rig test -p athanor-shell-rs`
-Expected: the 24 existing tests pass (the Landlock ones need a kernel with Landlock, which the container inherits from the host).
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 2: Move the code**
 
 ```bash
-git add forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0
-git commit -m "build(shell): port athanor-shell-rs to gtk4 0.11 and relm4 0.11"
+new=forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/src
+old=forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/src
+mkdir -p "$new"
+git mv "$old/ui/greeter/greeter.rs" "$new/ui.rs"
+git mv "$old/sys/auth.rs" "$new/auth.rs"
+cp "$old/sys/sandbox.rs" "$new/sandbox.rs"
+git rm "$old/ui/greeter/mod.rs"
 ```
 
-### Task 12: Bump `athanor-recovery`
+Edits to the moved files, and no others in this task:
 
-Spike P2 did not compile this crate at the new versions; it uses `#[relm4::component]` and no layer shell. The task therefore starts by measuring.
+- `ui.rs`: `use crate::sys::auth::*;` → `use crate::auth::*;`; the three `crate::ipc::power::LogindProxy` → `crate::power::LogindProxy`; `window.set_namespace("greeter");` → `window.set_namespace(Some("greeter"));` (the one error spike P2 found in the greeter); `provider.load_from_data(GREETER_CSS);` → `provider.load_from_string(GREETER_CSS);` (`load_from_data` is deprecated in gtk4 0.11 and the lint gate has no exceptions).
+- `sandbox.rs`: the greeter writes no configuration and no state. Replace `writable_paths` and its test, and the unit-centred paragraph of the doc comment of `apply_landlock_sandbox`:
 
-**Files:**
-- Modify: `forge/specs/athanor-recovery/athanor-recovery-1.0.0/src/**` as the measurement dictates
-- Modify: `Cargo.lock`
-- Modify: `forge/specs/athanor-recovery/athanor-recovery.spec` and `forge/specs/athanor-shell-rs/athanor-shell-rs.spec` (`Release` +1, changelog)
-
-**Interfaces:**
-- Consumes: the rules of Task 10.
-- Produces: a workspace that resolves and builds at gtk4 0.11.4; the committed `Cargo.lock`.
-
-- [ ] **Step 1: Measure**
-
-Run: `cargo-in-rig check -p athanor-recovery --message-format=short 2>&1 | grep "^forge.*error" | sed -E 's/^[^ ]+ //' | sort | uniq -c | sort -rn`
-Expected: a short list. Classify every line as rule 1, 2 or 3 of Task 10, the `ExitCode` kind of Task 11, or "relm4 API".
-
-- **Outcome A, only mechanical kinds:** apply the rules.
-- **Outcome B, relm4 API errors** (for example a changed `SimpleComponent` signature): read relm4's `CHANGES.md` between 0.7 and 0.11 (`cargo-in-rig doc -p relm4 --no-deps` builds the API docs locally) and port each one; write the before/after of every non-mechanical change into the commit message, because the next surface that uses relm4 will need it.
-
-- [ ] **Step 2: Fix until it builds**
-
-Run: `cargo-in-rig check -p athanor-recovery --message-format=short`
-Expected: `Finished`.
-
-- [ ] **Step 3: The workspace gate of Tasks 10 to 12**
-
-Run: `cargo-in-rig check --workspace`
-Expected: `Finished`, and a changed `Cargo.lock` (gtk4 0.11.4, glib 0.22.9, relm4 0.11.0, async-channel 2.x).
-
-Run: `cargo-in-rig test -p athanor-recovery -p athanor-style -p athanor-dock`
-Expected: all pass.
-
-Run: `just lint`
-Expected: green.
-
-- [ ] **Step 4: Release numbers and changelogs**
-
-In both specs raise `Release` by one and add at the top of `%changelog` (the shell's release becomes 35):
-
-```
-* Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-35
-- Build against gtk4 0.11, gtk4-layer-shell 0.8 and relm4 0.11 (doc_shell.md, SH4). The
-  GLib channels, removed upstream, are async-channel receivers drained on the main
-  context; a producer now stops when its receiver is gone instead of discarding the
-  error. No behaviour change is intended.
+```rust
+/// Confines the process's writes with Landlock.
+///
+/// The greeter runs inside the sandbox athanor-greeter-client builds, where $HOME and
+/// the runtime directory are private tmpfs mounts. This ruleset restates in-process what
+/// the greeter needs to write, so that the confinement survives a wrapper that lost a
+/// line: /tmp, the runtime directory, and the DRM nodes. It writes no configuration and
+/// no state. Reads are left alone: fonts, icons and catalogs come from /usr.
+///
+/// The ruleset is a hard requirement: a kernel without Landlock, or one that cannot
+/// enforce every requested right, is an error rather than a best-effort no-op, so the
+/// caller can refuse to run unconfined. Call it before any other thread exists (see
+/// [`ensure_single_threaded`]).
 ```
 
-- [ ] **Step 5: Commit**
+```rust
+/// The directories the greeter writes to.
+fn writable_paths() -> Vec<PathBuf> {
+    let mut paths = vec![PathBuf::from("/tmp")];
+    if let Some(dir) = env::var_os("XDG_RUNTIME_DIR").filter(|dir| !dir.is_empty()) {
+        paths.push(PathBuf::from(dir));
+    }
+    paths.retain(|path| Path::new(path).is_absolute());
+    paths
+}
+```
+
+```rust
+    #[test]
+    fn writable_set_is_tmp_and_the_runtime_directory() {
+        // Environment variables are process-wide; keep the test to a single thread of use.
+        env::set_var("HOME", "/var/home/tester");
+        env::set_var("XDG_CONFIG_HOME", "/var/home/tester/.config");
+        env::set_var("XDG_RUNTIME_DIR", "/run/user/1000");
+        assert_eq!(writable_paths(), vec![PathBuf::from("/tmp"), PathBuf::from("/run/user/1000")]);
+    }
+```
+
+- [ ] **Step 3: `power.rs`**
+
+```rust
+//! The three logind calls behind the greeter's power buttons. They are also the only
+//! three methods athanor-greeter-client's D-Bus filter lets through.
+
+use zbus::proxy;
+
+#[proxy(
+    interface = "org.freedesktop.login1.Manager",
+    default_service = "org.freedesktop.login1",
+    default_path = "/org/freedesktop/login1"
+)]
+pub trait Logind {
+    fn power_off(&self, interactive: bool) -> zbus::Result<()>;
+    fn reboot(&self, interactive: bool) -> zbus::Result<()>;
+    fn suspend(&self, interactive: bool) -> zbus::Result<()>;
+}
+```
+
+- [ ] **Step 4: `main.rs`**
+
+```rust
+//! athanor-greeter-ui: the Athanor greeter, a program of its own (doc_shell.md, SH4).
+//!
+//! greetd starts cosmic-comp, cosmic-comp starts athanor-greeter-client, and that wrapper
+//! execs this binary inside a bubblewrap sandbox. It takes no arguments.
+
+mod auth;
+mod power;
+mod sandbox;
+mod ui;
+
+use gtk4::prelude::*;
+use gtk4::Application;
+
+const APP_ID: &str = "os.athanor.Greeter";
+
+fn main() -> glib::ExitCode {
+    // Confinement comes first, while this is the only thread in the process. Landlock
+    // restricts the calling thread and the threads it creates from then on; a thread
+    // that already exists -- a Tokio worker, a GLib worker -- would keep running
+    // unconfined. Nothing before this line may start a thread, and the check fails
+    // closed if something did. Logging is not set up yet, so errors go to stderr.
+    if let Err(err) = sandbox::ensure_single_threaded().and_then(|()| sandbox::apply_landlock_sandbox()) {
+        eprintln!("athanor-greeter-ui: cannot apply the Landlock policy, refusing to run unconfined: {err}");
+        return glib::ExitCode::FAILURE;
+    }
+
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
+    // The workspace builds zbus on Tokio, and the greetd conversation sleeps on a Tokio
+    // timer: both need a runtime that is current on this thread, or they abort with
+    // "there is no reactor running" (acceptance run 34384585109). One worker is enough
+    // for three logind calls.
+    let runtime = match tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build() {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            tracing::error!(error = %err, "cannot create the Tokio runtime");
+            return glib::ExitCode::FAILURE;
+        }
+    };
+    let _tokio = runtime.enter();
+
+    let app = Application::builder().application_id(APP_ID).build();
+    app.connect_activate(ui::build_ui);
+    app.run_with_args(&Vec::<String>::new())
+}
+```
+
+In `ui.rs`, the first statement of the old `connect_activate` closure, `crate::theme::init_css()`, has no counterpart: the inline sheet in `build_ui` is the greeter's whole style.
+
+- [ ] **Step 5: Build under the gate**
+
+Run: `cargo-in-rig clippy -p athanor-greeter-ui --all-targets -- -D warnings`
+Expected: findings in the moved code are possible, because it lived under `#![allow(clippy::all, warnings)]` (rustc itself had none: measured). Fix each at its root, in a **second commit** of this task, so that the move stays a move; no `#[allow]`.
+
+Run: `cargo-in-rig test -p athanor-greeter-ui`
+Expected: the tests of `auth.rs` and `sandbox.rs` pass (the Landlock tests need a kernel with Landlock, which the container inherits).
+
+- [ ] **Step 6: Mine the old shell**
+
+In `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0`: delete the field `greeter: bool` of `Args` and the whole `if args.greeter { … }` block of `src/main.rs`; delete `pub mod greeter;` from `src/ui/mod.rs` and `pub mod auth;` from `src/sys/mod.rs`; delete `greetd_ipc = "0.10.3"` from `Cargo.toml`.
+
+Run: `cargo-in-rig check --manifest-path forge/specs/athanor-shell-rs/Cargo.toml -p athanor-shell-rs && grep -c '^name = "greetd_ipc"' forge/specs/athanor-shell-rs/Cargo.lock`
+Expected: `Finished`, then `0` (cargo drops the entry from the frozen lock; commit it).
+
+`athanor-shell-rs.spec`: `Release: 36`, changelog "The greeter left for a program of its own, athanor-greeter-ui; the --greeter mode and the greetd client are removed."
+
+- [ ] **Step 7: The spec**
+
+Create `forge/specs/athanor-greeter-ui/athanor-greeter-ui.spec` (no `Source`: built in place from the repository root):
+
+```spec
+%global debug_package %{nil}
+Name:           athanor-greeter-ui
+Version:        1.0.0
+Release:        1%{?dist}
+Summary:        The Athanor greeter
+License:        MIT
+
+BuildRequires:  rust cargo gcc pkgconf-pkg-config gtk4-devel glib2-devel gtk4-layer-shell-devel
+Requires:       gtk4 gtk4-layer-shell greetd
+
+%description
+The greeter of Athanor OS: one GTK4 layer-shell surface that talks to greetd. A program
+of its own, because it is the process that reads the password. It is started by
+/usr/libexec/athanor-greeter-client inside a bubblewrap sandbox and confines its own
+writes with Landlock before anything else.
+
+%prep
+
+%build
+%set_build_flags
+cargo build --release --locked -p %{name}
+
+%install
+install -D -m 0755 target/release/athanor-greeter-ui %{buildroot}/usr/bin/athanor-greeter-ui
+
+%files
+/usr/bin/athanor-greeter-ui
+
+%changelog
+* Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-1
+- The greeter as a program of its own (doc_shell.md, SH4: one crate per program), moved
+  out of athanor-shell-rs unchanged in look and behaviour, on gtk4 0.11. Its Landlock
+  write set is /tmp, the runtime directory and the DRM nodes; it loads no theme file,
+  forces no renderer and no GDK_SCALE.
+```
+
+In `forge/config/packages.json` add `"greeter-ui"` to `custom_packages` and to `custom_tier3`, next to `"shell-rs"`.
+
+- [ ] **Step 8: Switch the image to it**
+
+`forge/specs/athanor-system-config/SOURCES/usr/libexec/athanor-greeter-client`:
+
+- the last line: `    -- /usr/bin/athanor-shell-rs --greeter` → `    -- /usr/bin/athanor-greeter-ui`
+- delete the bind `--ro-bind-try /var/lib/athanor/theme.css /var/lib/athanor/theme.css \` and the two-line bind `--ro-bind-try "${XDG_CONFIG_HOME:-$HOME/.config}/athanor/theme.css" \` / `"${XDG_CONFIG_HOME:-$HOME/.config}/athanor/theme.css" \`
+- in the comment above `exec bwrap`, end the sentence at "… the avatar and font cache directories." and delete the two sentences about `theme.css`
+- in the header comment, "Everything else the shell's shared start-up code asks of the system bus is refused, and the shell treats those services as absent." → "Nothing else is asked of the system bus."
+
+`athanor-system-config.spec`: `Requires: athanor-shell-rs` → `Requires: athanor-greeter-ui`; in `Release`, `42.fc43` → `43.fc43` (Task 8 made it 42); changelog: "The greeter is athanor-greeter-ui: athanor-greeter-client execs /usr/bin/athanor-greeter-ui and no longer binds theme.css, which that program does not read."
+
+`forge/test/iso/console.py`, in `GREETER_PROBE`: `grep -q athanor-shell;` → `grep -q athanor-greeter-ui;`.
+
+Run: `shellcheck -s sh forge/specs/athanor-system-config/SOURCES/usr/libexec/athanor-greeter-client && python3 -B forge/test/iso/test_verdict.py && python3 scripts/verify.py shipped specs`
+Expected: no findings; the ISO suite passes (it drives a fake guest; if a fixture echoes the old process name, change it to `athanor-greeter-ui` there too); `shipped` finds `athanor-greeter-ui` packaged.
+
+- [ ] **Step 9: Commit (three commits)**
 
 ```bash
-git add forge/specs/athanor-recovery Cargo.lock forge/specs/athanor-shell-rs/athanor-shell-rs.spec
-git commit -m "build(recovery): port athanor-recovery to gtk4 0.11 and lock the workspace"
+git add Cargo.toml Cargo.lock forge/specs/athanor-greeter-ui forge/specs/athanor-shell-rs forge/config/packages.json
+git commit -m "refactor(greeter): move the greeter out of athanor-shell-rs into a program of its own"
+# only if Step 5 found something:
+git add forge/specs/athanor-greeter-ui
+git commit -m "fix(greeter): clear the clippy findings the old crate-level allow was hiding"
+git add forge/specs/athanor-system-config forge/test/iso/console.py
+git commit -m "feat(session): start athanor-greeter-ui as the greeter"
 ```
 
-### Task 13: Shim guards
+The acceptance of this task on real hardware is the ISO acceptance workflow's `greeter-alive` and login: it runs on the next image build.
+### Task 12: Shim guards
 
 **Files:**
 - Create: `forge/scripts/check_shim_link_order.py`
 - Test: `forge/scripts/tests/test_check_shim_link_order.py`
-- Modify: `forge/specs/athanor-shell-rs/athanor-shell-rs.spec` (`%check`, `BuildRequires: binutils python3`)
-- Create: `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/src/wayland/layer_guard.rs`
-- Modify: `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/src/wayland/mod.rs` (`pub mod layer_guard;`), `src/ui/greeter/greeter.rs`
+- Modify: `forge/specs/athanor-greeter-ui/athanor-greeter-ui.spec` (`%check`, `BuildRequires: binutils python3`)
+- Create: `forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/src/layer_guard.rs`
+- Modify: `forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/src/main.rs` (`mod layer_guard;`), `src/ui.rs`
 - Modify: `forge/test/shell/rig.sh` (sub-commands `build-greeter`, `layer-guard`), `.github/workflows/shell-surfaces.yml`, `.github/workflows/call-lint.yml`
 
 **Interfaces:**
-- Consumes: the bumped crate (Task 11); `in_rig`, `scene.sh` (Task 4).
+- Consumes: the crate `athanor-greeter-ui` (Task 11); `in_rig`, `scene.sh` (Task 4).
 - Produces:
   - `check_shim_link_order.problems(needed: list[str]) -> list[str]`; command `check_shim_link_order.py <elf>`, exit 1 on a problem.
-  - `crate::wayland::layer_guard::require_layer_surface(window: &gtk4::ApplicationWindow) -> Result<(), String>`.
-  - `rig.sh build-greeter` → `$ATHANOR_RIG_OUT/bin/athanor-shell-rs` (release build made in the `build` stage); `rig.sh layer-guard`.
-  - Exit status 1 and the journal line `athanor-shell-rs: greeter is not a layer surface` when the shim did not load first.
+  - `crate::layer_guard::require_layer_surface(window: &gtk4::ApplicationWindow) -> Result<(), String>`.
+  - `rig.sh build-greeter` → `$ATHANOR_RIG_OUT/bin/athanor-greeter-ui` (release build made in the `build` stage); `rig.sh layer-guard`.
+  - Exit status 1 and the journal line `athanor-greeter-ui: not a layer surface` when the shim did not load first.
 
 - [ ] **Step 1: Write the failing test of the link-order check**
 
@@ -2929,19 +3138,19 @@ Add to `.github/workflows/call-lint.yml`, after the Calmo step:
 
 - [ ] **Step 3: Call it from `%check`**
 
-In `forge/specs/athanor-shell-rs/athanor-shell-rs.spec`, append `binutils python3` to `BuildRequires`, and add between `%install` and `%files`:
+In `forge/specs/athanor-greeter-ui/athanor-greeter-ui.spec`, append `binutils python3` to `BuildRequires`, and add between `%install` and `%files`:
 
 ```spec
 %check
 # doc_shell.md, SH4: the layer-shell shim must load before libwayland-client and GTK.
-python3 -B forge/scripts/check_shim_link_order.py target/release/athanor-shell-rs
+python3 -B forge/scripts/check_shim_link_order.py target/release/athanor-greeter-ui
 ```
 
 The forge runs `rpmbuild --nodeps`, so `BuildRequires` documents the need and does not install it. Verify the builder has `readelf`: `grep -n "binutils" flake.nix`. **Outcome A:** present (directly or through the C toolchain): nothing to do. **Outcome B:** absent: add `binutils` to the `build-tools` list in `flake.nix` in the same commit, because a `%check` that cannot run `readelf` fails every build.
 
 - [ ] **Step 4: Build the greeter in the rig and run the check on the real binary**
 
-Add to `forge/test/shell/rig.sh`, before the `*)` arm, with the header line `#   rig.sh build-greeter     release build of athanor-shell-rs into <out>/bin`:
+Add to `forge/test/shell/rig.sh`, before the `*)` arm, with the header line `#   rig.sh build-greeter     release build of athanor-greeter-ui into <out>/bin`:
 
 ```bash
 build-greeter)
@@ -2949,9 +3158,9 @@ build-greeter)
     podman run --rm --memory 8g --security-opt label=disable \
         -v "$root:/repo:ro" -v "$out:/out" -v athanor-cargo-registry:/root/.cargo/registry \
         -e CARGO_TARGET_DIR=/out/target -w /repo "$local_image:build" \
-        bash -c 'cargo build --release --locked -p athanor-shell-rs \
-                 && install -m 0755 /out/target/release/athanor-shell-rs /out/bin/ \
-                 && python3 -B forge/scripts/check_shim_link_order.py /out/bin/athanor-shell-rs'
+        bash -c 'cargo build --release --locked -p athanor-greeter-ui \
+                 && install -m 0755 /out/target/release/athanor-greeter-ui /out/bin/ \
+                 && python3 -B forge/scripts/check_shim_link_order.py /out/bin/athanor-greeter-ui'
     ;;
 ```
 
@@ -2959,7 +3168,7 @@ Run: `bash forge/test/shell/rig.sh build-greeter`
 Expected: `Finished release`, and no output from the check.
 
 - **Outcome A:** exit 0. The accident still holds at 0.8.1; the contract now guards it.
-- **Outcome B:** `libgtk-4.so.1 is loaded before libgtk4-layer-shell.so.0`. Add `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/build.rs`:
+- **Outcome B:** `libgtk-4.so.1 is loaded before libgtk4-layer-shell.so.0`. Add `forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/build.rs`:
 
   ```rust
   // The layer-shell shim interposes libwayland-client and must precede GTK in DT_NEEDED
@@ -2975,7 +3184,7 @@ Expected: `Finished release`, and no output from the check.
 
 - [ ] **Step 5: The start-up assertion**
 
-Create `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/src/wayland/layer_guard.rs`:
+Create `forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/src/layer_guard.rs`:
 
 ```rust
 //! The start-up assertion doc_shell.md SH4 requires of every layer-shell surface.
@@ -3001,15 +3210,15 @@ pub fn require_layer_surface(window: &gtk4::ApplicationWindow) -> Result<(), Str
 }
 ```
 
-Declare it in `src/wayland/mod.rs` with `pub mod layer_guard;` (outside the module's lint allowance of Task 14: the guard is greeter-path code).
+Declare it in `src/main.rs` with `mod layer_guard;`.
 
-In `src/ui/greeter/greeter.rs`, directly after `window.init_layer_shell();`:
+In `src/ui.rs`, directly after `window.init_layer_shell();`:
 
 ```rust
-    if let Err(reason) = crate::wayland::layer_guard::require_layer_surface(&window) {
+    if let Err(reason) = crate::layer_guard::require_layer_surface(&window) {
         // No tracing subscriber may be listening this early in a failing start; stderr
         // reaches the journal through the compositor's systemd-cat.
-        eprintln!("athanor-shell-rs: greeter is not a layer surface: {reason}");
+        eprintln!("athanor-greeter-ui: not a layer surface: {reason}");
         std::process::exit(1);
     }
 ```
@@ -3026,9 +3235,9 @@ layer-guard)
     # Preloading libwayland-client reproduces the wrong load order on purpose.
     in_rig "$(rig_image)" env RIG_SETTLE=6 ATHANOR_LOGIN_USER=ermete \
         dbus-run-session -- /repo/forge/test/shell/scene.sh 1280 800 1.0 layer-guard -- \
-        bash -c 'LD_PRELOAD=/usr/lib64/libwayland-client.so.0 /out/bin/athanor-shell-rs --greeter; echo $? > /out/layer-guard.status; sleep 60'
+        bash -c 'LD_PRELOAD=/usr/lib64/libwayland-client.so.0 /out/bin/athanor-greeter-ui; echo $? > /out/layer-guard.status; sleep 60'
     status=$(cat "$out/layer-guard.status")
-    if [ "$status" != 1 ] || ! grep -q "greeter is not a layer surface" "$out/layer-guard-client.log"; then
+    if [ "$status" != 1 ] || ! grep -q "not a layer surface" "$out/layer-guard-client.log"; then
         echo "layer-guard: expected exit status 1 and the guard's message, got status '$status'" >&2
         exit 1
     fi
@@ -3070,120 +3279,78 @@ Expected: no findings.
 - [ ] **Step 8: Commit (two commits)**
 
 ```bash
-git add forge/scripts/check_shim_link_order.py forge/scripts/tests forge/specs/athanor-shell-rs/athanor-shell-rs.spec .github/workflows/call-lint.yml
+git add forge/scripts/check_shim_link_order.py forge/scripts/tests forge/specs/athanor-greeter-ui/athanor-greeter-ui.spec .github/workflows/call-lint.yml
 git commit -m "build(shell): assert in %check that the layer-shell shim is linked before GTK"
-git add forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/src forge/test/shell/rig.sh .github/workflows/shell-surfaces.yml
+git add forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/src forge/test/shell/rig.sh .github/workflows/shell-surfaces.yml
 git commit -m "fix(greeter): refuse to run when the window is not a layer surface"
 ```
 
-### Task 14: Lint scope: the greeter path under default lints
+### Task 13: Lint gate
 
-SH4: "`#![allow(clippy::all, warnings)]` is removed from any crate a stage touches." Stage 1a touches the greeter, not the 13,000 lines of niri-era surfaces around it, so the crate-level attribute goes and the same attribute lands on each module the greeter path does not enter. Measured while this plan was written, on a scratch copy of `62fee1d4` at gtk4 0.7.3 with exactly the scoping below: **the greeter path has 0 rustc warnings**; what remains is 34 copies of cargo's `profiles for the non root package will be ignored` (one dead `[profile.release]` block per crate manifest) and a future-incompatibility note on `nom 1.2.4` (through `meval`, outside the greeter path). clippy was not available in the measuring image, so Step 3 measures it. The price, stated plainly: everything still under an `#[allow]` keeps hiding its warnings, including the deprecations that will matter when those surfaces are revived; each later stage removes the attribute from the module it takes over.
+SH4: "`#![allow(clippy::all, warnings)]` is removed from any crate a stage touches." After the extraction this is nearly free: `athanor-greeter-ui` never had the attribute and has been clean under `clippy -D warnings` since Task 11. What is left is to make the gate permanent in CI and to bring the other crate 1a touches, `athanor-style`, under it. The frozen shell keeps its crate-level allow: nobody edits it except to take code out.
 
 **Files:**
-- Modify: `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/src/main.rs`, `src/ui/mod.rs`, `src/sys/mod.rs`, `src/wayland/mod.rs`
-- Modify: `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/Cargo.toml`, `system/athanor-style/Cargo.toml` (delete the dead `[profile.release]` blocks)
+- Modify: `system/athanor-style/src/lib.rs`, `system/athanor-style/Cargo.toml`
 - Modify: `forge/test/shell/rig.sh` (`build-greeter` runs clippy first)
 
 **Interfaces:**
-- Consumes: the crate as bumped in Task 11, the guard of Task 13.
-- Produces: the gate `cargo clippy -p athanor-shell-rs -p athanor-style -- -D warnings`, run by `rig.sh build-greeter`. Later tasks keep it green.
+- Consumes: `rig.sh build-greeter` (Task 12).
+- Produces: the CI gate `cargo clippy --locked -p athanor-greeter-ui -p athanor-style --all-targets -- -D warnings`.
 
-- [ ] **Step 1: Scope the attribute**
+- [ ] **Step 1: Scope `athanor-style`'s legacy modules**
 
-`src/main.rs`: delete line 1, `#![allow(clippy::all, warnings)]`, and write the module list as:
+`accent_engine`, `appearance_engine` and `glass` are the old glass theme. Only `athanor-recovery` still calls into them (`load_glass_theme`), they have never been built as a lint target, and they leave with recovery's re-skin. `system/athanor-style/src/lib.rs` becomes:
 
 ```rust
-// Lints are on for the greeter path: this file, ui::greeter, sys::auth, sys::sandbox,
-// wayland::layer_guard and i18n. Every other module predates the lint gate and keeps
-// its warnings silenced until the stage that takes it over (doc_shell.md, SH4).
+//! Athanor's style crate. `calmo` (added by the design-system work) is the identity;
+//! the three modules below are the pre-Calmo glass theme, kept only because
+//! athanor-recovery still loads it. They predate the lint gate and keep their warnings
+//! silenced until recovery is re-skinned and they are deleted (doc_shell.md, SH4).
+
 #[allow(clippy::all, warnings)]
-mod theme;
-mod wayland;
-#[allow(clippy::all, warnings)]
-mod ipc;
-mod sys;
-mod ui;
-#[allow(clippy::all, warnings)]
-mod core;
-#[allow(clippy::all, warnings)]
-pub mod morphic_pill;
-#[allow(clippy::all, warnings)]
-pub mod control_center;
-#[allow(clippy::all, warnings)]
-pub mod desktop_canvas;
+pub mod accent_engine;
 #[allow(clippy::all, warnings)]
 pub mod appearance_engine;
 #[allow(clippy::all, warnings)]
-pub mod launcher;
+pub mod glass;
+
+pub use accent_engine::*;
+pub use appearance_engine::*;
+pub use glass::*;
 ```
 
-`src/ui/mod.rs`: put `#[allow(clippy::all, warnings)]` on the line above every `pub mod` except `pub mod greeter;` (19 modules), and keep the file's existing `#![allow(unused_imports)]`, which covers its re-exports.
+Delete the dead `[profile.release]` table from `system/athanor-style/Cargo.toml`: cargo ignores a member's profile and says so at every build.
 
-`src/sys/mod.rs`:
+- [ ] **Step 2: See the gate green locally**
 
-```rust
-pub mod sandbox;
-#[allow(clippy::all, warnings)]
-pub mod ebpf;
-pub mod auth;
-#[allow(clippy::all, warnings)]
-pub mod battery;
-#[allow(clippy::all, warnings)]
-pub mod stats;
-#[allow(clippy::all, warnings)]
-pub mod live_state;
-```
+Run: `cargo-in-rig clippy --locked -p athanor-greeter-ui -p athanor-style --all-targets -- -D warnings`
+Expected: `Finished`, no warning. A finding in `lib.rs` itself (for example an ambiguous glob re-export) is fixed, not allowed.
 
-`src/wayland/mod.rs`:
-
-```rust
-pub mod layer_guard;
-#[allow(clippy::all, warnings)]
-pub mod niri;
-#[allow(clippy::all, warnings)]
-pub mod popup;
-```
-
-- [ ] **Step 2: Delete the dead profile blocks**
-
-Remove the whole `[profile.release]` table (five lines) from `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/Cargo.toml` and from `system/athanor-style/Cargo.toml`. Cargo ignores a member's profile and says so at every build; the root's profile already sets `panic = "abort"`.
-
-- [ ] **Step 3: Measure and fix**
-
-Run: `cargo-in-rig clippy -p athanor-shell-rs -p athanor-style --message-format=short -- -D warnings 2>&1 | grep -E "^(forge|system).*(warning|error)" | sed -E 's/:[0-9]+:[0-9]+//' | sort | uniq -c | sort -rn`
-Expected: a list confined to `main.rs`, `ui/greeter/greeter.rs`, `sys/auth.rs`, `sys/sandbox.rs`, `wayland/layer_guard.rs` and `system/athanor-style/src/*`. Fix every finding at its root; do not add an `#[allow]` to a greeter-path item. Two are known in advance:
-
-- `main.rs`: the three `std::env::set_var` calls (`GSK_RENDERER`, `GDK_BACKEND`, `GDK_SCALE`) run after the Tokio runtime has started its worker threads, where mutating the environment is unsound, and `GDK_SCALE=1` is the HiDPI defect the spec lists in section 1. Task 17 deletes all three; if clippy flags them here, delete them here.
-- `system/athanor-style` was never under the crate-level allow, but it was only ever built as a dependency, where cargo caps lints; as a `-p` target its own warnings appear now. They are in scope: 1a touches the crate.
-
-Run: `cargo-in-rig clippy -p athanor-shell-rs -p athanor-style -- -D warnings`
-Expected: `Finished`, no warning.
-
-- [ ] **Step 4: Put the gate in the rig**
+- [ ] **Step 3: Put it in the rig**
 
 In the `build-greeter` arm of `forge/test/shell/rig.sh`, make the command:
 
 ```bash
-        bash -c 'cargo clippy --locked -p athanor-shell-rs -p athanor-style -- -D warnings \
-                 && cargo build --release --locked -p athanor-shell-rs \
-                 && install -m 0755 /out/target/release/athanor-shell-rs /out/bin/ \
-                 && python3 -B forge/scripts/check_shim_link_order.py /out/bin/athanor-shell-rs'
+        bash -c 'cargo clippy --locked -p athanor-greeter-ui -p athanor-style --all-targets -- -D warnings \
+                 && cargo test --locked -p athanor-greeter-ui -p athanor-style \
+                 && cargo build --release --locked -p athanor-greeter-ui \
+                 && install -m 0755 /out/target/release/athanor-greeter-ui /out/bin/ \
+                 && python3 -B forge/scripts/check_shim_link_order.py /out/bin/athanor-greeter-ui'
 ```
 
-Run: `bash forge/test/shell/rig.sh build-greeter && cargo-in-rig test -p athanor-shell-rs`
-Expected: both green.
+Run: `bash forge/test/shell/rig.sh build-greeter`
+Expected: green. To see the gate bite: add `let unused = 1;` to `main()` of the greeter, run, see `error: unused variable`, remove it.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0 system/athanor-style/Cargo.toml forge/test/shell/rig.sh
-git commit -m "chore(shell): put the greeter path under the default lints and gate it with clippy"
+git add system/athanor-style/src/lib.rs system/athanor-style/Cargo.toml forge/test/shell/rig.sh
+git commit -m "ci(greeter): gate the greeter and athanor-style on clippy with warnings denied"
 ```
 
-# Part C: the greeter
+# Part C: the greeter on the tokens
 
-### Task 15: `athanor_style::calmo`
+### Task 14: `athanor_style::calmo`
 
 **Files:**
 - Create: `system/athanor-style/src/calmo.rs`
@@ -3353,60 +3520,593 @@ git add system/athanor-style/src/calmo.rs system/athanor-style/src/lib.rs
 git commit -m "feat(style): expose the generated Calmo stylesheets per variant"
 ```
 
-### Task 16: gettext, catalogs, `.mo` packaging, the greeter's locale
+### Task 15: `athanor-i18n`, catalogs, `.mo` packaging, the greeter's locale
 
-> **New workspace dependency: `gettext-rs` 0.7 with the feature `gettext-system`** (binds glibc's own libintl, builds no C). It is the crate every GNOME Rust application uses; MIT. Confirm with the maintainer (`deny.toml`) before adding it. There is no honest alternative without `unsafe`: glib exposes `dgettext` but not `bindtextdomain`.
+Translations in gettext's format, read by our own code (D5). The crate below was written and tested while revising this plan: 291 lines, no dependency, 10 tests green against real `msgfmt` output in both byte orders.
 
 **Files:**
-- Modify: `Cargo.toml` (`gettext-rs = { version = "0.7", features = ["gettext-system"] }` under `[workspace.dependencies]`)
-- Modify: `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/Cargo.toml` (`gettext-rs = { workspace = true }`)
-- Create: `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/src/i18n.rs`; Modify: `src/main.rs` (`mod i18n;`)
-- Create: `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/po/POTFILES.in`, `po/update.sh`, `po/athanor-greeter.pot`, `po/it.po`, `po/en.po`
-- Modify: `forge/specs/athanor-shell-rs/athanor-shell-rs.spec` (compile and ship the catalogs)
-- Modify: `forge/specs/athanor-system-config/SOURCES/usr/bin/athanor-greeter-session` (export the system locale)
+- Create: `system/athanor-i18n/Cargo.toml`, `src/lib.rs`, `tests/catalog.rs`, `tests/fixtures/{it.po,ar.po,latin1.po,make.sh}` and the four generated, committed `tests/fixtures/*.mo`
+- Modify: `Cargo.toml` (member `"system/athanor-i18n"`)
+- Modify: `forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/Cargo.toml` (`athanor-i18n = { path = "../../../../system/athanor-i18n" }`)
+- Create: `forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/src/i18n.rs`; Modify: `src/main.rs`
+- Create: `…/po/POTFILES.in`, `po/update.sh`, `po/it.po`, `po/en.po`
+- Modify: `forge/specs/athanor-greeter-ui/athanor-greeter-ui.spec` (compile and ship the catalogs)
+- Modify: `forge/specs/athanor-system-config/SOURCES/usr/bin/athanor-greeter-session`, `athanor-system-config.spec`
+- Modify: `experimental/EXEMPT` is **not** needed: `athanor-i18n` is a library, which `verify.py shipped` skips.
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
-- Produces:
-  - `crate::i18n::DOMAIN: &str = "athanor-greeter"`, `crate::i18n::LOCALE_DIR: &str = "/usr/share/locale"`
-  - `crate::i18n::init() -> Result<(), String>`
-  - `crate::i18n::tr(msgid: &str) -> String`
-  - `crate::i18n::tr_with(msgid: &str, key: &str, value: &str) -> String` (replaces `{key}`)
-  - Installed catalogs: `/usr/share/locale/{it,en}/LC_MESSAGES/athanor-greeter.mo`.
+- Produces, from `athanor_i18n`:
+  - `Catalog::empty() -> Catalog`, `Catalog::parse(bytes: &[u8]) -> Result<Catalog, Error>`
+  - `Catalog::find(locale_dir: &Path, domain: &str, languages: &[String]) -> Result<Catalog, (PathBuf, Error)>`
+  - `Catalog::load(domain: &str) -> Result<Catalog, (PathBuf, Error)>`
+  - `Catalog::tr(&self, msgid) -> &str`, `tr_n(&self, msgid, msgid_plural, n: u64) -> &str`, `tr_c(&self, context, msgid) -> &str`
+  - `Catalog::language(&self) -> Option<&str>`, `Catalog::is_rtl(&self) -> bool`
+  - `languages(env: impl Fn(&str) -> Option<String>, system_locale_conf: Option<&str>) -> Vec<String>`
+  - `PluralRule::{One, NotOne, MoreThanOne, Arabic}`, `PluralRule::index(self, n: u64) -> usize`
+  - `LOCALE_DIR = "/usr/share/locale"`, `OVERRIDE_VARIABLE = "ATHANOR_I18N_CATALOG"`
+- Produces, in the greeter: `crate::i18n::DOMAIN = "athanor-greeter-ui"`, `crate::i18n::init()`, `crate::i18n::tr(msgid: &str) -> String`, `crate::i18n::tr_with(msgid: &str, key: &str, value: &str) -> String`, `crate::i18n::is_rtl() -> bool`; installed catalogs `/usr/share/locale/{it,en}/LC_MESSAGES/athanor-greeter-ui.mo`.
 
-- [ ] **Step 1: Write the module with its failing test**
+- [ ] **Step 1: The fixtures, from the real `msgfmt`**
 
-Create `src/i18n.rs`:
+Create `system/athanor-i18n/tests/fixtures/it.po`:
+
+```po
+msgid ""
+msgstr ""
+"Language: it\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Shut down"
+msgstr "Spegni"
+
+msgid "Signing in…"
+msgstr "Accesso in corso…"
+
+msgid "{n} update"
+msgid_plural "{n} updates"
+msgstr[0] "{n} aggiornamento"
+msgstr[1] "{n} aggiornamenti"
+
+msgctxt "verb"
+msgid "Restart"
+msgstr "Riavvia"
+
+msgid "Left untranslated"
+msgstr ""
+```
+
+`ar.po`:
+
+```po
+msgid ""
+msgstr ""
+"Language: ar\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=6; plural=(n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 ? 4 : 5);\n"
+
+msgid "{n} update"
+msgid_plural "{n} updates"
+msgstr[0] "zero"
+msgstr[1] "one"
+msgstr[2] "two"
+msgstr[3] "few"
+msgstr[4] "many"
+msgstr[5] "other"
+```
+
+`latin1.po`:
+
+```po
+msgid ""
+msgstr ""
+"Language: it\n"
+"Content-Type: text/plain; charset=ISO-8859-1\n"
+
+msgid "Shut down"
+msgstr "Spegni"
+```
+
+`make.sh` (mode 0755):
+
+```bash
+#!/usr/bin/env bash
+# make.sh - rebuilds the fixtures from their .po sources with the real msgfmt.
+# The .mo files are committed: the tests must not need gettext installed.
+set -euo pipefail
+here=$(dirname "${BASH_SOURCE[0]}")
+msgfmt --endianness=little -o "$here/it.mo" "$here/it.po"
+msgfmt --endianness=big -o "$here/it-big-endian.mo" "$here/it.po"
+msgfmt --endianness=little -o "$here/ar.mo" "$here/ar.po"
+# msgfmt converts to UTF-8 unless told not to; this fixture must stay Latin-1.
+msgfmt --no-convert --endianness=little -o "$here/latin1.mo" "$here/latin1.po"
+```
+
+Run: `bash system/athanor-i18n/tests/fixtures/make.sh && ls -l system/athanor-i18n/tests/fixtures/*.mo`
+Expected: `ar.mo` (325 bytes), `it.mo` and `it-big-endian.mo` (431 bytes each), `latin1.mo` (176 bytes). They are committed: the tests must not need gettext installed.
+
+- [ ] **Step 2: The failing tests**
+
+Create `system/athanor-i18n/Cargo.toml`:
+
+```toml
+[package]
+name = "athanor-i18n"
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
+description = "Reads gettext .mo catalogs in pure Rust: no C, no process-global locale state"
+
+[dependencies]
+```
+
+an empty `system/athanor-i18n/src/lib.rs`, the member line `"system/athanor-i18n",` in the root `Cargo.toml` (after `"system/athanor-hypervisor-daemon"`), and `system/athanor-i18n/tests/catalog.rs`:
 
 ```rust
-//! Translations of the greeter (doc_shell.md, SH13: "all strings go through gettext
-//! from the first commit"). The message ids are the English copy.
+//! The fixtures are real `msgfmt` output (tests/fixtures/make.sh).
 
-use gettextrs::{bind_textdomain_codeset, bindtextdomain, gettext, setlocale, textdomain, LocaleCategory};
+use athanor_i18n::{languages, Catalog, Error, PluralRule};
 
-pub const DOMAIN: &str = "athanor-greeter";
+const IT: &[u8] = include_bytes!("fixtures/it.mo");
+const IT_BIG_ENDIAN: &[u8] = include_bytes!("fixtures/it-big-endian.mo");
+const AR: &[u8] = include_bytes!("fixtures/ar.mo");
+const LATIN1: &[u8] = include_bytes!("fixtures/latin1.mo");
+
+#[test]
+fn translates_and_falls_back_to_the_message_id() {
+    let it = Catalog::parse(IT).expect("fixture");
+    assert_eq!(it.tr("Shut down"), "Spegni");
+    assert_eq!(it.tr("Signing in…"), "Accesso in corso…");
+    assert_eq!(it.tr("Not in the catalog"), "Not in the catalog");
+    assert_eq!(it.tr("Left untranslated"), "Left untranslated");
+    assert_eq!(it.language(), Some("it"));
+    assert!(!it.is_rtl());
+}
+
+#[test]
+fn both_byte_orders_read_the_same() {
+    let big = Catalog::parse(IT_BIG_ENDIAN).expect("fixture");
+    assert_eq!(big.tr("Shut down"), "Spegni");
+}
+
+#[test]
+fn plurals_follow_the_catalogs_rule() {
+    let it = Catalog::parse(IT).expect("fixture");
+    assert_eq!(it.tr_n("{n} update", "{n} updates", 1), "{n} aggiornamento");
+    assert_eq!(it.tr_n("{n} update", "{n} updates", 0), "{n} aggiornamenti");
+    let ar = Catalog::parse(AR).expect("fixture");
+    let forms: Vec<&str> = [0, 1, 2, 5, 11, 100].iter().map(|&n| ar.tr_n("{n} update", "{n} updates", n)).collect();
+    assert_eq!(forms, ["zero", "one", "two", "few", "many", "other"]);
+    assert!(ar.is_rtl());
+}
+
+#[test]
+fn an_empty_catalog_is_english_with_english_plurals() {
+    let english = Catalog::empty();
+    assert_eq!(english.tr_n("{n} update", "{n} updates", 1), "{n} update");
+    assert_eq!(english.tr_n("{n} update", "{n} updates", 2), "{n} updates");
+    assert_eq!(english.language(), None);
+}
+
+#[test]
+fn context_separates_two_meanings_of_one_word() {
+    let it = Catalog::parse(IT).expect("fixture");
+    assert_eq!(it.tr_c("verb", "Restart"), "Riavvia");
+    assert_eq!(it.tr_c("noun", "Restart"), "Restart");
+    assert_eq!(it.tr("Restart"), "Restart");
+}
+
+#[test]
+fn a_catalog_that_is_not_utf8_is_refused() {
+    assert_eq!(Catalog::parse(LATIN1).err(), Some(Error::NotUtf8));
+}
+
+#[test]
+fn hostile_input_is_an_error_and_never_a_panic() {
+    assert!(matches!(Catalog::parse(b""), Err(Error::Malformed(_))));
+    assert!(matches!(Catalog::parse(b"not a catalog at all"), Err(Error::Malformed(_))));
+    // Every truncation of a real catalog, and every single corrupted offset byte.
+    for length in 0..IT.len() {
+        let _ = Catalog::parse(&IT[..length]);
+    }
+    for position in 4..28.min(IT.len()) {
+        let mut corrupt = IT.to_vec();
+        corrupt[position] = 0xff;
+        let _ = Catalog::parse(&corrupt);
+    }
+}
+
+#[test]
+fn an_unknown_plural_rule_is_named_in_the_error() {
+    assert!(PluralRule::Arabic.index(103) == 3 && PluralRule::One.index(7) == 0 && PluralRule::MoreThanOne.index(1) == 0);
+    let mut catalog = IT.to_vec();
+    let needle = b"(n != 1)";
+    let at = catalog.windows(needle.len()).position(|window| window == needle).expect("rule in the fixture");
+    catalog[at..at + needle.len()].copy_from_slice(b"(n >= 9)");
+    assert!(matches!(Catalog::parse(&catalog), Err(Error::UnknownPluralRule(_))));
+}
+
+#[test]
+fn language_selection() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| move |name: &str| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| value.to_string());
+    assert_eq!(languages(env(&[("LANG", "it_IT.UTF-8")]), None), ["it_IT", "it"]);
+    assert_eq!(languages(env(&[("LANG", "en_US.UTF-8"), ("LC_ALL", "de_DE.UTF-8@euro")]), None), ["de_DE", "de"]);
+    assert_eq!(languages(env(&[("LANG", "en_US.UTF-8"), ("LC_MESSAGES", "ar")]), None), ["ar"]);
+    assert_eq!(languages(env(&[("LANG", "")]), Some("# comment\nLANG=\"it_IT.UTF-8\"\n")), ["it_IT", "it"]);
+    assert!(languages(env(&[("LANG", "C.UTF-8")]), Some("LANG=it_IT.UTF-8")).is_empty());
+    assert!(languages(env(&[]), None).is_empty());
+}
+
+#[test]
+fn find_prefers_the_specific_directory_and_reports_a_broken_catalog() {
+    let root = std::env::temp_dir().join(format!("athanor-i18n-{}", std::process::id()));
+    let dir = root.join("it/LC_MESSAGES");
+    std::fs::create_dir_all(&dir).expect("create");
+    std::fs::write(dir.join("demo.mo"), IT).expect("write");
+    let found = Catalog::find(&root, "demo", &["it_IT".to_string(), "it".to_string()]).expect("readable");
+    assert_eq!(found.tr("Shut down"), "Spegni");
+    assert_eq!(Catalog::find(&root, "demo", &["fr".to_string()]).expect("none is fine").language(), None);
+    std::fs::write(dir.join("demo.mo"), b"broken").expect("write");
+    assert!(Catalog::find(&root, "demo", &["it".to_string()]).is_err());
+    std::fs::remove_dir_all(root).expect("cleanup");
+}
+```
+
+Run: `cargo-in-rig test -p athanor-i18n`
+Expected: compile errors, `unresolved imports athanor_i18n::languages, athanor_i18n::Catalog, …`.
+
+- [ ] **Step 3: The reader**
+
+`system/athanor-i18n/src/lib.rs`:
+
+```rust
+//! Translations for Athanor's own programs.
+//!
+//! The format is gettext's: translators work on `.po` files with the tools they know,
+//! and packages ship `.mo` catalogs under `/usr/share/locale`. The *reader* is ours, in
+//! safe Rust with no dependency, for three reasons (doc_shell.md, SH13; decision of
+//! 2026-09-19):
+//!
+//! - the greeter handles the password: no C FFI and no process-global
+//!   `setlocale`/`textdomain` state in that process;
+//! - glibc's gettext translates only when the system locale is installed, so it is
+//!   silently English inside a sandbox or a test container that lacks the locale;
+//! - it is toolkit-agnostic logic (SH4), usable by a surface and by a notifier alike.
+//!
+//! GTK's own strings keep going through the system's gettext, untouched.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+/// Where packages install catalogs.
 pub const LOCALE_DIR: &str = "/usr/share/locale";
+/// A catalog file to load instead of looking one up. For the test rig, where German and
+/// the right-to-left pseudo-language are catalogs of the test, not of the product.
+pub const OVERRIDE_VARIABLE: &str = "ATHANOR_I18N_CATALOG";
 
-/// Selects the locale of the environment and binds the catalog. Call once, before any
-/// widget exists. An unknown locale is not an error: glibc falls back to "C" and the
-/// message ids, which are English, are shown.
-pub fn init() -> Result<(), String> {
-    setlocale(LocaleCategory::LcAll, "");
-    bindtextdomain(DOMAIN, LOCALE_DIR).map_err(|e| format!("bindtextdomain: {e}"))?;
-    bind_textdomain_codeset(DOMAIN, "UTF-8").map_err(|e| format!("bind_textdomain_codeset: {e}"))?;
-    textdomain(DOMAIN).map_err(|e| format!("textdomain: {e}"))?;
-    Ok(())
+const SYSTEM_LOCALE_FILE: &str = "/etc/locale.conf";
+const MAGIC: u32 = 0x9504_12de;
+const CONTEXT_SEPARATOR: char = '\u{4}';
+/// Languages written right to left. The direction comes from the language of the
+/// catalog in use, never from a process-wide locale.
+const RTL_LANGUAGES: [&str; 4] = ["ar", "he", "fa", "ur"];
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Error {
+    /// Not a `.mo` file, or one cut short.
+    Malformed(&'static str),
+    /// A revision whose major number is not 0.
+    UnsupportedRevision(u32),
+    /// Only UTF-8 catalogs are read; `msgfmt` is told to write nothing else.
+    NotUtf8,
+    /// A `Plural-Forms` rule that is not in [`PluralRule`]'s table.
+    UnknownPluralRule(String),
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Malformed(what) => write!(f, "malformed catalog: {what}"),
+            Self::UnsupportedRevision(revision) => write!(f, "unsupported catalog revision {revision:#x}"),
+            Self::NotUtf8 => write!(f, "the catalog is not UTF-8"),
+            Self::UnknownPluralRule(rule) => write!(f, "unknown plural rule: {rule}"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
+/// The plural rules of the languages Athanor ships or tests, by their canonical
+/// `Plural-Forms` expression. A table, not an expression evaluator: a catalog is data
+/// read in the process that handles the password, and an evaluator is a parser and an
+/// interpreter to get wrong there. A new language adds one line and one test.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PluralRule {
+    /// `nplurals=1; plural=0` (Japanese, Chinese, ...).
+    One,
+    /// `nplurals=2; plural=(n != 1)` (English, Italian, German, Spanish, ...).
+    NotOne,
+    /// `nplurals=2; plural=(n > 1)` (French, Brazilian Portuguese).
+    MoreThanOne,
+    /// Arabic's six forms.
+    Arabic,
+}
+
+impl PluralRule {
+    fn parse(header: &str) -> Result<Self, Error> {
+        let compact: String = header.chars().filter(|c| !c.is_whitespace()).collect();
+        let compact = compact.trim_end_matches(';');
+        Ok(match compact {
+            "nplurals=1;plural=0" => Self::One,
+            "nplurals=2;plural=(n!=1)" | "nplurals=2;plural=n!=1" => Self::NotOne,
+            "nplurals=2;plural=(n>1)" | "nplurals=2;plural=n>1" => Self::MoreThanOne,
+            "nplurals=6;plural=(n==0?0:n==1?1:n==2?2:n%100>=3&&n%100<=10?3:n%100>=11?4:5)"
+            | "nplurals=6;plural=n==0?0:n==1?1:n==2?2:n%100>=3&&n%100<=10?3:n%100>=11?4:5" => Self::Arabic,
+            other => return Err(Error::UnknownPluralRule(other.to_string())),
+        })
+    }
+
+    /// The index of the form for `n`.
+    pub fn index(self, n: u64) -> usize {
+        match self {
+            Self::One => 0,
+            Self::NotOne => usize::from(n != 1),
+            Self::MoreThanOne => usize::from(n > 1),
+            Self::Arabic => match (n, n % 100) {
+                (0, _) => 0,
+                (1, _) => 1,
+                (2, _) => 2,
+                (_, 3..=10) => 3,
+                (_, 11..) => 4,
+                _ => 5,
+            },
+        }
+    }
+}
+
+/// One language's translations. An empty catalog returns every message id unchanged,
+/// which is English.
+#[derive(Debug)]
+pub struct Catalog {
+    /// Key: `msgid`, or `msgctxt` + EOT + `msgid`. Value: the plural forms, one for a
+    /// message without a plural.
+    messages: HashMap<String, Vec<String>>,
+    plural: PluralRule,
+    language: Option<String>,
+}
+
+impl Default for Catalog {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+impl Catalog {
+    pub fn empty() -> Self {
+        Self { messages: HashMap::new(), plural: PluralRule::NotOne, language: None }
+    }
+
+    /// Parses a `.mo` file of either byte order. Every offset is bounds-checked: a
+    /// truncated or hostile file is an error, never a panic.
+    pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
+        let word_at = |offset: usize, big_endian: bool| -> Result<u32, Error> {
+            let raw: [u8; 4] = bytes
+                .get(offset..offset.checked_add(4).ok_or(Error::Malformed("offset overflow"))?)
+                .and_then(|slice| slice.try_into().ok())
+                .ok_or(Error::Malformed("truncated"))?;
+            Ok(if big_endian { u32::from_be_bytes(raw) } else { u32::from_le_bytes(raw) })
+        };
+        let big_endian = match (word_at(0, false)?, word_at(0, true)?) {
+            (MAGIC, _) => false,
+            (_, MAGIC) => true,
+            _ => return Err(Error::Malformed("not a .mo file")),
+        };
+        let word = |offset: usize| word_at(offset, big_endian).map(|value| value as usize);
+
+        let revision = word_at(4, big_endian)?;
+        if revision >> 16 != 0 {
+            return Err(Error::UnsupportedRevision(revision));
+        }
+        let (count, originals, translations) = (word(8)?, word(12)?, word(16)?);
+
+        let text = |table: usize, index: usize| -> Result<&str, Error> {
+            let entry = index
+                .checked_mul(8)
+                .and_then(|offset| offset.checked_add(table))
+                .ok_or(Error::Malformed("table overflow"))?;
+            let (length, start) = (word(entry)?, word(entry + 4)?);
+            let end = start.checked_add(length).ok_or(Error::Malformed("string overflow"))?;
+            let raw = bytes.get(start..end).ok_or(Error::Malformed("string out of bounds"))?;
+            std::str::from_utf8(raw).map_err(|_| Error::NotUtf8)
+        };
+
+        let mut catalog = Self::empty();
+        for index in 0..count {
+            let original = text(originals, index)?;
+            let translation = text(translations, index)?;
+            if original.is_empty() {
+                catalog.read_header(translation)?;
+                continue;
+            }
+            // A plural entry stores "msgid NUL msgid_plural"; the key is the singular.
+            let key = original.split('\0').next().unwrap_or(original);
+            catalog.messages.insert(key.to_string(), translation.split('\0').map(str::to_string).collect());
+        }
+        Ok(catalog)
+    }
+
+    fn read_header(&mut self, header: &str) -> Result<(), Error> {
+        for line in header.lines() {
+            let Some((name, value)) = line.split_once(':') else { continue };
+            let value = value.trim();
+            match name.trim().to_ascii_lowercase().as_str() {
+                "content-type" => {
+                    let charset = value.rsplit("charset=").next().unwrap_or("");
+                    if !charset.eq_ignore_ascii_case("utf-8") {
+                        return Err(Error::NotUtf8);
+                    }
+                }
+                "plural-forms" => self.plural = PluralRule::parse(value)?,
+                "language" if !value.is_empty() => self.language = Some(value.to_string()),
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// The catalog of `domain` for the first language of `languages` that has one under
+    /// `locale_dir`. A catalog that exists and cannot be read is an error, not a reason
+    /// to fall through silently to the next language.
+    pub fn find(locale_dir: &Path, domain: &str, languages: &[String]) -> Result<Self, (PathBuf, Error)> {
+        for language in languages {
+            let path = locale_dir.join(language).join("LC_MESSAGES").join(format!("{domain}.mo"));
+            if let Ok(bytes) = std::fs::read(&path) {
+                let mut catalog = Self::parse(&bytes).map_err(|error| (path, error))?;
+                catalog.language.get_or_insert_with(|| language.clone());
+                return Ok(catalog);
+            }
+        }
+        Ok(Self::empty())
+    }
+
+    /// What a program calls at start: the override file when [`OVERRIDE_VARIABLE`] names
+    /// one, otherwise the catalog for the language of the environment, of
+    /// `/etc/locale.conf`, or none. The error says which file was unreadable; the caller
+    /// logs it and carries on in English with [`Catalog::empty`].
+    pub fn load(domain: &str) -> Result<Self, (PathBuf, Error)> {
+        if let Some(path) = std::env::var_os(OVERRIDE_VARIABLE).filter(|value| !value.is_empty()) {
+            let path = PathBuf::from(path);
+            let bytes = std::fs::read(&path).map_err(|_| (path.clone(), Error::Malformed("unreadable override file")))?;
+            return Self::parse(&bytes).map_err(|error| (path, error));
+        }
+        let system = std::fs::read_to_string(SYSTEM_LOCALE_FILE).ok();
+        let languages = languages(|name| std::env::var(name).ok(), system.as_deref());
+        Self::find(Path::new(LOCALE_DIR), domain, &languages)
+    }
+
+    pub fn tr<'a>(&'a self, msgid: &'a str) -> &'a str {
+        self.form(msgid, 0).unwrap_or(msgid)
+    }
+
+    pub fn tr_n<'a>(&'a self, msgid: &'a str, msgid_plural: &'a str, n: u64) -> &'a str {
+        match self.form(msgid, self.plural.index(n)) {
+            Some(translated) => translated,
+            None if n == 1 => msgid,
+            None => msgid_plural,
+        }
+    }
+
+    /// A message with a context (`msgctxt`), for a word that translates differently in
+    /// two places.
+    pub fn tr_c<'a>(&'a self, context: &str, msgid: &'a str) -> &'a str {
+        let key = format!("{context}{CONTEXT_SEPARATOR}{msgid}");
+        // The borrow of `key` ends here; the result borrows from `self` or `msgid`.
+        match self.messages.get(&key).and_then(|forms| forms.first()) {
+            Some(translated) if !translated.is_empty() => translated,
+            _ => msgid,
+        }
+    }
+
+    fn form(&self, msgid: &str, index: usize) -> Option<&str> {
+        let forms = self.messages.get(msgid)?;
+        forms.get(index).map(String::as_str).filter(|text| !text.is_empty())
+    }
+
+    /// The language of the catalog in use; `None` for the untranslated English.
+    pub fn language(&self) -> Option<&str> {
+        self.language.as_deref()
+    }
+
+    /// Whether the language in use is written right to left.
+    pub fn is_rtl(&self) -> bool {
+        self.language().map(primary_language).is_some_and(|language| RTL_LANGUAGES.contains(&language))
+    }
+}
+
+fn primary_language(locale: &str) -> &str {
+    locale.split(['_', '.', '@']).next().unwrap_or(locale)
+}
+
+/// The catalog directories to try, most specific first: `it_IT.UTF-8@euro` gives
+/// `["it_IT", "it"]`. The locale is the first non-empty of `LC_ALL`, `LC_MESSAGES`,
+/// `LANG` in the environment, else `LANG` of `/etc/locale.conf`. `C` and `POSIX` mean
+/// untranslated.
+pub fn languages(env: impl Fn(&str) -> Option<String>, system_locale_conf: Option<&str>) -> Vec<String> {
+    let from_env = ["LC_ALL", "LC_MESSAGES", "LANG"].into_iter().find_map(|name| env(name).filter(|value| !value.is_empty()));
+    let from_system = || {
+        system_locale_conf?.lines().find_map(|line| {
+            let value = line.trim().strip_prefix("LANG=")?;
+            Some(value.trim_matches('"').to_string())
+        })
+    };
+    let Some(locale) = from_env.or_else(from_system) else { return Vec::new() };
+    let base = locale.split(['.', '@']).next().unwrap_or("");
+    if base.is_empty() || base == "C" || base == "POSIX" {
+        return Vec::new();
+    }
+    let mut found = vec![base.to_string()];
+    let primary = primary_language(base);
+    if primary != base {
+        found.push(primary.to_string());
+    }
+    found
+}
+```
+
+Run: `cargo-in-rig test -p athanor-i18n && cargo-in-rig clippy -p athanor-i18n --all-targets -- -D warnings`
+Expected: `10 passed`; clippy clean. (The `expect` calls are in tests only.)
+
+- [ ] **Step 4: The greeter's side**
+
+Create `forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/src/i18n.rs`:
+
+```rust
+//! The greeter's translations: one catalog for the life of the process, read by
+//! athanor-i18n. No setlocale(), no textdomain(): nothing process-global changes in the
+//! process that reads the password (doc_shell.md, SH13; decision of 2026-09-19).
+
+use std::sync::OnceLock;
+
+use athanor_i18n::Catalog;
+
+pub const DOMAIN: &str = "athanor-greeter-ui";
+
+static CATALOG: OnceLock<Catalog> = OnceLock::new();
+
+/// Loads the catalog for the language of the environment, or of /etc/locale.conf. A
+/// catalog that cannot be read is logged and the greeter speaks English: a greeter in
+/// the wrong language still lets the user in.
+pub fn init() {
+    let catalog = Catalog::load(DOMAIN).unwrap_or_else(|(path, err)| {
+        tracing::error!(path = %path.display(), error = %err, "translations are unavailable");
+        Catalog::empty()
+    });
+    tracing::info!(language = catalog.language().unwrap_or("en (message ids)"), "translations loaded");
+    // A second call keeps the first catalog; there is none in this program.
+    let _already_set = CATALOG.set(catalog);
+}
+
+fn catalog() -> &'static Catalog {
+    CATALOG.get_or_init(Catalog::empty)
 }
 
 /// The translation of `msgid`.
 pub fn tr(msgid: &str) -> String {
-    gettext(msgid)
+    catalog().tr(msgid).to_string()
 }
 
 /// The translation of `msgid` with `{key}` replaced by `value`. Translators move the
 /// placeholder freely; a value is never part of a message id.
 pub fn tr_with(msgid: &str, key: &str, value: &str) -> String {
-    gettext(msgid).replace(&format!("{{{key}}}"), value)
+    catalog().tr(msgid).replace(&format!("{{{key}}}"), value)
+}
+
+/// Whether the language in use is written right to left.
+pub fn is_rtl() -> bool {
+    catalog().is_rtl()
 }
 
 #[cfg(test)]
@@ -3414,8 +4114,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_untranslated_id_is_returned_as_it_is() {
+    fn without_a_catalog_the_message_id_is_the_text() {
         assert_eq!(tr("Shut down"), "Shut down");
+        assert!(!is_rtl());
     }
 
     #[test]
@@ -3425,17 +4126,18 @@ mod tests {
 }
 ```
 
-Add `mod i18n;` to `src/main.rs` (no `#[allow]`: it is greeter-path code).
+In `src/main.rs` add `mod i18n;` and, directly after the tracing subscriber is initialised, `i18n::init();`. Add the path dependency to the crate's `Cargo.toml`.
 
-Run: `cargo-in-rig test -p athanor-shell-rs i18n`
-Expected before the two manifest edits: `unresolved import gettextrs`. Make the two manifest edits, run again: `2 passed`.
+Run: `cargo-in-rig test -p athanor-greeter-ui i18n`
+Expected: `2 passed`. (`tr`, `tr_with` and `is_rtl` have no caller until Task 16; to keep the `-D warnings` gate green in between, this task's commit and Task 16's are pushed together, or the three functions carry `#[allow(dead_code)]` with the comment "used from Task 16 of the 1a plan" that Task 16 removes. Prefer pushing together.)
 
-- [ ] **Step 2: The extraction script and the catalogs**
+- [ ] **Step 5: The extraction script and the catalogs**
 
 Create `po/POTFILES.in`:
 
 ```
-src/ui/greeter/greeter.rs
+src/ui.rs
+src/auth.rs
 ```
 
 Create `po/update.sh` (mode 0755):
@@ -3449,21 +4151,21 @@ set -euo pipefail
 here=$(dirname "${BASH_SOURCE[0]}")
 crate=$here/..
 xgettext --language=Rust --keyword=tr --keyword=tr_with --from-code=UTF-8 --add-comments=TRANSLATORS \
-    --package-name=athanor-greeter --msgid-bugs-address=forge@athanor.os --no-wrap --sort-by-file \
-    --directory="$crate" --files-from="$here/POTFILES.in" --output="$here/athanor-greeter.pot"
+    --package-name=athanor-greeter-ui --msgid-bugs-address=forge@athanor.os --no-wrap --sort-by-file \
+    --directory="$crate" --files-from="$here/POTFILES.in" --output="$here/athanor-greeter-ui.pot"
 # The creation date would make every run a diff.
-sed -i '/^"POT-Creation-Date:/d' "$here/athanor-greeter.pot"
+sed -i '/^"POT-Creation-Date:/d' "$here/athanor-greeter-ui.pot"
 for catalog in "$here"/*.po; do
-    msgmerge --update --backup=none --no-wrap "$catalog" "$here/athanor-greeter.pot"
+    msgmerge --update --backup=none --no-wrap "$catalog" "$here/athanor-greeter-ui.pot"
 done
 ```
 
-Create `po/it.po` (the header, then one entry per message id of Task 17; `update.sh` fills in the source references):
+Create `po/it.po` (the header, then one entry per message id of Task 16; `update.sh` fills in the source references). The `Plural-Forms` line must be one of the spellings `athanor_i18n::PluralRule` knows:
 
 ```po
 msgid ""
 msgstr ""
-"Project-Id-Version: athanor-greeter\n"
+"Project-Id-Version: athanor-greeter-ui\n"
 "Report-Msgid-Bugs-To: forge@athanor.os\n"
 "Language: it\n"
 "MIME-Version: 1.0\n"
@@ -3492,6 +4194,18 @@ msgstr "Accesso in corso…"
 msgid "Sign-in failed: {reason}"
 msgstr "Accesso non riuscito: {reason}"
 
+msgid "The login service cannot be reached."
+msgstr "Il servizio di accesso non è raggiungibile."
+
+msgid "Checking your credentials…"
+msgstr "Verifica delle credenziali…"
+
+msgid "The login service gave an unexpected answer."
+msgstr "Il servizio di accesso ha dato una risposta inattesa."
+
+msgid "Too many authentication steps."
+msgstr "Troppi passaggi di autenticazione."
+
 msgid "High contrast"
 msgstr "Contrasto elevato"
 
@@ -3513,19 +4227,19 @@ msgid "%A %-d %B"
 msgstr "%A %-d %B"
 ```
 
-Create `po/en.po` with the same header (`"Language: en\n"`) and every `msgstr` equal to its `msgid`. English is shipped as a catalog, not only as message ids, so that English copy can be corrected without touching a message id and invalidating the other catalogs.
+Create `po/en.po` with the same header (`"Language: en\n"`) and every `msgstr` equal to its `msgid`. English ships as a catalog, not only as message ids, so that English copy can be corrected without touching a message id and invalidating the other catalogs.
 
-`po/athanor-greeter.pot` is produced in Task 17, Step 6, when the calls exist.
+`po/athanor-greeter-ui.pot` is produced in Task 16, Step 6, when the calls exist.
 
-- [ ] **Step 3: Ship the catalogs**
+- [ ] **Step 6: Ship the catalogs**
 
-In `forge/specs/athanor-shell-rs/athanor-shell-rs.spec`: append `gettext` to `BuildRequires`; at the end of `%build` add:
+In `forge/specs/athanor-greeter-ui/athanor-greeter-ui.spec`: append `gettext` to `BuildRequires`; at the end of `%build`:
 
 ```spec
-for catalog in forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/po/*.po; do
+for catalog in forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/po/*.po; do
     lang=$(basename "$catalog" .po)
     mkdir -p "locale-build/$lang/LC_MESSAGES"
-    msgfmt --check --output-file="locale-build/$lang/LC_MESSAGES/athanor-greeter.mo" "$catalog"
+    msgfmt --check --output-file="locale-build/$lang/LC_MESSAGES/athanor-greeter-ui.mo" "$catalog"
 done
 ```
 
@@ -3540,24 +4254,23 @@ rm -rf locale-build
 and in `%files`:
 
 ```spec
-%lang(it) /usr/share/locale/it/LC_MESSAGES/athanor-greeter.mo
-%lang(en) /usr/share/locale/en/LC_MESSAGES/athanor-greeter.mo
+%lang(it) /usr/share/locale/it/LC_MESSAGES/athanor-greeter-ui.mo
+%lang(en) /usr/share/locale/en/LC_MESSAGES/athanor-greeter-ui.mo
 ```
 
-`msgfmt --check` fails the build on a catalog whose placeholders or format directives disagree with the message id. The builder has `gettext` (`flake.nix`, build-tools). The catalogs are readable in the greeter's sandbox because the wrapper binds `/usr` read-only.
+`msgfmt --check` fails the build on a catalog whose placeholders or format directives disagree with the message id, and writes UTF-8, the only charset the reader accepts. The builder has `gettext` (`flake.nix`, build-tools). The catalogs are readable in the greeter's sandbox because the wrapper binds `/usr` read-only. Add `Requires: athanor-calmo cosmic-icon-theme` as well: the greeter uses the seal icons and names its other icons from the Cosmic theme (Task 16). `Release: 2`, changelog "Italian and English catalogs, read by athanor-i18n."
 
-Also add `Requires: athanor-calmo cosmic-icon-theme` to the spec: the greeter uses the seal icons and names its other icons from the Cosmic theme.
+- [ ] **Step 7: Give the greeter the system's locale**
 
-- [ ] **Step 4: Give the greeter the system's locale**
-
-greetd passes a session only what PAM builds, and PAM does not read `/etc/locale.conf`, so today the greeter would run in the `C` locale and show English on an Italian install. In `forge/specs/athanor-system-config/SOURCES/usr/bin/athanor-greeter-session`, after the `XDG_RUNTIME_DIR` block, add:
+Our own strings no longer need it: `athanor-i18n` reads `/etc/locale.conf` itself. GTK's own strings (the Caps Lock warning of the password field) and the weekday and month names of `g_date_time_format` still come from glibc, and greetd passes a session only what PAM builds, which does not include `/etc/locale.conf`. In `forge/specs/athanor-system-config/SOURCES/usr/bin/athanor-greeter-session`, after the `XDG_RUNTIME_DIR` block, add:
 
 ```sh
 
-# The greeter speaks the system's language. /etc/locale.conf is the one place that names
-# it before anybody has logged in; systemd applies it to services, but greetd hands a
-# session only PAM's environment. The file is systemd's KEY=value format, which sh can
-# read; only the locale variables are taken from it.
+# The greeter speaks the system's language. Its own strings find /etc/locale.conf by
+# themselves (athanor-i18n); GTK's strings and the date's weekday and month names come
+# from glibc, which needs the variables. systemd applies locale.conf to services, but
+# greetd hands a session only PAM's environment. The file is systemd's KEY=value format,
+# which sh can read; only the locale variables are taken from it.
 if [ -r /etc/locale.conf ]; then
     # shellcheck disable=SC1091
     . /etc/locale.conf
@@ -3570,34 +4283,36 @@ if [ -r /etc/locale.conf ]; then
 fi
 ```
 
-`athanor-greeter-client` passes the environment through bubblewrap unchanged (it uses no `--clearenv`), so nothing changes there. Raise `Release` of `athanor-system-config.spec` by one with the changelog entry "The greeter session exports the locale of /etc/locale.conf: greetd passes only PAM's environment, which left the greeter in the C locale."
+`athanor-greeter-client` passes the environment through bubblewrap unchanged (it uses no `--clearenv`). In `athanor-system-config.spec`, `43.fc43` → `44.fc43` with the changelog entry "The greeter session exports the locale of /etc/locale.conf: greetd passes only PAM's environment, which left GTK and the date in the C locale."
 
 Run: `shellcheck -s sh forge/specs/athanor-system-config/SOURCES/usr/bin/athanor-greeter-session && python3 scripts/verify.py specs`
 Expected: no findings.
 
-- [ ] **Step 5: Commit (two commits)**
+- [ ] **Step 8: Commit (three commits)**
 
 ```bash
-git add Cargo.toml Cargo.lock forge/specs/athanor-shell-rs
-git commit -m "feat(greeter): add gettext with Italian and English catalogs shipped as .mo files"
+git add Cargo.toml Cargo.lock system/athanor-i18n
+git commit -m "feat(i18n): read gettext .mo catalogs in safe Rust, without glibc's process-global state"
+git add forge/specs/athanor-greeter-ui
+git commit -m "feat(greeter): add Italian and English catalogs, shipped as .mo files"
 git add forge/specs/athanor-system-config
-git commit -m "fix(greeter): run the greeter in the system's locale"
+git commit -m "fix(greeter): run the greeter session in the system's locale"
 ```
 
-### Task 17: Greeter re-skin
+### Task 16: Greeter re-skin
 
 **Files:**
-- Modify: `forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/src/ui/greeter/greeter.rs` (rewritten: 585 → about 330 lines)
-- Modify: `src/main.rs` (the greeter branch; the three `set_var` lines)
-- Modify: `src/sys/auth.rs` (delete `session_badge` and its two tests)
-- Create: `po/athanor-greeter.pot` (generated)
-- Modify: `forge/specs/athanor-shell-rs/athanor-shell-rs.spec` (`Release`, changelog)
+- Modify: `forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/src/ui.rs` (rewritten: 585 → about 340 lines)
+- Modify: `src/auth.rs` (delete `session_badge` and its two tests; four Italian literals become `tr()` calls)
+- Modify: `Cargo.toml` of the crate (`chrono` leaves; `athanor-style` arrives)
+- Create: `po/athanor-greeter-ui.pot` (generated)
+- Modify: `forge/specs/athanor-greeter-ui/athanor-greeter-ui.spec` (`Release`, changelog), `forge/test/shell/rig.sh` (`greeter-preview`)
 
 **Interfaces:**
-- Consumes: `athanor_style::calmo::{Variant, load}` (Task 15); `crate::i18n::{init, tr, tr_with}` (Task 16); `crate::wayland::layer_guard::require_layer_surface` (Task 13); icons `athanor-seal-attention-symbolic` (Task 5); the CSS classes of Task 3; from the existing code, unchanged: `crate::sys::auth::{discover_target_user, authenticate, UserInfo}`, `crate::ipc::power::LogindProxy` (`suspend(bool)`, `reboot(bool)`, `power_off(bool)`).
-- Produces: `crate::ui::greeter::build_ui(app: &gtk4::Application)`; the environment variable `ATHANOR_GREETER_VARIANT` (`light` | `dark` | `light-hc` | `dark-hc`, default `light`); widget names (`set_widget_name`) the AT-SPI check and later packages rely on: `greeter-seal`, `greeter-password`, `greeter-submit`, `greeter-contrast`, `greeter-layout`, `greeter-suspend`, `greeter-restart`, `greeter-shutdown`.
+- Consumes: `athanor_style::calmo::{Variant, load}` (Task 14); `crate::i18n::{tr, tr_with, is_rtl}` (Task 15); `crate::layer_guard::require_layer_surface` (Task 12); the icon `athanor-seal-attention-symbolic` (Task 5); the CSS classes of Task 3; from the moved code: `crate::auth::{discover_target_user, authenticate_interactive, UserInfo}`, `crate::power::LogindProxy` (`suspend(bool)`, `reboot(bool)`, `power_off(bool)`).
+- Produces: `crate::ui::build_ui(app: &gtk4::Application)`; the environment variable `ATHANOR_GREETER_VARIANT` (`light` | `dark` | `light-hc` | `dark-hc`, default `light`); widget names (`set_widget_name`) the AT-SPI check and later packages rely on: `greeter-seal`, `greeter-password`, `greeter-submit`, `greeter-contrast`, `greeter-layout`, `greeter-suspend`, `greeter-restart`, `greeter-shutdown`.
 
-What changes for the user, against the greeter of release 34:
+What changes for the user, against the greeter Task 11 moved:
 
 | Was | Becomes | Why |
 |---|---|---|
@@ -3613,47 +4328,29 @@ What changes for the user, against the greeter of release 34:
 
 One departure from the mockup, on purpose: the mockup shows a single power button, which implies a menu. The rig has no input (SH13), so a menu could never be captured or checked there, and a popover on a layer surface is one more thing that can fail on the one surface that must not. Three labelled chips do the same job with nothing to open.
 
-- [ ] **Step 1: `main.rs`, the greeter branch and the environment**
+- [ ] **Step 1: The manifest**
 
-Delete these lines of `main()` (they run after the Tokio runtime has started its threads, where changing the environment is unsound; GTK chooses Wayland by itself when `WAYLAND_DISPLAY` is set; `GDK_SCALE=1` pinned every display to 1×):
+In the crate's `Cargo.toml`: delete `chrono = "0.4"` (the date is `glib::DateTime` now, which formats in the locale) and add `athanor-style = { path = "../../../../system/athanor-style" }`.
 
-```rust
-    // Forza il renderer GTK4 NGL (New GL) ad altissime prestazioni / Vulkan e backend puramente Wayland
-    std::env::set_var("GSK_RENDERER", "ngl");
-    std::env::set_var("GDK_BACKEND", "wayland");
-    // Disabilita lo scaling X11 frazionario per evitare blur
-    std::env::set_var("GDK_SCALE", "1");
-```
+- [ ] **Step 2: `auth.rs`: no badge, and no Italian literal**
 
-Replace the greeter branch with:
+Delete `pub fn session_badge` with its doc comment and the two tests that call it. Keep `SESSION_TYPE`: the session request uses it.
 
-```rust
-    // The greeter authenticates through greetd's IPC alone. There is no lock mode: a
-    // screen locker cannot open a greetd session from inside a user session, and the
-    // desktop's own locker covers it.
-    if args.greeter {
-        if let Err(err) = crate::i18n::init() {
-            // English message ids are a usable greeter; a missing catalog is not fatal.
-            tracing::warn!(error = %err, "translations are unavailable");
-        }
-        let app = Application::builder()
-            .application_id("os.athanor.Greeter")
-            .build();
-        app.connect_activate(crate::ui::greeter::build_ui);
-        return app.run_with_args(&Vec::<String>::new());
-    }
-```
+The file carries four user-visible Italian literals, which reach the screen through the error and status labels. Add `use crate::i18n::tr;` and replace:
 
-The greeter no longer calls `crate::theme::init_css()`: that function loads `/usr/share/athanor/style.css`, which no package installs, the glass theme with its web-only properties, and writes a Material palette into the configuration directory.
+| Literal | Becomes |
+|---|---|
+| `"Autenticazione fallita: demone auth irraggiungibile".to_string()` | `tr("The login service cannot be reached.")` |
+| `status_cb("Verifica credenziali in corso...")` | `status_cb(&tr("Checking your credentials…"))` |
+| `"Risposta inattesa dal comando StartSession".to_string()` | `tr("The login service gave an unexpected answer.")` |
+| `"Timeout conversazione PAM (troppi passaggi di autenticazione)".to_string()` | `tr("Too many authentication steps.")` |
 
-- [ ] **Step 2: `sys/auth.rs`**
+Messages that come from PAM through greetd (`auth_message`, `description`) are shown as received: PAM translates them itself.
 
-Delete `pub fn session_badge` with its doc comment (lines 150 to 161) and the two tests that call it (the `#[test]` functions starting at lines 228 and 238). Keep `SESSION_TYPE`: the session request uses it.
+Run after Step 3: `grep -n "session_badge\|Autenticazione\|Verifica cred\|Risposta inattesa\|Timeout conv" forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/src`
+Expected: no output.
 
-Run: `grep -rn "session_badge" forge/specs/athanor-shell-rs`
-Expected after Step 3: no output.
-
-- [ ] **Step 3: Rewrite `ui/greeter/greeter.rs`**
+- [ ] **Step 3: Rewrite `src/ui.rs`**
 
 ```rust
 //! The greeter: the first Athanor surface drawn on the Calmo tokens.
@@ -3671,8 +4368,8 @@ use gtk4::prelude::*;
 use gtk4::{gdk, Align, Application, ApplicationWindow, Box, Button, Image, Label, Orientation, PasswordEntry, ToggleButton};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
+use crate::auth::{authenticate_interactive, discover_target_user, UserInfo};
 use crate::i18n::{tr, tr_with};
-use crate::sys::auth::{authenticate, discover_target_user, UserInfo};
 
 /// The seal's state. The greeter has no verifier to ask yet: package 1b-shield binds the
 /// root-owned trust state file into the sandbox and replaces this constant with what
@@ -3755,13 +4452,13 @@ fn layout_chip(display: &gdk::Display) -> Label {
     chip
 }
 
-fn power_chip(id: &str, icon: &str, label: &str, action: fn(&crate::ipc::power::LogindProxy<'static>) -> PowerCall) -> Button {
+fn power_chip(id: &str, icon: &str, label: &str, action: fn(&crate::power::LogindProxy<'static>) -> PowerCall) -> Button {
     let button = icon_chip(id, icon, label);
     button.connect_clicked(move |_| {
         glib::MainContext::default().spawn_local(async move {
             let result = async {
                 let connection = zbus::Connection::system().await?;
-                let proxy = crate::ipc::power::LogindProxy::new(&connection).await?;
+                let proxy = crate::power::LogindProxy::new(&connection).await?;
                 action(&proxy).await
             }
             .await;
@@ -3776,15 +4473,21 @@ fn power_chip(id: &str, icon: &str, label: &str, action: fn(&crate::ipc::power::
 type PowerCall = std::pin::Pin<std::boxed::Box<dyn std::future::Future<Output = zbus::Result<()>>>>;
 
 pub fn build_ui(app: &Application) {
+    // The direction comes from the language of the catalog in use, not from a process
+    // locale, and has to be set before the first widget exists.
+    if crate::i18n::is_rtl() {
+        gtk4::Widget::set_default_direction(gtk4::TextDirection::Rtl);
+    }
+
     let window = ApplicationWindow::builder().application(app).title("Athanor").build();
     window.add_css_class("athanor-surface");
     window.add_css_class("athanor-greeter");
 
     window.init_layer_shell();
-    if let Err(reason) = crate::wayland::layer_guard::require_layer_surface(&window) {
+    if let Err(reason) = crate::layer_guard::require_layer_surface(&window) {
         // No tracing subscriber may be listening this early in a failing start; stderr
         // reaches the journal through the compositor's systemd-cat.
-        eprintln!("athanor-shell-rs: greeter is not a layer surface: {reason}");
+        eprintln!("athanor-greeter-ui: not a layer surface: {reason}");
         std::process::exit(1);
     }
     window.set_layer(Layer::Overlay);
@@ -3875,7 +4578,10 @@ pub fn build_ui(app: &Application) {
             status.set_visible(true);
             let (app, password, submit, status, error) = (app.clone(), password.clone(), submit.clone(), status.clone(), error.clone());
             glib::MainContext::default().spawn_local(async move {
-                match authenticate(&secret).await {
+                // PAM's own prompts (a fingerprint reader asking for a touch) are shown as
+                // they arrive.
+                let progress = status.clone();
+                match authenticate_interactive(&secret, &move |message: &str| progress.set_label(message)).await {
                     Ok(()) => app.quit(),
                     Err(reason) => {
                         status.set_visible(false);
@@ -3948,7 +4654,7 @@ Two places where the compiler has the last word, with what to do for each:
   #[derive(Clone, Copy)]
   enum Power { Suspend, Restart, ShutDown }
   // inside the spawned future:
-  let proxy = crate::ipc::power::LogindProxy::new(&connection).await?;
+  let proxy = crate::power::LogindProxy::new(&connection).await?;
   match which {
       Power::Suspend => proxy.suspend(true).await,
       Power::Restart => proxy.reboot(true).await,
@@ -3963,8 +4669,8 @@ All icon names used here exist in `/usr/share/icons/Cosmic` of `cosmic-icon-them
 
 - [ ] **Step 4: Build under the lint gate**
 
-Run: `bash forge/test/shell/rig.sh build-greeter && cargo-in-rig test -p athanor-shell-rs`
-Expected: clippy clean, release build, link-order check silent, tests pass.
+Run: `bash forge/test/shell/rig.sh build-greeter`
+Expected: clippy clean, tests pass, release build, link-order check silent.
 
 - [ ] **Step 5: Look at it**
 
@@ -3975,53 +4681,58 @@ greeter-preview)
     for variant in light dark light-hc dark-hc; do
         in_rig "$(rig_image)" env ATHANOR_GREETER_VARIANT="$variant" ATHANOR_LOGIN_USER=ermete RIG_LOCALE=en_US.UTF-8 \
             dbus-run-session -- /repo/forge/test/shell/scene.sh 1920 1080 1.0 "greeter-preview-$variant" -- \
-            /out/bin/athanor-shell-rs --greeter
+            /out/bin/athanor-greeter-ui
     done
     echo "look at $out/greeter-preview-*.png"
     ;;
 ```
 
 Run: `bash forge/test/shell/rig.sh greeter-preview`
-Expected: four PNGs. Compare `greeter-preview-light.png` with the mockup's "Accesso" section: hearth discs from the bottom right, "Athanor" top left, the seal chip with an amber exclamation badge and "Not verified" top right, a 74 px light clock reading 10:00, "Friday 18 September", the card with an indigo disc bearing "E", "Ermete", the field with an indigo border and the arrow button, four chips bottom right (no keyboard chip: the rig's seat has no keyboard). No title bar anywhere: a title bar means the layer guard was bypassed. Show the four captures to the maintainer before Task 19 freezes them as goldens.
+Expected: four PNGs. Compare `greeter-preview-light.png` with the mockup's "Accesso" section: hearth discs from the bottom right, "Athanor" top left, the seal chip with an amber exclamation badge and "Not verified" top right, a 74 px light clock reading 10:00, "Friday 18 September", the card with an indigo disc bearing "E", "Ermete", the field with an indigo border and the arrow button, four chips bottom right (no keyboard chip: the rig's seat has no keyboard). No title bar anywhere: a title bar means the layer guard was bypassed. 
+
+- [ ] **Step 5b: Show the maintainer, the high-contrast variants above all**
+
+This is a gate, not a courtesy. `greeter-preview-light-hc.png` and `greeter-preview-dark-hc.png` show a variant **nobody has approved**: high contrast is required by SH5 and absent from the mockup, and this plan derived it by one rule in `tokens.toml` (secondary inks one step stronger, hairlines at 3:1, the accent further from the surface). Send the maintainer the four captures, the two high-contrast ones side by side with their normal variants, and ask specifically whether the derived high-contrast look is accepted. Do not start Task 18 before the answer: a change to the rule changes `tokens.toml`, every generated sheet and therefore every golden. If the maintainer changes the rule, edit the `[variant.*-hc.color]` tables, run `generate.py all`, the Calmo tests and `contrast.py` (the monotonic test keeps the variant honest), rebuild, and show again.
 
 - [ ] **Step 6: Generate the template and check the catalogs**
 
-Run: `podman run --rm --security-opt label=disable -v "$PWD:/repo" -w /repo localhost/athanor-shell-rig:build bash forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/po/update.sh`
-Expected: `po/athanor-greeter.pot` with 13 message ids; `it.po` and `en.po` gain source references and lose nothing.
+Run: `podman run --rm --security-opt label=disable -v "$PWD:/repo" -w /repo localhost/athanor-shell-rig:build bash forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/po/update.sh`
+Expected: `po/athanor-greeter-ui.pot` with 17 message ids; `it.po` and `en.po` gain source references and lose nothing.
 
-Run: `podman run --rm --security-opt label=disable -v "$PWD:/repo:ro" -w /repo localhost/athanor-shell-rig:build bash -c 'for c in forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0/po/*.po; do msgfmt --check --statistics -o /dev/null "$c"; done'`
-Expected: twice `13 translated messages.`, no fuzzy, no untranslated.
+Run: `podman run --rm --security-opt label=disable -v "$PWD:/repo:ro" -w /repo localhost/athanor-shell-rig:build bash -c 'for c in forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/po/*.po; do msgfmt --check --statistics -o /dev/null "$c"; done'`
+Expected: twice `17 translated messages.`, no fuzzy, no untranslated.
 
 - [ ] **Step 7: Release and changelog**
 
-In `forge/specs/athanor-shell-rs/athanor-shell-rs.spec`, `Release: 36`, and at the top of `%changelog`:
+In `forge/specs/athanor-greeter-ui/athanor-greeter-ui.spec`, `Release: 3`, and at the top of `%changelog`:
 
 ```
-* Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-36
+* Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-3
 - The greeter is drawn on the Calmo tokens (doc_shell.md, SH5): the generated GTK4
   stylesheet of the variant replaces the inline sheet, in light, dark and their
   high-contrast forms, chosen by ATHANOR_GREETER_VARIANT and by a high-contrast toggle.
   It reads nothing from COSMIC.
-- Every interactive widget has an accessible name, a failed sign-in is an alert, and
-  every string goes through gettext, with Italian and English catalogs.
+- Every interactive widget has an accessible name, a failed sign-in is an alert, every
+  string is translated through athanor-i18n, and the layout mirrors for a right-to-left
+  language.
 - The seal is shown top right with the exclamation badge and "Not verified". This is a
   constant on purpose: the greeter has no verifier to ask until the shield package
   binds the trust state file into its sandbox, and it never shows the check meanwhile.
 - The password field is GtkPasswordEntry: its peek icon and Caps Lock warning replace
   the hand-made ones, which drew Nerd Font glyphs no shipped font has.
-- Removed: the "Theme" button, which was connected to nothing; the session badge under
-  the user name; GDK_SCALE=1, which pinned every display to 1x; the forced renderer.
+- Removed: the "Theme" button, which was connected to nothing, and the session badge
+  under the user name.
 - The keyboard layout chip shows what the seat reports and is hidden when it reports none.
 ```
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add forge/specs/athanor-shell-rs forge/test/shell/rig.sh
+git add forge/specs/athanor-greeter-ui forge/test/shell/rig.sh
 git commit -m "feat(greeter): draw the greeter on the Calmo tokens with accessible names and gettext"
 ```
 
-### Task 18: AT-SPI check in the rig
+### Task 17: AT-SPI check in the rig
 
 **Files:**
 - Create: `forge/test/shell/atspi_check.py`
@@ -4029,7 +4740,7 @@ git commit -m "feat(greeter): draw the greeter on the Calmo tokens with accessib
 - Modify: `forge/test/shell/rig.sh` (sub-command `atspi`), `.github/workflows/shell-surfaces.yml`, `.github/workflows/call-lint.yml`
 
 **Interfaces:**
-- Consumes: `/out/bin/athanor-shell-rs` (Task 13), the widget names of Task 17, `scene.sh` with `RIG_HOLD`.
+- Consumes: `/out/bin/athanor-greeter-ui` (Task 12), the widget names of Task 16, `scene.sh` with `RIG_HOLD`.
 - Produces:
   - `atspi_check.problems(nodes: list[Node], expected: int) -> list[str]` with `Node = (role: str, name: str, showing: bool)`; pure, unit-tested.
   - command `atspi_check.py <application-name> <minimum-interactive>`, exit 1 on a problem, tree dump on stdout.
@@ -4177,20 +4888,20 @@ atspi)
     # A screen reader announces itself by setting IsEnabled; GTK exports its tree then.
     # The greeter has 6 interactive widgets: password, sign in, contrast, three power chips.
     in_rig "$(rig_image)" env GTK_A11Y=atspi ATHANOR_LOGIN_USER=ermete RIG_LOCALE=en_US.UTF-8 RIG_SETTLE=6 \
-        RIG_HOLD="python3 /repo/forge/test/shell/atspi_check.py athanor-shell-rs 6" \
+        RIG_HOLD="python3 /repo/forge/test/shell/atspi_check.py athanor-greeter-ui 6" \
         dbus-run-session -- /repo/forge/test/shell/scene.sh 1280 800 1.0 atspi-greeter -- \
         bash -c 'busctl --user set-property org.a11y.Bus /org/a11y/bus org.a11y.Status IsEnabled b true \
-                 && exec /out/bin/athanor-shell-rs --greeter'
+                 && exec /out/bin/athanor-greeter-ui'
     ;;
 ```
 
 Run: `bash forge/test/shell/rig.sh atspi greeter`
 Expected: the tree, with `password text: 'Password for Ermete'`, `push button: 'Sign in'`, `toggle button: 'High contrast'`, `push button: 'Suspend'`, `'Restart'`, `'Shut down'`, and exit 0.
 
-- **Outcome B, `no application named 'athanor-shell-rs'`:** print the names the bus has (`python3 -c` with the loop of `find_application`, printing `app.get_name()`), and use the one GTK registered (it derives it from `g_get_prgname()`); change the argument in `rig.sh`, not the check.
-- **Outcome C, an unnamed `password text` or `text`:** the node is `PasswordEntry`'s inner text widget; Task 17 already labels `password.delegate()`. If GTK 4.20 exposes yet another inner node, give the `PasswordEntry` the role's label through `Property::Label` on that node as well and say in the comment which GTK version needed it.
+- **Outcome B, `no application named 'athanor-greeter-ui'`:** print the names the bus has (`python3 -c` with the loop of `find_application`, printing `app.get_name()`), and use the one GTK registered (it derives it from `g_get_prgname()`); change the argument in `rig.sh`, not the check.
+- **Outcome C, an unnamed `password text` or `text`:** the node is `PasswordEntry`'s inner text widget; Task 16 already labels `password.delegate()`. If GTK 4.20 exposes yet another inner node, give the `PasswordEntry` the role's label through `Property::Label` on that node as well and say in the comment which GTK version needed it.
 
-To see the check bite: remove the `named(&submit, …)` line in `greeter.rs`, rebuild, run: `FAIL a showing 'push button' has no accessible name`. Restore it.
+To see the check bite: remove the `named(&submit, …)` line in `ui.rs`, rebuild, run: `FAIL a showing 'push button' has no accessible name`. Restore it.
 
 - [ ] **Step 4: Add it to the workflow's `greeter` job, after "Layer-surface guard"**
 
@@ -4209,19 +4920,19 @@ git add forge/test/shell/atspi_check.py forge/test/shell/tests forge/test/shell/
 git commit -m "test(greeter): require a role and a name for every control in the AT-SPI tree"
 ```
 
-### Task 19: The 12 surface cases, goldens and the workflow
+### Task 18: The 12 surface cases, goldens and the workflow
 
 **Files:**
 - Create: `forge/test/shell/cases.py`, `forge/test/shell/compare.py`
 - Test: `forge/test/shell/tests/test_cases.py`, `forge/test/shell/tests/test_compare.py`
 - Create: `forge/test/shell/locale/de.po`, `forge/test/shell/locale/make_pseudo_rtl.py`
 - Create: `forge/test/shell/rig-image.digest`, `forge/test/shell/golden/greeter/*.png` (12 files)
-- Modify: `forge/test/shell/Containerfile` (language files), `forge/test/shell/rig.sh` (`surface`, `update-goldens`), `.github/workflows/shell-surfaces.yml`
+- Modify: `forge/test/shell/rig.sh` (`surface`, `update-goldens`), `.github/workflows/shell-surfaces.yml`
 
 **Interfaces:**
 - Consumes: everything above.
 - Produces:
-  - `cases.surface_cases(surface: str) -> list[Case]`, `Case = (tag, variant, scale, locale)`; command `cases.py greeter` prints one case per line, tab-separated.
+  - `cases.surface_cases(surface: str) -> list[Case]`, `Case = (tag, variant, scale, locale, catalog)`; command `cases.py greeter` prints one case per line, tab-separated. `locale` is the case's `LC_ALL` (the date, GTK's own strings); `catalog` is the file the case hands to `ATHANOR_I18N_CATALOG`, `-` for none.
   - `compare.TOLERANCE = 64`, `compare.parse_ae(text: str) -> int`, `compare.verdict(differing: int) -> bool`; command `compare.py <golden-dir> <actual-dir> <tag>…`, exit 1 when a case differs by more than the tolerance or a golden is missing; writes `<actual-dir>/<tag>-diff.png` for a failing case.
   - `rig.sh surface greeter`, `rig.sh update-goldens greeter`.
 
@@ -4246,6 +4957,7 @@ class CasesTest(unittest.TestCase):
         self.assertEqual({c.scale for c in found}, {"1.0", "1.5"})
         self.assertEqual({c.variant for c in found}, {"light", "dark"})
         self.assertEqual({c.locale for c in found}, {"en_US.UTF-8", "de_DE.UTF-8", "ar_EG.UTF-8"})
+        self.assertEqual({c.catalog for c in found}, {"-", "de.mo", "rtl.mo"})
 
     def test_tags_are_file_names(self):
         for case in cases.surface_cases("greeter"):
@@ -4303,24 +5015,28 @@ Create `forge/test/shell/cases.py`:
 """The surface cases of doc_shell.md, SH13: scale {1.0, 1.5} x theme {light, dark} x
 text {English, German for length, a right-to-left pseudo-locale}.
 
-    cases.py <surface>      one case per line: tag, variant, scale, locale (tab-separated)
+    cases.py <surface>      one case per line: tag, variant, scale, locale, catalog (tab-separated)
 """
 import sys
 from collections import namedtuple
 from itertools import product
 
-Case = namedtuple("Case", "tag variant scale locale")
+Case = namedtuple("Case", "tag variant scale locale catalog")
 
-# The pseudo-locale rides on ar_EG: glibc and GTK know it as right-to-left, and the rig
-# mounts a generated catalog for it. German is a test catalog too; the product ships it and en.
-LOCALES = {"en": "en_US.UTF-8", "de": "de_DE.UTF-8", "rtl": "ar_EG.UTF-8"}
+# short name -> (LC_ALL, catalog handed to ATHANOR_I18N_CATALOG). Our own strings come
+# from the catalog file, read by athanor-i18n, whatever the process locale is; LC_ALL
+# gives the case its date and GTK's own strings. English is the message ids: no catalog.
+# German and the right-to-left pseudo-language are catalogs of the test; the product
+# ships it and en. The pseudo-language declares "Language: ar", which is what makes the
+# greeter mirror.
+LOCALES = {"en": ("en_US.UTF-8", "-"), "de": ("de_DE.UTF-8", "de.mo"), "rtl": ("ar_EG.UTF-8", "rtl.mo")}
 SURFACES = {"greeter": {"variants": ("light", "dark"), "scales": ("1.0", "1.5")}}
 
 
 def surface_cases(surface):
     spec = SURFACES[surface]
-    return [Case(f"{surface}-{variant}-{scale}-{short}", variant, scale, locale)
-            for variant, scale, (short, locale) in product(spec["variants"], spec["scales"], LOCALES.items())]
+    return [Case(f"{surface}-{variant}-{scale}-{short}", variant, scale, locale, catalog)
+            for variant, scale, (short, (locale, catalog)) in product(spec["variants"], spec["scales"], LOCALES.items())]
 
 
 if __name__ == "__main__":
@@ -4395,7 +5111,7 @@ if __name__ == "__main__":
 ```
 
 Run: `python3 -B -m unittest discover -s forge/test/shell/tests -v`
-Expected: `OK` (10 tests with Task 18's).
+Expected: `OK` (10 tests with Task 17's).
 
 - [ ] **Step 3: The test catalogs**
 
@@ -4422,6 +5138,18 @@ msgstr "Anmeldung läuft…"
 
 msgid "Sign-in failed: {reason}"
 msgstr "Anmeldung fehlgeschlagen: {reason}"
+
+msgid "The login service cannot be reached."
+msgstr "Der Anmeldedienst ist nicht erreichbar."
+
+msgid "Checking your credentials…"
+msgstr "Anmeldedaten werden geprüft…"
+
+msgid "The login service gave an unexpected answer."
+msgstr "Der Anmeldedienst hat unerwartet geantwortet."
+
+msgid "Too many authentication steps."
+msgstr "Zu viele Authentifizierungsschritte."
 
 msgid "High contrast"
 msgstr "Hoher Kontrast"
@@ -4477,27 +5205,7 @@ if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
 ```
 
-- [ ] **Step 4: GTK's own translations in the image**
-
-GTK decides the text direction from its own catalog for the locale, so the image needs GTK's `ar` and `de` language files, which a container base may be configured to skip. In `forge/test/shell/Containerfile`, put before the first `RUN dnf5`:
-
-```dockerfile
-# Container bases may limit installed languages; the RTL and German cases need GTK's own
-# catalogs, because GTK takes the text direction from its translation for the locale.
-RUN rm -f /etc/rpm/macros.image-language-conf \
- && if [ -f /etc/rpm/macros ]; then sed -i '/^%_install_langs/d' /etc/rpm/macros; fi
-```
-
-and after the package installation add the proof:
-
-```dockerfile
-RUN test -e /usr/share/locale/ar/LC_MESSAGES/gtk40.mo && test -e /usr/share/locale/de/LC_MESSAGES/gtk40.mo
-```
-
-Run: `bash forge/test/shell/rig.sh build-image`
-Expected: the build passes the `test` line. If it fails, the base strips languages some other way: run `podman run --rm registry.fedoraproject.org/fedora:43 rpm --eval '%{_install_langs}'` and remove whatever defines it.
-
-- [ ] **Step 5: `surface` and `update-goldens`**
+- [ ] **Step 4: `surface` and `update-goldens`**
 
 Add to `forge/test/shell/rig.sh`, with the header lines `#   rig.sh surface <name>          capture every case of a surface and compare with the goldens` and `#   rig.sh update-goldens <name>   replace the goldens with a fresh capture, deliberately`:
 
@@ -4509,25 +5217,25 @@ surface | update-goldens)
         echo "rig.sh: $golden has uncommitted changes; commit or discard them first" >&2
         exit 1
     fi
-    crate=$root/forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0
-    # Test-only catalogs: German for length, the pseudo-locale for right-to-left.
+    # Test-only catalogs: German for length, the pseudo-language for right-to-left.
     in_rig "$(rig_image)" bash -c '
         set -euo pipefail
-        mkdir -p /out/locale/de/LC_MESSAGES /out/locale/ar/LC_MESSAGES
-        msgfmt --check -o /out/locale/de/LC_MESSAGES/athanor-greeter.mo /repo/forge/test/shell/locale/de.po
-        python3 /repo/forge/test/shell/locale/make_pseudo_rtl.py '"/repo/${crate#"$root"/}"'/po/athanor-greeter.pot /out/pseudo-rtl.po
-        msgfmt -o /out/locale/ar/LC_MESSAGES/athanor-greeter.mo /out/pseudo-rtl.po'
+        mkdir -p /out/locale
+        msgfmt --check -o /out/locale/de.mo /repo/forge/test/shell/locale/de.po
+        python3 /repo/forge/test/shell/locale/make_pseudo_rtl.py \
+            /repo/forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/po/athanor-greeter-ui.pot /out/pseudo-rtl.po
+        msgfmt -o /out/locale/rtl.mo /out/pseudo-rtl.po'
     tags=()
-    while IFS=$'\t' read -r tag variant scale locale; do
+    while IFS=$'\t' read -r tag variant scale locale catalog; do
         tags+=("$tag")
-        mkdir -p "$out"
-        podman run --rm --memory 6g --security-opt label=disable \
-            -v "$root:/repo:ro" -v "$out:/out" \
-            -v "$out/locale/de/LC_MESSAGES/athanor-greeter.mo:/usr/share/locale/de/LC_MESSAGES/athanor-greeter.mo:ro" \
-            -v "$out/locale/ar/LC_MESSAGES/athanor-greeter.mo:/usr/share/locale/ar/LC_MESSAGES/athanor-greeter.mo:ro" \
-            -e ATHANOR_GREETER_VARIANT="$variant" -e ATHANOR_LOGIN_USER=ermete -e RIG_LOCALE="$locale" \
-            "$(rig_image)" dbus-run-session -- /repo/forge/test/shell/scene.sh 1920 1080 "$scale" "$tag" -- \
-            /out/bin/athanor-shell-rs --greeter
+        override=()
+        if [ "$catalog" != - ]; then
+            override=(ATHANOR_I18N_CATALOG="/out/locale/$catalog")
+        fi
+        in_rig "$(rig_image)" env ATHANOR_GREETER_VARIANT="$variant" ATHANOR_LOGIN_USER=ermete RIG_LOCALE="$locale" \
+            "${override[@]}" \
+            dbus-run-session -- /repo/forge/test/shell/scene.sh 1920 1080 "$scale" "$tag" -- \
+            /out/bin/athanor-greeter-ui
     done < <(python3 -B "$rig/cases.py" "$surface")
     if [ "$1" = update-goldens ]; then
         mkdir -p "$golden"
@@ -4543,7 +5251,7 @@ surface | update-goldens)
     ;;
 ```
 
-- [ ] **Step 6: Pin the image, then capture the goldens**
+- [ ] **Step 5: Pin the image, then capture the goldens**
 
 The goldens are only as stable as the image they were captured in, so the image is published and pinned first. This step needs a registry login with push rights (`podman login ghcr.io`), which the maintainer performs.
 
@@ -4558,7 +5266,7 @@ Run: `bash forge/test/shell/rig.sh build-greeter && bash forge/test/shell/rig.sh
 Expected: twelve `golden replaced:` lines, about two minutes. Look at all twelve:
 
 - `-de`: no label is cut and no chip overflows; "Nicht verifiziert" fits the seal chip.
-- `-rtl`: the wordmark is top **right**, the seal top **left**, the chips bottom **left**, the arrow button left of the field; text runs right to left. (The hearth does not mirror: it is a background image, like the wallpaper.) The seal's place under RTL is an open point of SH12 ("decided with our own panel"); the greeter follows GTK's mirroring until then. Tell the maintainer this is what the golden shows.
+- `-rtl`: the greeter mirrors because its catalog says `Language: ar` (Task 16 sets GTK's default direction from `i18n::is_rtl()`), not because of the process locale. The wordmark is top **right**, the seal top **left**, the chips bottom **left**, the arrow button left of the field; text runs right to left. (The hearth does not mirror: it is a background image, like the wallpaper.) The seal's place under RTL is an open point of SH12 ("decided with our own panel"); the greeter follows GTK's mirroring until then. Tell the maintainer this is what the golden shows.
 - `-1.5`: everything is 1.5× and sharp, not a blurred upscale.
 - No title bar in any of them.
 
@@ -4567,7 +5275,7 @@ Expected: twelve `ok` lines with `0 pixel(s) differ`, exit 0. Run it a second ti
 
 To see the gate bite: change `card = 18` to `card = 4` in `tokens.toml`, run `generate.py css`, `build-greeter`, `surface greeter`: all twelve cases fail with several thousand differing pixels and a `-diff.png` each. Restore with `git checkout system/athanor-style/calmo` and rebuild.
 
-- [ ] **Step 7: The workflow job**
+- [ ] **Step 6: The workflow job**
 
 In `.github/workflows/shell-surfaces.yml`, at the end of the `greeter` job's steps, before the upload:
 
@@ -4593,10 +5301,10 @@ Expected: no findings.
 
 The first run on the hosted runner is the measurement spike P3 could not make (llvmpipe on another CPU). **Outcome A:** at most 64 pixels per case: done. **Outcome B:** more, on text edges only: capture the goldens on the hosted runner instead (run the workflow manually with `update-goldens`, download the artifact, review, commit), so that the reference machine is the one that gates; do not raise the tolerance without the maintainer, because 64 is the number this plan states for SH13.
 
-- [ ] **Step 8: Commit (two commits)**
+- [ ] **Step 7: Commit (two commits)**
 
 ```bash
-git add forge/test/shell/cases.py forge/test/shell/compare.py forge/test/shell/tests forge/test/shell/locale forge/test/shell/Containerfile forge/test/shell/rig.sh forge/test/shell/rig-image.digest .github/workflows/shell-surfaces.yml
+git add forge/test/shell/cases.py forge/test/shell/compare.py forge/test/shell/tests forge/test/shell/locale forge/test/shell/rig.sh forge/test/shell/rig-image.digest .github/workflows/shell-surfaces.yml
 git commit -m "test(greeter): capture the 12 surface cases of SH13 and compare them by pixel count"
 git add forge/test/shell/golden/greeter
 git commit -m "test(greeter): add the first goldens of the Calmo greeter"
@@ -4609,32 +5317,36 @@ git commit -m "test(greeter): add the first goldens of the Calmo greeter"
 | Spec item | Where it is proven |
 |---|---|
 | Acceptance 1: "generated CSS loads with zero GTK parse warnings, and the contrast gate passes in the four variants" | `rig.sh css-parse` (Task 4), `contrast.py` in lint (Task 2) |
-| Acceptance 2, first half: one identity on a fresh install, existing theme untouched on an upgrade | overlay by construction (D2), `verify.py shipped` (Task 8), `rig.sh cosmic-preview` and `cosmic-keys` (Task 7); on the dev VM: install the image, log in as a new user, open Settings → Appearance: indigo accent, light mode; on the upgraded desktop `~/.config/cosmic/com.system76.CosmicTheme.*` is byte-identical before and after |
-| Acceptance 2, second half: "changing the accent in COSMIC Settings changes our surfaces" | **not in 1a**: the greeter reads nothing from COSMIC by SH5. It belongs to 1b-shield and 1c, which re-define `ath_acc` over the sheet this package generates |
-| Acceptance 3, greeter part: role and name for every control; Italian and English | `rig.sh atspi greeter` (Task 18); `it.po`, `en.po`, `msgfmt --check` in `%build` (Task 16) |
-| Acceptance 11, greeter part: 12 surface cases in CI | `rig.sh surface greeter` (Task 19) |
-| SH4 shim guards | `%check` and `rig.sh layer-guard` (Task 13) |
-| SH4 lint | Task 14 |
+| Acceptance 2, as far as it is 1a's: one identity on a fresh install in light and in dark; on the upgraded desktop the existing theme is untouched | overlay by construction (D2), `verify.py shipped` (Task 8), `rig.sh cosmic-preview` and `cosmic-keys` (Task 7); on the dev VM: install the image, log in as a new user, open Settings → Appearance: indigo accent, light mode; on the upgraded desktop `~/.config/cosmic/com.system76.CosmicTheme.*` is byte-identical before and after |
+| Acceptance 3, greeter part: role and name for every control; Italian and English | `rig.sh atspi greeter` (Task 17); `it.po`, `en.po`, `msgfmt --check` in `%build` (Task 15) |
+| Acceptance 11, greeter part: 12 surface cases in CI | `rig.sh surface greeter` (Task 18) |
+| SH4 one crate per program | Tasks 9 and 11 |
+| SH4 shim guards | `%check` and `rig.sh layer-guard` (Task 12) |
+| SH4 lint | Tasks 11 and 13 |
 | SH5 assets | Inter: `Requires` in `athanor-calmo` and the rig image; wallpaper and icons: Tasks 5, 6, 8 |
-| SH12 look of the seal | Task 5 (three shapes, three fixed colours), Task 17 (constant "not verified") |
-| Section 5, doubt 8 (Inter at fractional scale on real hardware) | not closable in a container: look at the greeter on the dev VM at 150 % after the image carrying release 36 is built, and report to the maintainer |
+| SH12 look of the seal | Task 5 (three shapes, three fixed colours), Task 16 (constant "not verified") |
+| SH13 gettext from the first commit | Task 15 (`athanor-i18n`), Task 16 (every string) |
+| Section 5, doubt 8 (Inter at fractional scale on real hardware) | not closable in a container: look at the greeter on the dev VM at 150 % after the image carrying `athanor-greeter-ui` 1.0.0-3 is built, and report to the maintainer |
+
+Not covered by 1a, by design: the sentence of acceptance 2 about the accent in COSMIC Settings changing our surfaces. 1a's only surface reads nothing from COSMIC (SH5); that sentence is accepted with 1b-shield and 1c, which re-define `ath_acc` over the sheet this package generates.
 
 ## Spec findings
 
-1. **The accent hex in SH5 is not the accent.** "`#3f56d8` on light" is `hsl(231 66% 55%)`, the colour of the mockup's accent *picker swatch*. The mockup's `--acc` on light is `hsl(231 62% 47%)` = `#2e44c2`, which is what "hue 231 and saturation 62 %" produces and what this plan ships. With white text `#3f56d8` would give 5.6:1 and `#2e44c2` gives 7.7:1. The parenthesis in SH5 should read `#2e44c2`.
+1. **Corrected in the spec on 2026-09-19:** the factory accent is `#2e44c2` on light and `#8898f7` on dark; the earlier `#3f56d8` was the mockup's picker swatch.
 2. **Two mockup colours fail AA where the mockup uses them.** `ink2` for the date on the light wallpaper is 4.38:1 where three discs overlap (the plan uses `ink`); `ink3` for placeholder text is 3.06 to 3.32:1 on the light surfaces (the plan restricts `ink3` to icons and uses `ink2` for the placeholder). `warn` (`#a36a00`) on `surf` is 4.48:1: fine for the badge, not for text, which matters to 1b-shield's rows.
-3. **High contrast is required by SH5 and absent from the mockup.** The plan derives it by one written rule and gates it (AA, and never below the normal variant's ratio); the maintainer has not seen it. `rig.sh greeter-preview` produces the two captures to show.
+3. **High contrast is required by SH5 and absent from the mockup.** The plan derives it by one written rule and gates it (AA, and never below the normal variant's ratio). Task 16, Step 5b, stops until the maintainer has seen it.
 4. **cosmic-bg cannot follow the theme mode.** SH5's "two images, light and dark" is shipped, but `filter_by_theme` is an unimplemented TODO upstream and the 1.8.0 binary never reads `CosmicTheme.Mode`. A user who switches to dark keeps the light wallpaper until they pick the dark one in Settings. Closing this needs either an upstream change or a small watcher of our own, which is not in 1a's row.
 5. **cosmic-config resolves system defaults per directory, not per key.** SH5's overlay works (proven on the shipped 1.8 binaries), but an overlay must carry the complete key set of every config it shadows, and an empty version directory in it would shadow COSMIC's. The plan enforces both (`cosmic-keys`, the spec's `%check`).
-6. **COSMIC 1.8 reads schema `v2` of the theme configs**; `v1` still ships beside it. Anything written about "the `CosmicTheme` files" must name the version; a COSMIC bump that moves to `v3` is caught by `cosmic-keys`.
-7. **SH4's "one line" for the greeter is true only for the greeter's file.** The greeter is a mode of the `athanor-shell-rs` binary, so it cannot build until the other 53 errors of that crate, the 12 of `athanor-dock` and the unmeasured ones of `athanor-recovery` are fixed. About 13,000 of those lines are surfaces section 1 calls dead. A separate greeter crate would have made the bump a one-line change and let the rest leave the workspace with the other unshipped crates; the spec chose to upgrade relm4 in place and this plan follows it, but the maintainer should know the day and a half is spent mostly on code the spec does not intend to keep.
+6. **COSMIC 1.8 reads schema `v2` of the theme configs**; `v1` still ships beside it. A COSMIC bump that moves to `v3` is caught by `cosmic-keys`.
+7. **The old shell cannot leave the image with the greeter.** SH4 says it "is mined … until it is empty, then deleted"; today the shipped `xdg-desktop-portal-athanor` still runs `athanor-shell-rs --file-chooser` and `--privacy-prompt`, and denies by default without it. Until those two prompts are programs of their own (or the portal hands FileChooser to COSMIC's), a 15,000-line GTK 0.7 binary stays in the image, built from a frozen workspace with a frozen copy of `athanor-style`. SH4's sentence "two ship today, `athanor-shell-rs` and `athanor-recovery`" should say why the first still does.
 8. **The rig needs `--security-opt label=disable` on SELinux hosts**, which P3 did not meet because its client drew no icons: GTK 4.20 decodes SVG through glycin in bubblewrap, and when that fails every icon is blank with no error. SH13's list of what makes a golden reproducible should gain "the nested sandbox works".
-9. **greetd gives the greeter no locale.** "All three run in Italian and in English" (acceptance 3) needs `athanor-greeter-session` to export `/etc/locale.conf`, which Task 16 adds; nothing in the spec mentions it.
-10. **Acceptance 2's "changing the accent … changes our surfaces" cannot be met by 1a**, whose only surface is forbidden by SH5 from reading COSMIC. It is an acceptance item of 1b-shield and 1c.
+9. **greetd gives the greeter no locale.** Our own strings no longer depend on it (`athanor-i18n` reads `/etc/locale.conf`), but GTK's strings and the date's weekday and month names do; Task 15 makes `athanor-greeter-session` export it. Nothing in the spec mentions it.
+10. **`auth.rs` carried four user-visible Italian literals** (and would have shipped them to every locale); they are translated in Task 16. The UX analysis' "no i18n" finding applied to the one file the spec calls worth keeping as well.
 
 ## Self-review
 
-- **Spec coverage.** Row 1a: tokens (Task 1), generator (3), CI parse gate (4) and contrast gate (2), default `CosmicTheme` (7, 8), font (8, rig image in 4), hearth wallpaper (6, 8), seal icons (5, 8), greeter re-skinned on the tokens (15, 17) with roles (17, 18) and gettext (16). SH4: bump (9 to 12), `%check` and start-up assertion (13), lint (14), Cairo renderer: applies to panel-resident surfaces, none in 1a. SH13: 12 greeter cases, tolerance stated (64 pixels), reproducibility list implemented in `scene.sh`, AT-SPI check, gettext from the first commit. Gaps, stated above rather than hidden: the accent-follows-COSMIC half of acceptance 2 (not 1a's), Inter on real hardware (dev VM), two-output cases (layout cases, package 1c).
-- **Placeholder scan.** No "TBD", no "similar to Task N" standing in for code. Three tasks contain steps whose content depends on a measurement the plan could not make without the bumped tree or the hosted runner (Task 12 Step 1, Task 14 Step 3, Task 19 Step 7, and the `probe-sandbox` of Task 4); each gives the exact command, the outcomes, and what each outcome changes. The 25 `clone!` sites of Task 11 are given by file and count with the grep that lists them and the exact rewrite rule, not one by one.
-- **Name consistency.** Colour tokens `ath_<name>` (generator, template, `calmo.rs` tests, greeter CSS classes); `Variant::{Light, Dark, LightHc, DarkHc}` and the names `light`, `dark`, `light-hc`, `dark-hc` (tokens, generator file names, `ATHANOR_GREETER_VARIANT`, `cases.py`); overlay path `/usr/share/athanor/cosmic-defaults` (environment file, `athanor-session`, spec, `verify.py`, its tests); text domain `athanor-greeter` (`i18n.rs`, spec, rig mounts, `update.sh`); `rig.sh` sub-commands as listed in each task's header comment; icon names `athanor-seal-{verified,attention,blocked}-symbolic` (generator, spec `%files`, greeter constant).
-- **Code that was run while writing the plan:** `color.py`, `tokens.py`, `contrast.py`, `png.py`, `generate.py`, the template and the whole Python test suite (37 tests, green); the generated CSS through GTK 4.20.4's parser (0 reports); the seal icons through `Gtk.Image` with `-gtk-icon-palette` in the headless rig; the 4K wallpaper (2.4 s); `calmo-cosmic-theme` built and run against libcosmic `2a73fbc0` (output inspected); the `XDG_DATA_DIRS` overlay against the shipped cosmic-panel; the lint scoping of Task 14 on a scratch copy (0 rustc warnings). **Not compiled:** the Rust of Tasks 13, 15, 16 and 17, which needs the bumped workspace; Task 17 names the two places where the compiler may disagree and what to write instead.
+- **Spec coverage.** Row 1a: tokens (Task 1), generator (3), CI parse gate (4) and contrast gate (2), default `CosmicTheme` (7, 8), font (8, rig image in 4), hearth wallpaper (6, 8), seal icons (5, 8), greeter re-skinned on the tokens (14, 16) with roles (16, 17) and gettext (15). SH4: one crate per program (9, 11), the bump that remains (10), `%check` and start-up assertion (12), lint (11, 13); the Cairo renderer applies to panel-resident surfaces, none in 1a. SH13: 12 greeter cases, tolerance stated (64 pixels), reproducibility list implemented in `scene.sh`, AT-SPI check, gettext from the first commit. Gaps, stated rather than hidden: Inter on real hardware (dev VM), two-output cases (layout cases, package 1c), the portal's two prompts still inside the old shell (finding 7).
+- **Placeholder scan.** No "TBD", no "similar to Task N" standing in for code. Steps whose content depends on a measurement the plan could not make give the exact command, the outcomes, and what each changes: `probe-sandbox` on the hosted runner (Task 4), the COSMIC mapping by capture (Task 7), clippy on the moved greeter code (Task 11, Step 5; rustc warnings were measured at 0, clippy was not available in the measuring image), the link order at gtk4-layer-shell 0.8.1 (Task 12), the first golden comparison on the hosted runner (Task 18).
+- **Name consistency.** Crate, binary, RPM and text domain `athanor-greeter-ui`, short name `greeter-ui`, application id `os.athanor.Greeter` (wrapper filter, `main.rs`); modules `crate::{auth, sandbox, power, ui, layer_guard, i18n}` (Tasks 11, 12, 15, 16 agree); `athanor_i18n::{Catalog, PluralRule, languages, LOCALE_DIR, OVERRIDE_VARIABLE}` and `ATHANOR_I18N_CATALOG` (Task 15, `rig.sh surface` in Task 18); colour tokens `ath_<name>`; `Variant::{Light, Dark, LightHc, DarkHc}` and the names `light`, `dark`, `light-hc`, `dark-hc` (tokens, generator file names, `ATHANOR_GREETER_VARIANT`, `cases.py`); overlay path `/usr/share/athanor/cosmic-defaults`; frozen workspace `forge/specs/athanor-shell-rs/Cargo.toml` with `athanor-style-0.7`; `rig.sh` sub-commands as listed in each task's header comment; icon names `athanor-seal-{verified,attention,blocked}-symbolic`.
+- **New crates of this plan:** `athanor-greeter-ui` (binary, workspace member, shipped), `athanor-i18n` (library, workspace member, no dependency), `calmo-cosmic-theme` (standalone developer tool, excluded from the workspace, not shipped), and `athanor-style-0.7` (a frozen copy, member of the frozen workspace only, no new code). No third-party crate is new to the project: `greetd_ipc` and `landlock` move from a crate manifest into `[workspace.dependencies]`; `async-channel` and `gettext-rs`, which the first version of this plan added, are gone.
+- **Code that was run while writing or revising the plan:** the Python toolchain and its 37 tests; the generated CSS through GTK 4.20.4's parser (0 reports); the seal icons through `Gtk.Image` with `-gtk-icon-palette` in the headless rig; the 4K wallpaper (2.4 s); `calmo-cosmic-theme` against libcosmic `2a73fbc0`; the `XDG_DATA_DIRS` overlay against the shipped cosmic-panel; Task 9's frozen workspace on a scratch copy (`cargo check -p athanor-shell-rs`: 45 s, gtk4 0.7.3, 274 locked packages); Task 10's bump on the same copy (`athanor-style` 1 error, `athanor-recovery` 0); `athanor-i18n` (10 tests green against real `msgfmt` output). **Not compiled:** the greeter's Rust of Tasks 11, 12, 15 (its `i18n.rs`) and 16, and `calmo.rs` of Task 14; Task 16 names the two places where the compiler may disagree and what to write instead.
