@@ -61,6 +61,9 @@ def css(tokens, variant):
 # ---------------------------------------------------------------- COSMIC inputs
 
 # Builder input <- token. Semantics read in cosmic-theme's ThemeBuilder::build().
+# `bg_color` is the window background and takes `bg1`, not `surf2`: the first draft used
+# `surf2` and COSMIC then derived a container background indistinguishable from the window
+# itself. Keep it on `bg1`; test_generate.py pins the mapping.
 COSMIC_INPUTS = {"accent": "acc", "bg_color": "bg1", "primary_container_bg": "surf",
                  "neutral_tint": "ink3", "text_tint": "ink"}
 

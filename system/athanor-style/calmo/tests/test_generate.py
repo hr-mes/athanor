@@ -56,6 +56,15 @@ class CosmicTest(unittest.TestCase):
             self.assertEqual(set(mode), {"accent", "bg_color", "primary_container_bg", "neutral_tint", "text_tint"})
             self.assertTrue(all(len(v) == 3 and all(0 <= c <= 1 for c in v) for v in mode.values()))
 
+    def test_the_window_background_is_bg1(self):
+        # Not surf2: with surf2 COSMIC's window and container backgrounds came out identical.
+        self.assertEqual(generate.COSMIC_INPUTS["bg_color"], "bg1")
+        tokens = tk.load()
+        inputs = json.loads(generate.cosmic_inputs(tokens))
+        for mode, values in inputs.items():
+            expected = [round(c, 6) for c in tk.colors(tokens, mode)["bg1"][:3]]
+            self.assertEqual(values["bg_color"], expected, mode)
+
     def test_background_points_at_the_shipped_wallpaper(self):
         self.assertIn('Path("/usr/share/backgrounds/athanor/hearth-light.png")', generate.cosmic_background()["all"])
 
