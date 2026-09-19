@@ -36,7 +36,8 @@ members = [
 ]
 
 exclude = [
-    "tests/fuzz"
+    "tests/fuzz",
+    "forge/tools/calmo-cosmic-theme"
 ]
 
 resolver = "2"

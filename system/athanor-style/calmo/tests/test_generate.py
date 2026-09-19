@@ -48,6 +48,18 @@ class CssTest(unittest.TestCase):
         self.assertRegex(generate.css(self.tokens, "light"), r"@define-color ath_d1 rgba\(\d+, \d+, \d+, 0\.5\);")
 
 
+class CosmicTest(unittest.TestCase):
+    def test_inputs_are_the_five_builder_keys_per_mode(self):
+        inputs = json.loads(generate.cosmic_inputs(tk.load()))
+        self.assertEqual(set(inputs), {"light", "dark"})
+        for mode in inputs.values():
+            self.assertEqual(set(mode), {"accent", "bg_color", "primary_container_bg", "neutral_tint", "text_tint"})
+            self.assertTrue(all(len(v) == 3 and all(0 <= c <= 1 for c in v) for v in mode.values()))
+
+    def test_background_points_at_the_shipped_wallpaper(self):
+        self.assertIn('Path("/usr/share/backgrounds/athanor/hearth-light.png")', generate.cosmic_background()["all"])
+
+
 class IconsTest(unittest.TestCase):
     def test_four_well_formed_symbolic_icons(self):
         files = generate.icons()

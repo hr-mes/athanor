@@ -6,6 +6,8 @@
 #   rig.sh publish-image    push the rig stage and print its digest (needs a registry login)
 #   rig.sh probe-sandbox    prove that bubblewrap, and with it glycin, works in the rig
 #   rig.sh css-parse        GTK parse gate over the generated stylesheets
+#   rig.sh cosmic-keys      every key COSMIC ships exists in our overlay
+#   rig.sh cosmic-preview   capture cosmic-panel and Settings under the Calmo defaults
 set -euo pipefail
 
 root=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
@@ -52,6 +54,31 @@ probe-sandbox)
     ;;
 css-parse)
     in_rig "$(rig_image)" bash -c 'python3 /repo/forge/test/shell/css_parse_gate.py --self-test /repo/system/athanor-style/calmo/generated/css/*.css'
+    ;;
+cosmic-keys)
+    # Every key file COSMIC ships must exist in our overlay: resolution is per directory,
+    # so a key we do not carry falls back to a compiled-in default, not to COSMIC's file.
+    in_rig "$(rig_image)" bash -c '
+        status=0
+        overlay=/repo/system/athanor-style/calmo/generated/cosmic/cosmic
+        for dir in "$overlay"/*/v*; do
+            stock=/usr/share/cosmic/${dir#"$overlay"/}
+            [ -d "$stock" ] || { echo "not shipped by COSMIC: $stock"; status=1; continue; }
+            for key in "$stock"/*; do
+                [ -e "$dir/$(basename "$key")" ] || { echo "missing in the overlay: ${dir#"$overlay"/}/$(basename "$key")"; status=1; }
+            done
+        done
+        exit $status'
+    ;;
+cosmic-preview)
+    mkdir -p "$out/seed-dark/cosmic/com.system76.CosmicTheme.Mode/v1"
+    printf 'true' > "$out/seed-dark/cosmic/com.system76.CosmicTheme.Mode/v1/is_dark"
+    overlay=/repo/system/athanor-style/calmo/generated/cosmic
+    in_rig "$(rig_image)" env RIG_PANEL=1 RIG_DATA_OVERLAY="$overlay" \
+        dbus-run-session -- /repo/forge/test/shell/scene.sh 1920 1080 1.0 cosmic-preview-light -- cosmic-settings appearance
+    in_rig "$(rig_image)" env RIG_PANEL=1 RIG_DATA_OVERLAY="$overlay" RIG_CONFIG_SEED=/out/seed-dark \
+        dbus-run-session -- /repo/forge/test/shell/scene.sh 1920 1080 1.0 cosmic-preview-dark -- cosmic-settings appearance
+    echo "look at $out/cosmic-preview-light.png and $out/cosmic-preview-dark.png"
     ;;
 *)
     sed -n '2,9p' "${BASH_SOURCE[0]}" >&2

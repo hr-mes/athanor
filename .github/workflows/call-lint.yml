@@ -68,3 +68,4 @@ jobs:
           set -euo pipefail
           python3 -B -m unittest discover -s system/athanor-style/calmo/tests -v
           python3 -B system/athanor-style/calmo/contrast.py
+          python3 -B system/athanor-style/calmo/generate.py --check

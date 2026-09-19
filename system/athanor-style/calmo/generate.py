@@ -61,7 +61,7 @@ def css(tokens, variant):
 # ---------------------------------------------------------------- COSMIC inputs
 
 # Builder input <- token. Semantics read in cosmic-theme's ThemeBuilder::build().
-COSMIC_INPUTS = {"accent": "acc", "bg_color": "surf2", "primary_container_bg": "surf",
+COSMIC_INPUTS = {"accent": "acc", "bg_color": "bg1", "primary_container_bg": "surf",
                  "neutral_tint": "ink3", "text_tint": "ink"}
 
 
