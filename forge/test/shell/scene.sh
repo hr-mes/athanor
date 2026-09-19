@@ -46,9 +46,19 @@ wait_for() { # wait_for <seconds> <command...>: poll four times a second
 sway -c /repo/forge/test/shell/sway.conf &> "/out/$tag-sway.log" &
 sway_socket() { ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock > /dev/null 2>&1; }
 wait_for 20 sway_socket
-SWAYSOCK=$(ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock | head -1)
+shopt -s nullglob
+sway_sockets=("$XDG_RUNTIME_DIR"/sway-ipc.*.sock)
+shopt -u nullglob
+SWAYSOCK=${sway_sockets[0]}
 export SWAYSOCK
-sway_display=$(basename "$(ls -tr "$XDG_RUNTIME_DIR"/wayland-[0-9] | head -1)")
+shopt -s nullglob
+wayland_displays=("$XDG_RUNTIME_DIR"/wayland-[0-9])
+shopt -u nullglob
+oldest=${wayland_displays[0]}
+for display in "${wayland_displays[@]}"; do
+    [ "$display" -ot "$oldest" ] && oldest=$display
+done
+sway_display=$(basename "$oldest")
 swaymsg output HEADLESS-1 mode "${width}x${height}" > /dev/null
 
 # 2. cosmic-comp takes the next free socket; its one tiled window fills the output.
