@@ -1,0 +1,20 @@
+[package]
+name = "athanor-greeter-ui"
+version = "1.0.0"
+edition = "2021"
+authors = ["Athanor Forge <forge@athanor.os>"]
+license = "MIT"
+description = "The Athanor greeter: one surface, one binary, the process that reads the password"
+
+[dependencies]
+gtk4 = { workspace = true }
+gtk4-layer-shell = { workspace = true }
+glib = { workspace = true }
+zbus = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "time"] }
+greetd_ipc = { workspace = true }
+landlock = { workspace = true }
+serde_json = { workspace = true }
+chrono = "0.4"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }

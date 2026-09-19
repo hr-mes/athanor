@@ -1,20 +1,24 @@
-use std::io::Write;
 use greetd_ipc::{Request, Response};
 use std::io::Read;
+use std::io::Write;
 use std::os::unix::net::UnixStream;
 
 pub fn send_request(stream: &mut UnixStream, req: &Request) -> Result<Response, String> {
     let json = serde_json::to_string(req).map_err(|e| e.to_string())?;
     let len = (json.len() as u32).to_ne_bytes();
     stream.write_all(&len).map_err(|e| e.to_string())?;
-    stream.write_all(json.as_bytes()).map_err(|e| e.to_string())?;
+    stream
+        .write_all(json.as_bytes())
+        .map_err(|e| e.to_string())?;
 
     let mut len_buf = [0u8; 4];
     stream.read_exact(&mut len_buf).map_err(|e| e.to_string())?;
     let reply_len = u32::from_ne_bytes(len_buf);
 
     let mut reply_buf = vec![0u8; reply_len as usize];
-    stream.read_exact(&mut reply_buf).map_err(|e| e.to_string())?;
+    stream
+        .read_exact(&mut reply_buf)
+        .map_err(|e| e.to_string())?;
 
     serde_json::from_slice(&reply_buf).map_err(|e| e.to_string())
 }
@@ -68,7 +72,11 @@ pub fn discover_target_user() -> UserInfo {
                     let parts: Vec<&str> = line.split(':').collect();
                     if parts.len() >= 7 {
                         if let Ok(uid) = parts[2].parse::<u32>() {
-                            if (FIRST_HUMAN_UID..65534).contains(&uid) && (parts[6].ends_with("bash") || parts[6].ends_with("zsh") || parts[6].ends_with("fish")) {
+                            if (FIRST_HUMAN_UID..65534).contains(&uid)
+                                && (parts[6].ends_with("bash")
+                                    || parts[6].ends_with("zsh")
+                                    || parts[6].ends_with("fish"))
+                            {
                                 return parts[0].to_string();
                             }
                         }
@@ -175,22 +183,35 @@ where
 
     let session_cmd = session_command();
 
-    let req = Request::CreateSession { username: username.clone() };
+    let req = Request::CreateSession {
+        username: username.clone(),
+    };
     let mut resp = send_request(&mut stream, &req)?;
 
     let mut iterations = 0;
     while iterations < 15 {
         iterations += 1;
         match resp {
-            Response::AuthMessage { auth_message_type, auth_message } => {
+            Response::AuthMessage {
+                auth_message_type,
+                auth_message,
+            } => {
                 let msg_lower = auth_message.to_lowercase();
-                if msg_lower.contains("finger") || msg_lower.contains("impronta") || msg_lower.contains("touch") || matches!(auth_message_type, greetd_ipc::AuthMessageType::Info) {
+                if msg_lower.contains("finger")
+                    || msg_lower.contains("impronta")
+                    || msg_lower.contains("touch")
+                    || matches!(auth_message_type, greetd_ipc::AuthMessageType::Info)
+                {
                     status_cb(&auth_message);
-                    let req = Request::PostAuthMessageResponse { response: Some("".to_string()) };
+                    let req = Request::PostAuthMessageResponse {
+                        response: Some("".to_string()),
+                    };
                     resp = send_request(&mut stream, &req)?;
                 } else {
                     status_cb("Verifica credenziali in corso...");
-                    let req = Request::PostAuthMessageResponse { response: Some(password.to_string()) };
+                    let req = Request::PostAuthMessageResponse {
+                        response: Some(password.to_string()),
+                    };
                     resp = send_request(&mut stream, &req)?;
                 }
             }
@@ -232,7 +253,10 @@ mod tests {
             "WAYLAND • ATHANOR-SESSION"
         );
         // A bare command, as the last fallback of session_command() returns it.
-        assert_eq!(session_badge("athanor-session"), "WAYLAND • ATHANOR-SESSION");
+        assert_eq!(
+            session_badge("athanor-session"),
+            "WAYLAND • ATHANOR-SESSION"
+        );
     }
 
     #[test]
@@ -287,10 +311,17 @@ mod tests {
     #[test]
     fn session_command_falls_back_to_the_bare_name_when_nothing_is_installed() {
         let dir = scratch("none");
-        let missing = dir.join("missing").to_str().expect("utf-8 path").to_string();
+        let missing = dir
+            .join("missing")
+            .to_str()
+            .expect("utf-8 path")
+            .to_string();
         assert!(!std::path::Path::new(&missing).exists());
 
-        assert_eq!(first_installed(&[&missing], SESSION_COMMAND_FALLBACK), SESSION_COMMAND_FALLBACK);
+        assert_eq!(
+            first_installed(&[&missing], SESSION_COMMAND_FALLBACK),
+            SESSION_COMMAND_FALLBACK
+        );
         assert!(
             !SESSION_COMMAND_FALLBACK.contains('/'),
             "the fallback is a bare command name, left to greetd's PATH"

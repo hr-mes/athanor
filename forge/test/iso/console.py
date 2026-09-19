@@ -225,7 +225,7 @@ GREETER_PROBE = (
     b' s=$(loginctl list-sessions --no-legend 2>/dev/null | awk \'$3=="greetd" && $6=="greeter"{print $1; exit}\');'
     b' [ -n "$s" ] && break; sleep 1; done; sleep 15;'
     b' if [ -n "$s" ] && [ "$(loginctl show-session "$s" -p Class --value 2>/dev/null)" = greeter ]'
-    b' && loginctl session-status "$s" 2>/dev/null | grep -q athanor-shell;'
+    b' && loginctl session-status "$s" 2>/dev/null | grep -q athanor-greeter-ui;'
     b" then printf 'GREETER_%s %s\\n' ALIVE \"$s\"; else printf 'GREETER_%s %s\\n' DEAD \"${s:-none}\"; fi"
 )
 # Thirty seconds of looking plus fifteen of watching, and a margin for the shell.

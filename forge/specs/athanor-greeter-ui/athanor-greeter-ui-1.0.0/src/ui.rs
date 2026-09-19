@@ -1,7 +1,7 @@
+use crate::auth::*;
 use gtk4::prelude::*;
-use gtk4::{Application, ApplicationWindow, Box, Button, Entry, Label, Orientation, Align};
+use gtk4::{Align, Application, ApplicationWindow, Box, Button, Entry, Label, Orientation};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
-use crate::sys::auth::*;
 
 const GREETER_CSS: &str = r#"
 window.background {
@@ -231,7 +231,7 @@ pub fn build_ui(app: &Application) {
     window.init_layer_shell();
     window.set_layer(Layer::Overlay);
     window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::Exclusive);
-    window.set_namespace("greeter");
+    window.set_namespace(Some("greeter"));
 
     window.set_anchor(Edge::Top, true);
     window.set_anchor(Edge::Bottom, true);
@@ -240,8 +240,12 @@ pub fn build_ui(app: &Application) {
 
     if let Some(display) = gtk4::gdk::Display::default() {
         let provider = gtk4::CssProvider::new();
-        provider.load_from_data(GREETER_CSS);
-        gtk4::style_context_add_provider_for_display(&display, &provider, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
+        provider.load_from_string(GREETER_CSS);
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
     }
     let root_vbox = Box::builder()
         .orientation(Orientation::Vertical)
@@ -307,13 +311,9 @@ pub fn build_ui(app: &Application) {
         .spacing(4)
         .build();
 
-    let time_label = Label::builder()
-        .css_classes(["greeter-clock-time"])
-        .build();
+    let time_label = Label::builder().css_classes(["greeter-clock-time"]).build();
 
-    let date_label = Label::builder()
-        .css_classes(["greeter-clock-date"])
-        .build();
+    let date_label = Label::builder().css_classes(["greeter-clock-date"]).build();
 
     let now = chrono::Local::now();
     time_label.set_text(&now.format("%H:%M").to_string());
@@ -526,7 +526,7 @@ pub fn build_ui(app: &Application) {
     suspend_btn.connect_clicked(|_| {
         glib::MainContext::default().spawn_local(async move {
             if let Ok(conn) = zbus::Connection::system().await {
-                if let Ok(proxy) = crate::ipc::power::LogindProxy::new(&conn).await {
+                if let Ok(proxy) = crate::power::LogindProxy::new(&conn).await {
                     if let Err(e) = proxy.suspend(true).await {
                         tracing::error!("Failed login1 suspend: {}", e);
                     }
@@ -542,7 +542,7 @@ pub fn build_ui(app: &Application) {
     reboot_btn.connect_clicked(|_| {
         glib::MainContext::default().spawn_local(async move {
             if let Ok(conn) = zbus::Connection::system().await {
-                if let Ok(proxy) = crate::ipc::power::LogindProxy::new(&conn).await {
+                if let Ok(proxy) = crate::power::LogindProxy::new(&conn).await {
                     if let Err(e) = proxy.reboot(true).await {
                         tracing::error!("Failed login1 reboot: {}", e);
                     }
@@ -558,7 +558,7 @@ pub fn build_ui(app: &Application) {
     poweroff_btn.connect_clicked(|_| {
         glib::MainContext::default().spawn_local(async move {
             if let Ok(conn) = zbus::Connection::system().await {
-                if let Ok(proxy) = crate::ipc::power::LogindProxy::new(&conn).await {
+                if let Ok(proxy) = crate::power::LogindProxy::new(&conn).await {
                     if let Err(e) = proxy.power_off(true).await {
                         tracing::error!("Failed login1 poweroff: {}", e);
                     }

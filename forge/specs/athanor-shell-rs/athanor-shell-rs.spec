@@ -2,7 +2,7 @@
 # Il crate vive nel workspace: la spec compila il checkout in place, non un tarball.
 Name:           athanor-shell-rs
 Version:        1.0.0
-Release:        35%{?dist}
+Release:        36%{?dist}
 Summary:        Athanor OS Native Rust GTK4 Shell
 
 License:        MIT
@@ -29,6 +29,9 @@ install -m 0755 forge/specs/athanor-shell-rs/target/release/athanor-shell-rs %{b
 /usr/bin/athanor-shell-rs
 
 %changelog
+* Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-36
+- The greeter left for a program of its own, athanor-greeter-ui; the --greeter mode and
+  the greetd client are removed.
 * Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-35
 - Frozen at GTK 0.7 in a workspace of its own, forge/specs/athanor-shell-rs/, with its
   own lock file (doc_shell.md, SH4: one crate per program). The package stays in the

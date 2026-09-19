@@ -460,6 +460,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "athanor-greeter-ui"
+version = "1.0.0"
+dependencies = [
+ "chrono",
+ "glib",
+ "greetd_ipc",
+ "gtk4",
+ "gtk4-layer-shell",
+ "landlock",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "zbus",
+]
+
+[[package]]
 name = "athanor-hypervisor-daemon"
 version = "1.0.0"
 dependencies = [
@@ -2702,6 +2719,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "greetd_ipc"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "700d2e5bfc91a042d1d531b46de245085c6a179debedf149aa97c7ca71492078"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "group"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3377,6 +3404,17 @@ name = "khronos_api"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
+
+[[package]]
+name = "landlock"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cca98e95f35b29d469dade6724c6f96cec9236640f745a0e99b0334ec320ab1"
+dependencies = [
+ "enumflags2",
+ "libc",
+ "thiserror 2.0.20",
+]
 
 [[package]]
 name = "lazy_static"

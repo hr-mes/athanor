@@ -20,7 +20,6 @@ notify-rust = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "rt", "sync", "time"] }
 notify = "6.1.1"
 clap = { workspace = true, features = ["derive"] }
-greetd_ipc = "0.10.3"
 meval = "0.2"
 relm4 = { workspace = true }
 landlock = "0.4"

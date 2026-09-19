@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:42.fc43}
+Release:        %{?autorelease}%{!?autorelease:43.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -15,7 +15,7 @@ Requires: bubblewrap xdg-dbus-proxy
 # athanor-desktop runs the session's screen locker and idle daemon.
 Requires: cosmic-greeter cosmic-idle
 # Core UI andDaemons
-Requires: athanor-shell-rs
+Requires: athanor-greeter-ui
 Requires: athanor-calmo
 Requires: xdg-desktop-portal-athanor
 # The eBPF monitor and the cloud agent are integrations the configuration is ready
@@ -91,6 +91,10 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) %attr(0600,root,root) /etc/usbguard/rules.d/10-athanor-baseline.conf
 
 %changelog
+* Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-43
+- The greeter is athanor-greeter-ui: athanor-greeter-client execs
+  /usr/bin/athanor-greeter-ui and no longer binds theme.css, which that program does
+  not read.
 * Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-42
 - athanor-session puts /usr/share/athanor/cosmic-defaults first in XDG_DATA_DIRS, so
   that cosmic-comp and the session components it parents read Athanor's default theme

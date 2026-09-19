@@ -17,6 +17,7 @@
     "calmo",
     "dart-sass",
     "shell-rs",
+    "greeter-ui",
     "doctor",
     "cliphist",
     "backup",
@@ -75,6 +76,7 @@
   ],
   "custom_tier3": [
     "shell-rs",
+    "greeter-ui",
     "doctor",
     "system-services",
     "desktop-ui",

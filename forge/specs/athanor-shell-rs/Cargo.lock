@@ -256,7 +256,6 @@ dependencies = [
  "clap",
  "futures-util",
  "glib",
- "greetd_ipc",
  "gtk4",
  "gtk4-layer-shell",
  "hex",
@@ -999,16 +998,6 @@ dependencies = [
  "libc",
  "pkg-config",
  "system-deps",
-]
-
-[[package]]
-name = "greetd_ipc"
-version = "0.10.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "700d2e5bfc91a042d1d531b46de245085c6a179debedf149aa97c7ca71492078"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]
