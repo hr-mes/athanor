@@ -1,0 +1,38 @@
+name: Shell surfaces
+
+on:
+  push:
+    branches: [iso-v0]
+    paths:
+      - "system/athanor-style/**"
+      - "forge/specs/athanor-greeter-ui/**"
+      - "forge/test/shell/**"
+      - ".github/workflows/shell-surfaces.yml"
+  pull_request:
+    paths:
+      - "system/athanor-style/**"
+      - "forge/specs/athanor-greeter-ui/**"
+      - "forge/test/shell/**"
+      - ".github/workflows/shell-surfaces.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    uses: ./.github/workflows/call-lint.yml
+
+  css-parse:
+    name: GTK parse gate over the generated stylesheets
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Rig image
+        run: bash forge/test/shell/rig.sh build-image
+      - name: Nested sandbox probe
+        run: bash forge/test/shell/rig.sh probe-sandbox
+      - name: GTK parse gate
+        run: bash forge/test/shell/rig.sh css-parse
