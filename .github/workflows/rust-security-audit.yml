@@ -2,9 +2,9 @@ name: Rust Security & FFI Audit
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -69,6 +69,16 @@ jobs:
             -A clippy::multiple_unsafe_ops_per_block \
             -A dead_code -A unused_variables 2>&1 | tee clippy.log
 
+      # The frozen shell workspace (doc_shell.md, SH4) is outside the root workspace, so
+      # the clippy step above never sees it, yet athanor-shell-rs still ships: the portal
+      # execs it for the file chooser and the privacy prompt. A clippy gate on it would
+      # be noise -- its crate root carries #![allow(clippy::all, warnings)] and the tree
+      # is mined and deleted, not developed -- so the honest gate is that it still
+      # compiles against its own committed lock.
+      - name: Compile the frozen shell workspace
+        run: |
+          set -euo pipefail
+          cargo check --locked --manifest-path forge/specs/athanor-shell-rs/Cargo.toml --workspace
 
       - name: Upload Logs Artifact
         if: always()
@@ -94,10 +104,20 @@ jobs:
           set -euo pipefail
           cargo vet check || echo "Cargo vet skipped due to crates.io 403 API block"
 
+      # Every lockfile that resolves a shipped binary, judged by the one policy in
+      # deny.toml: the root workspace, the frozen shell workspace (athanor-shell-rs and
+      # its dock, still installed for the portal) and the COSMIC theme derive tool, whose
+      # pinned libcosmic git source the policy permits ([sources] unknown-git = "warn").
+      # --config is explicit because cargo-deny would otherwise look for a deny.toml next
+      # to each manifest and silently fall back to its own defaults.
       - name: Check Dependencies & Vulnerabilities (cargo-deny)
         run: |
           set -euo pipefail
-          cargo deny check advisories bans sources
+          for manifest in Cargo.toml \
+                          forge/specs/athanor-shell-rs/Cargo.toml \
+                          forge/tools/calmo-cosmic-theme/Cargo.toml; do
+            cargo deny --manifest-path "$manifest" --config deny.toml check advisories bans sources
+          done
 
       - name: ???? Fix Workspace Permissions (GH Actions Cleanup)
         if: always()
@@ -315,7 +335,7 @@ jobs:
           set -euo pipefail
           cd ${{ matrix.dir }}
           ${{ matrix.cmd }} > ebpf.log 2>&1 || true
-          
+
       - name: Check compile log and publish it to the job summary
         if: always()
         run: |
@@ -345,7 +365,3 @@ jobs:
           else
             chown -R 1001:1001 . || chown -R 1000:1000 . || true
           fi
-
-
-
-
