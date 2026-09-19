@@ -63,10 +63,10 @@ notify-rust = "4.11"
 reqwest = { version = "0.13.4", features = ["stream", "rustls", "json"] }
 
 # GUI, Display & Wayland Ecosystem
-gtk4 = "0.7.3"
-gtk4-layer-shell = "0.2.0"
-glib = "0.18.5"
-relm4 = "0.7.1"
+gtk4 = { version = "0.11.4", features = ["v4_18"] }
+gtk4-layer-shell = "0.8.1"
+glib = "0.22.9"
+relm4 = "0.11.0"
 smithay = { version = "0.3.0", default-features = false }
 wayland-server = "0.31.0"
 

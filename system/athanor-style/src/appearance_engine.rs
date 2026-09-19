@@ -1,11 +1,11 @@
-use std::os::unix::fs::OpenOptionsExt;
+use gtk4::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tracing::{error, info, warn};
 use zbus::interface;
-use gtk4::prelude::*;
 
 /// Represents the physical position of a panel or dock
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -18,7 +18,6 @@ pub enum PanelPosition {
     Left,
     Right,
 }
-
 
 /// Widget layout within a shell panel
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -116,12 +115,17 @@ impl LayoutPreset {
     pub fn windows_classic() -> Self {
         Self {
             name: "windows-classic".to_string(),
-            description: "Traditional bottom taskbar layout with start menu and system tray".to_string(),
+            description: "Traditional bottom taskbar layout with start menu and system tray"
+                .to_string(),
             style_variant: "windows-classic".to_string(),
             panel: PanelConfig {
                 position: PanelPosition::Bottom,
                 height_or_width: 44,
-                anchors: vec!["bottom".to_string(), "left".to_string(), "right".to_string()],
+                anchors: vec![
+                    "bottom".to_string(),
+                    "left".to_string(),
+                    "right".to_string(),
+                ],
                 exclusive_zone: true,
                 autohide: false,
                 margin_top: 0,
@@ -131,7 +135,12 @@ impl LayoutPreset {
                 widget_layout: WidgetLayout {
                     start_widgets: vec!["start_menu".to_string(), "window_list".to_string()],
                     center_widgets: vec!["workspaces".to_string()],
-                    end_widgets: vec!["system_tray".to_string(), "clock".to_string(), "notifications".to_string(), "powermenu".to_string()],
+                    end_widgets: vec![
+                        "system_tray".to_string(),
+                        "clock".to_string(),
+                        "notifications".to_string(),
+                        "powermenu".to_string(),
+                    ],
                 },
             },
             dock: DockConfig {
@@ -153,7 +162,8 @@ impl LayoutPreset {
     pub fn macos_glass() -> Self {
         Self {
             name: "macos-glass".to_string(),
-            description: "Top menu bar with dynamic morphic pill and bottom centered floating dock".to_string(),
+            description: "Top menu bar with dynamic morphic pill and bottom centered floating dock"
+                .to_string(),
             style_variant: "macos-glass".to_string(),
             panel: PanelConfig {
                 position: PanelPosition::Top,
@@ -200,7 +210,9 @@ impl LayoutPreset {
     pub fn gnome_modern() -> Self {
         Self {
             name: "gnome-modern".to_string(),
-            description: "Minimalist top bar with centered workspace switcher and autohiding bottom dock".to_string(),
+            description:
+                "Minimalist top bar with centered workspace switcher and autohiding bottom dock"
+                    .to_string(),
             style_variant: "gnome-modern".to_string(),
             panel: PanelConfig {
                 position: PanelPosition::Top,
@@ -237,7 +249,8 @@ impl LayoutPreset {
     pub fn unity_side() -> Self {
         Self {
             name: "unity-side".to_string(),
-            description: "Vertical left dock/panel layout with integrated top status bar".to_string(),
+            description: "Vertical left dock/panel layout with integrated top status bar"
+                .to_string(),
             style_variant: "unity-side".to_string(),
             panel: PanelConfig {
                 position: PanelPosition::Left,
@@ -273,12 +286,14 @@ impl LayoutPreset {
 
 /// Helper TOML parser for layout presets
 pub fn parse_preset_toml(toml_str: &str) -> Result<LayoutPreset, String> {
-    toml::from_str::<LayoutPreset>(toml_str).map_err(|e| format!("Failed to parse layout preset TOML: {}", e))
+    toml::from_str::<LayoutPreset>(toml_str)
+        .map_err(|e| format!("Failed to parse layout preset TOML: {}", e))
 }
 
 /// Serialize layout preset to TOML string
 pub fn serialize_preset_toml(preset: &LayoutPreset) -> Result<String, String> {
-    toml::to_string_pretty(preset).map_err(|e| format!("Failed to serialize layout preset TOML: {}", e))
+    toml::to_string_pretty(preset)
+        .map_err(|e| format!("Failed to serialize layout preset TOML: {}", e))
 }
 
 thread_local! {
@@ -288,7 +303,7 @@ thread_local! {
 /// Register topbar window for hot-swapping GTK Layer Shell parameters live
 pub fn register_topbar_window(win: &gtk4::ApplicationWindow) {
     TOPBAR_WINDOW.with(|w| {
-        *w.borrow_mut() = Some(glib::ObjectExt::downgrade(win));
+        *w.borrow_mut() = Some(win.downgrade());
     });
 }
 
@@ -342,7 +357,12 @@ impl AppearanceEngine {
     pub fn load_custom_presets_from_disk(&self) {
         let mut dirs = Vec::new();
         if let Ok(home) = std::env::var("HOME") {
-            dirs.push(PathBuf::from(home).join(".config").join("athanor").join("layouts"));
+            dirs.push(
+                PathBuf::from(home)
+                    .join(".config")
+                    .join("athanor")
+                    .join("layouts"),
+            );
         }
         dirs.push(PathBuf::from("/usr/share/athanor/layouts"));
 
@@ -351,7 +371,9 @@ impl AppearanceEngine {
                 if let Ok(entries) = std::fs::read_dir(&dir) {
                     for entry in entries.flatten() {
                         let path = entry.path();
-                        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                        if path.is_file()
+                            && path.extension().and_then(|s| s.to_str()) == Some("toml")
+                        {
                             if let Ok(content) = std::fs::read_to_string(&path) {
                                 if let Ok(preset) = parse_preset_toml(&content) {
                                     if let Ok(mut lock) = self.state.write() {
@@ -369,7 +391,10 @@ impl AppearanceEngine {
     /// Get path for storing active layout preference
     fn get_active_layout_path() -> PathBuf {
         if let Ok(home) = std::env::var("HOME") {
-            PathBuf::from(home).join(".config").join("athanor").join("active_layout.toml")
+            PathBuf::from(home)
+                .join(".config")
+                .join("athanor")
+                .join("active_layout.toml")
         } else {
             PathBuf::from("/tmp/athanor_active_layout.toml")
         }
@@ -417,9 +442,13 @@ impl AppearanceEngine {
 
         // 1. Update internal state
         {
-            let mut lock = self.state.write().map_err(|e| format!("Poison error: {}", e))?;
+            let mut lock = self
+                .state
+                .write()
+                .map_err(|e| format!("Poison error: {}", e))?;
             lock.active_preset = preset.clone();
-            lock.available_presets.insert(preset.name.clone(), preset.clone());
+            lock.available_presets
+                .insert(preset.name.clone(), preset.clone());
         }
 
         // 2. Persist selection
@@ -436,7 +465,10 @@ impl AppearanceEngine {
 
     pub fn set_layout_by_name(&self, name: &str) -> Result<bool, String> {
         let preset = {
-            let lock = self.state.read().map_err(|e| format!("Poison error: {}", e))?;
+            let lock = self
+                .state
+                .read()
+                .map_err(|e| format!("Poison error: {}", e))?;
             lock.available_presets.get(name).cloned()
         };
 
@@ -480,9 +512,15 @@ fn hot_swap_gtk_layer_shell(preset: &LayoutPreset) {
 
                 // Update Edge Anchors live
                 let top = panel.anchors.iter().any(|a| a.eq_ignore_ascii_case("top"));
-                let bottom = panel.anchors.iter().any(|a| a.eq_ignore_ascii_case("bottom"));
+                let bottom = panel
+                    .anchors
+                    .iter()
+                    .any(|a| a.eq_ignore_ascii_case("bottom"));
                 let left = panel.anchors.iter().any(|a| a.eq_ignore_ascii_case("left"));
-                let right = panel.anchors.iter().any(|a| a.eq_ignore_ascii_case("right"));
+                let right = panel
+                    .anchors
+                    .iter()
+                    .any(|a| a.eq_ignore_ascii_case("right"));
 
                 win.set_anchor(Edge::Top, top);
                 win.set_anchor(Edge::Bottom, bottom);
@@ -512,7 +550,11 @@ fn hot_swap_gtk_layer_shell(preset: &LayoutPreset) {
                 }
 
                 // Hot-swap CSS classes
-                let existing_classes: Vec<_> = win.css_classes().into_iter().map(|s| s.to_string()).collect();
+                let existing_classes: Vec<_> = win
+                    .css_classes()
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect();
                 for cls in existing_classes {
                     if cls.starts_with("layout-") {
                         win.remove_css_class(&cls);
@@ -557,7 +599,9 @@ impl LayoutDbusServer {
     /// Hot-swaps the layout preset by name
     async fn set_layout(&self, preset_name: &str) -> zbus::fdo::Result<bool> {
         if preset_name.len() > 256 {
-            return Err(zbus::fdo::Error::InvalidArgs("Preset name exceeds 256 byte limit".into()));
+            return Err(zbus::fdo::Error::InvalidArgs(
+                "Preset name exceeds 256 byte limit".into(),
+            ));
         }
         info!(preset_name = %preset_name, "DBus org.athanor.Shell.Layout.SetLayout called");
         match self.engine.set_layout_by_name(preset_name) {
@@ -590,7 +634,9 @@ impl LayoutDbusServer {
     /// Apply custom TOML layout on the fly
     async fn apply_custom_toml(&self, toml_content: &str) -> zbus::fdo::Result<bool> {
         if toml_content.len() > 1_048_576 {
-            return Err(zbus::fdo::Error::InvalidArgs("Custom TOML payload exceeds 1MB limit".into()));
+            return Err(zbus::fdo::Error::InvalidArgs(
+                "Custom TOML payload exceeds 1MB limit".into(),
+            ));
         }
         info!("DBus org.athanor.Shell.Layout.ApplyCustomToml called");
         match parse_preset_toml(toml_content) {
@@ -604,9 +650,15 @@ impl LayoutDbusServer {
 }
 
 /// Register `org.athanor.Shell.Layout` DBus interface on session bus
-pub async fn register_layout_dbus(connection: &zbus::Connection, engine: Arc<AppearanceEngine>) -> zbus::Result<()> {
+pub async fn register_layout_dbus(
+    connection: &zbus::Connection,
+    engine: Arc<AppearanceEngine>,
+) -> zbus::Result<()> {
     let server = LayoutDbusServer::new(engine);
-    connection.object_server().at("/org/athanor/Shell/Layout", server).await?;
+    connection
+        .object_server()
+        .at("/org/athanor/Shell/Layout", server)
+        .await?;
     connection.request_name("org.athanor.Shell.Layout").await?;
     info!("Registered DBus service 'org.athanor.Shell.Layout' at path '/org/athanor/Shell/Layout'");
     Ok(())
