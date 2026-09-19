@@ -271,6 +271,39 @@ def has_binary_target(crate_dir):
             or re.search(r"^\s*\[\[\s*bin\s*\]\]", read(cargo), re.M) is not None)
 
 
+COSMIC_OVERLAY = "/usr/share/athanor/cosmic-defaults"
+
+
+def cosmic_defaults_problems(root):
+    """How Calmo reaches COSMIC (doc_shell.md, SH5): a data directory of our own, first
+    in XDG_DATA_DIRS. cosmic-config resolves system defaults through that variable, so
+    the defaults are shipped only if the files exist, the package installs them, and the
+    variable is set both for the user manager and for the compositor."""
+    root = Path(root)
+    problems = []
+    generated = root / "system/athanor-style/calmo/generated/cosmic/cosmic"
+    if not generated.is_dir() or not any(p.is_file() for p in generated.rglob("*")):
+        problems.append("no generated COSMIC defaults: run forge/tools/calmo-cosmic-theme/derive.sh")
+
+    env_file = root / "forge/specs/athanor-calmo/SOURCES/usr/lib/environment.d/60-athanor-cosmic-defaults.conf"
+    env_text = read(env_file) if env_file.exists() else ""
+    if not re.search(rf"^XDG_DATA_DIRS={re.escape(COSMIC_OVERLAY)}:", env_text, re.M):
+        problems.append(f"environment.d: {COSMIC_OVERLAY} is not first in XDG_DATA_DIRS for the user manager")
+
+    session = root / "forge/specs/athanor-system-config/SOURCES/usr/bin/athanor-session"
+    session_text = read(session) if session.exists() else ""
+    if not re.search(rf'^export XDG_DATA_DIRS="?{re.escape(COSMIC_OVERLAY)}:', session_text, re.M):
+        problems.append(f"athanor-session does not export XDG_DATA_DIRS with {COSMIC_OVERLAY} first: "
+                        f"cosmic-comp and its children are not started by the user manager")
+
+    spec = root / "forge/specs/athanor-calmo/athanor-calmo.spec"
+    files = read(spec).split("%files", 1)[-1] if spec.exists() else ""
+    for shipped in (COSMIC_OVERLAY, "/usr/lib/environment.d/60-athanor-cosmic-defaults.conf"):
+        if not re.search(rf"^{re.escape(shipped)}$", files, re.M):
+            problems.append(f"athanor-calmo.spec: %files does not list {shipped}")
+    return problems
+
+
 @check("shipped", "Ogni crate del workspace è impacchettato, o è dichiarato sperimentale")
 def check_shipped():
     r = Result()
@@ -326,6 +359,9 @@ def check_shipped():
         r.fail(f"{p}: in custom_packages ma in nessun tier -> costruito e mai installato")
     for p in sorted(tiers - dag):
         r.fail(f"{p}: in un tier ma non in custom_packages -> riferimento pendente")
+
+    for problem in cosmic_defaults_problems(ROOT):
+        r.fail(problem)
 
     return r
 
