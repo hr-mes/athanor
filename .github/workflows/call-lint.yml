@@ -62,3 +62,9 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B -m unittest discover -s scripts/tests -v
+
+      - name: Calmo design tokens (unit tests, contrast gate)
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s system/athanor-style/calmo/tests -v
+          python3 -B system/athanor-style/calmo/contrast.py
