@@ -74,6 +74,41 @@ class IconsTest(unittest.TestCase):
         self.assertNotIn("class=", generate.icons()["athanor-mark-symbolic.svg"])
 
 
+class WallpaperTest(unittest.TestCase):
+    def setUp(self):
+        self.tokens = tk.load()
+
+    def decode(self, data):
+        self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+        width, height = struct.unpack(">II", data[16:24])
+        idat = data[data.index(b"IDAT") + 4:data.index(b"IEND") - 8]
+        raw = zlib.decompress(idat)
+        stride = width * 3 + 1
+        return width, height, [raw[y * stride + 1:(y + 1) * stride] for y in range(height)]
+
+    def test_size_and_determinism(self):
+        first = generate.wallpaper(self.tokens, "light", 64, 36)
+        self.assertEqual(first, generate.wallpaper(self.tokens, "light", 64, 36))
+        width, height, rows = self.decode(first)
+        self.assertEqual((width, height, len(rows)), (64, 36, 36))
+
+    def test_the_discs_rise_from_the_bottom_right(self):
+        _, _, rows = self.decode(generate.wallpaper(self.tokens, "light", 160, 90))
+        top_left, bottom_right = rows[0][0:3], rows[89][-3:]
+        self.assertNotEqual(top_left, bottom_right)
+        # Light variant: the corner under four discs is more saturated, so its red drops.
+        self.assertLess(bottom_right[0], top_left[0])
+
+    def test_light_and_dark_differ(self):
+        self.assertNotEqual(generate.wallpaper(self.tokens, "light", 32, 18), generate.wallpaper(self.tokens, "dark", 32, 18))
+
+    def test_block_fill_matches_the_exact_render_within_one_level(self):
+        rows = list(generate.hearth_rows(self.tokens, "dark", 96, 54))
+        exact = list(generate.hearth_rows(self.tokens, "dark", 96, 54, block=1))
+        worst = max(abs(a - b) for fast, slow in zip(rows, exact) for a, b in zip(fast, slow))
+        self.assertLessEqual(worst, 1)
+
+
 class CheckTest(unittest.TestCase):
     def test_check_reports_drift_and_a_stale_cosmic_stamp(self):
         tokens = tk.load()
