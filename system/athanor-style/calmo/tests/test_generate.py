@@ -48,6 +48,32 @@ class CssTest(unittest.TestCase):
         self.assertRegex(generate.css(self.tokens, "light"), r"@define-color ath_d1 rgba\(\d+, \d+, \d+, 0\.5\);")
 
 
+class IconsTest(unittest.TestCase):
+    def test_four_well_formed_symbolic_icons(self):
+        files = generate.icons()
+        self.assertEqual(sorted(files), ["athanor-mark-symbolic.svg", "athanor-seal-attention-symbolic.svg",
+                                         "athanor-seal-blocked-symbolic.svg", "athanor-seal-verified-symbolic.svg"])
+        for text in files.values():
+            xml.dom.minidom.parseString(text)
+
+    def test_icons_are_fill_only(self):
+        # GTK recolours symbolic icons by forcing `fill`; a stroked path would be filled in.
+        for text in generate.icons().values():
+            self.assertNotIn("stroke", text)
+
+    def test_each_state_has_its_own_class_and_its_own_shape(self):
+        files = generate.icons()
+        badges = {}
+        for state, css_class in (("verified", "success"), ("attention", "warning"), ("blocked", "error")):
+            text = files[f"athanor-seal-{state}-symbolic.svg"]
+            self.assertEqual(re.findall(r'class="(\w+)"', text), [css_class])
+            badges[state] = re.search(r'class="\w+"[^>]* d="([^"]+)"', text).group(1)
+        self.assertEqual(len(set(badges.values())), 3)
+
+    def test_the_mark_alone_has_no_badge(self):
+        self.assertNotIn("class=", generate.icons()["athanor-mark-symbolic.svg"])
+
+
 class CheckTest(unittest.TestCase):
     def test_check_reports_drift_and_a_stale_cosmic_stamp(self):
         tokens = tk.load()
