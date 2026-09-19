@@ -1,6 +1,6 @@
 # Updates and trust state: the system side
 
-Status: **draft, revision 2, awaiting the maintainer's consent.** The `auditor` found revision 1 consent-ready with changes: no critical finding, six high and ten medium, all text (`.superpowers/update-trust-security-review.md`). This revision takes them. It changes the signing pipeline, adds a secret and adds root code, so nothing here is built before the maintainer says yes. `doc_shell.md` (SH11, SH12) binds this document with nine constraints; section 2 answers each. Section 3 lists what must be proven on the dev VM before the plan is written, and section 4 the decisions that are the maintainer's.
+Status: **consented to by the maintainer on 2026-09-19, revision 2,** with decisions D1, D2 and D3 of section 4 taken as recommended. Spike U1 of section 3 runs before the plan. The `auditor` found revision 1 consent-ready with changes: no critical finding, six high and ten medium, all text (`.superpowers/update-trust-security-review.md`). This revision takes them. It changes the signing pipeline, adds a secret and adds root code, so nothing here is built before the maintainer says yes. `doc_shell.md` (SH11, SH12) binds this document with nine constraints; section 2 answers each. Section 3 lists what must be proven on the dev VM before the plan is written, and section 4 the decisions that are the maintainer's.
 
 It is the interim implementation of the Athanor update service of `doc_kernel_profile.md`, section 8 (D31, D36): bootc today, `systemd-sysupdate` with A/B `/usr` later, behind the same interface.
 
@@ -114,7 +114,7 @@ What is available: `skopeo` 1.22 and `bootc` 1.16 are in the image; `bootc upgra
 7. Which hardening directives of UT1 survive a real download and a real apply.
 8. Whether logind lets a root caller past a block inhibitor, whether bootc can lock a deployment again, and what the state is when the reboot call fails after the unlock.
 
-## 4. Decisions that are the maintainer's
+## 4. Decisions that are the maintainer's (all three taken on 2026-09-19)
 
 - **D1. A `stable` tag.** Users follow `:stable`; `:latest` stays for testing. A manual workflow runs `system/promote.sh <run id>`, which points `stable` at an already signed digest with `skopeo copy`; the signature is by digest, so it carries. Without it every merge that touches the image asks every user to restart. It also gives UT4's migration a new image name to switch to. A moved tag can only move machines forward, because of the build-time rule of UT5. **Recommended.** `doc_kernel_profile.md` leaves channels to release 1.1; this brings one hand-promoted channel forward.
 - **D2. `athanor-secure-boot` leaves the image.** It cannot own its bus name, so it has never answered a call, and UT8 replaces its one reading. **Recommended.** Nothing in the repository calls that name. Retiring means the binary, its unit and its bus name leave; the TPM sealing script and unit, the rollback check and the `systemd-pcrphase-sysinit` drop-in stay, and so does the `SOURCES` tree, which `system/Containerfile` reads directly. Which of those the image enables today is checked before the change. The alternative is a bus policy file and a review of what the service claims to attest.
