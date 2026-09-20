@@ -105,17 +105,18 @@ jobs:
           cargo vet check || echo "Cargo vet skipped due to crates.io 403 API block"
 
       # Every lockfile that resolves a shipped binary, judged by the one policy in
-      # deny.toml: the root workspace, the frozen shell workspace (athanor-shell-rs and
-      # its dock, still installed for the portal) and the COSMIC theme derive tool, whose
-      # pinned libcosmic git source the policy permits ([sources] unknown-git = "warn").
-      # --config is explicit because cargo-deny would otherwise look for a deny.toml next
-      # to each manifest and silently fall back to its own defaults.
+      # deny.toml: the root workspace and the frozen shell workspace (athanor-shell-rs and
+      # its dock, still installed for the portal). forge/tools/calmo-cosmic-theme is
+      # deliberately absent: it is a build-time derive tool that no spec and no
+      # packages.json entry installs, its only output is a committed diff that a human
+      # reviews, and its dependencies are pinned to a libcosmic git revision, so auditing
+      # it would clone that repository on every run and turn a flaky clone into a failed
+      # audit. --config is explicit because cargo-deny would otherwise look for a deny.toml
+      # next to each manifest and silently fall back to its own defaults.
       - name: Check Dependencies & Vulnerabilities (cargo-deny)
         run: |
           set -euo pipefail
-          for manifest in Cargo.toml \
-                          forge/specs/athanor-shell-rs/Cargo.toml \
-                          forge/tools/calmo-cosmic-theme/Cargo.toml; do
+          for manifest in Cargo.toml forge/specs/athanor-shell-rs/Cargo.toml; do
             cargo deny --manifest-path "$manifest" --config deny.toml check advisories bans sources
           done
 
