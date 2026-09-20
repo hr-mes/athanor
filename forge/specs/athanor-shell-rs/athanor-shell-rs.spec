@@ -2,7 +2,7 @@
 # Il crate vive nel workspace: la spec compila il checkout in place, non un tarball.
 Name:           athanor-shell-rs
 Version:        1.0.0
-Release:        36%{?dist}
+Release:        37%{?dist}
 Summary:        Athanor OS Native Rust GTK4 Shell
 
 License:        MIT
@@ -29,6 +29,10 @@ install -m 0755 forge/specs/athanor-shell-rs/target/release/athanor-shell-rs %{b
 /usr/bin/athanor-shell-rs
 
 %changelog
+* Sat Sep 20 2026 Athanor Forge <forge@athanor.os> - 1.0.0-37
+- The unreachable biometrics prompt, whose password fallback accepted any non-empty
+  input as confirmed, is removed. If an administrator prompt is wanted again it must be
+  built against PAM or polkit.
 * Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-36
 - The greeter left for a program of its own, athanor-greeter-ui; the --greeter mode and
   the greetd client are removed.
