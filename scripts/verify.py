@@ -240,11 +240,13 @@ def check_polkit():
 # 4. percorsi runtime — niente artefatti letti da target/ o stato in /tmp
 # --------------------------------------------------------------------------- #
 
-# Alberi congelati: codice morto che si mina e si cancella, non si sviluppa. La vecchia
-# shell è ferma a GTK 0.7 in un workspace suo (doc_shell.md, SH4) e il suo Cargo.toml dice
-# "do not develop here", quindi un rilievo là dentro non ha niente da dire — e sistemarlo
-# contraddirebbe il congelamento. L'esclusione sparisce insieme all'albero.
-FROZEN_TREES = ("forge/specs/athanor-shell-rs/",)
+# Alberi congelati: codice morto che si mina e si cancella, non si sviluppa. La copia
+# congelata di athanor-style è ferma a GTK 0.7 in un workspace suo (doc_shell.md, SH4) e il
+# suo Cargo.toml dice "do not develop here", quindi un rilievo là dentro non ha niente da
+# dire — e sistemarlo contraddirebbe il congelamento. Il binario della vecchia shell,
+# accanto ad essa, resta invece spedito e quindi resta scansionato. L'esclusione sparisce
+# insieme all'albero.
+FROZEN_TREES = ("forge/specs/athanor-shell-rs/athanor-style-0.7/",)
 
 
 def is_frozen(relative_path):
