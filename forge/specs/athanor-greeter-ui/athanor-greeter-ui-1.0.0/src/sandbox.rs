@@ -22,6 +22,26 @@ pub fn ensure_single_threaded() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Stops the kernel from writing this process's memory to disk if it dies.
+///
+/// `panic = "abort"` is set on dev and release: any panic, allocation failure or
+/// assertion inside a dependency ends this process with SIGABRT, and systemd-coredump
+/// would then write its heap -- the password the user has just typed included -- under
+/// /var/lib/systemd/coredump, on the persistent filesystem, outside this sandbox.
+/// Landlock does not constrain what the kernel writes on the process's behalf, so the
+/// dump has to be refused at the source: `PR_SET_DUMPABLE` to 0 stops the kernel from
+/// dumping the process at all, and `RLIMIT_CORE` at 0 covers the ptrace-based paths
+/// that ignore it. Both are inherited by nothing this process starts, because it starts
+/// nothing.
+///
+/// Like the Landlock policy this is a hard requirement: a greeter that can dump core is
+/// a greeter that can leak a password, so a failure here is fatal rather than logged.
+pub fn forbid_core_dumps() -> Result<(), Box<dyn std::error::Error>> {
+    nix::sys::prctl::set_dumpable(false)?;
+    nix::sys::resource::setrlimit(nix::sys::resource::Resource::RLIMIT_CORE, 0, 0)?;
+    Ok(())
+}
+
 /// Confines the process's writes with Landlock.
 ///
 /// The greeter runs inside the sandbox athanor-greeter-client builds, where $HOME and
@@ -186,6 +206,24 @@ mod tests {
         .join()
         .expect("sandbox test thread");
         std::fs::remove_dir_all(base).expect("cleanup outside the sandboxed thread");
+    }
+
+    #[test]
+    fn core_dumps_are_refused_by_the_kernel_and_by_the_limit() {
+        // This makes the whole test binary non-dumpable, which is harmless: nothing
+        // here inspects a core file, and /proc/self stays readable for what the other
+        // tests read from it.
+        forbid_core_dumps().expect("the greeter must be able to refuse core dumps");
+        assert!(
+            !nix::sys::prctl::get_dumpable().expect("PR_GET_DUMPABLE"),
+            "the kernel must refuse to dump this process"
+        );
+        assert_eq!(
+            nix::sys::resource::getrlimit(nix::sys::resource::Resource::RLIMIT_CORE)
+                .expect("getrlimit(RLIMIT_CORE)"),
+            (0, 0),
+            "no core file may be written, by any path"
+        );
     }
 
     #[test]

@@ -469,6 +469,7 @@ dependencies = [
  "gtk4",
  "gtk4-layer-shell",
  "landlock",
+ "nix 0.29.0",
  "serde_json",
  "tokio",
  "tracing",

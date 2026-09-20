@@ -39,10 +39,15 @@ fn main() -> glib::ExitCode {
     // that already exists -- a Tokio worker, a GLib worker -- would keep running
     // unconfined. Nothing before this line may start a thread, and the check fails
     // closed if something did. Logging is not set up yet, so errors go to stderr.
-    if let Err(err) =
-        sandbox::ensure_single_threaded().and_then(|()| sandbox::apply_landlock_sandbox())
+    // Refusing core dumps comes straight after, before anything can abort with a
+    // password in the heap.
+    if let Err(err) = sandbox::ensure_single_threaded()
+        .and_then(|()| sandbox::apply_landlock_sandbox())
+        .and_then(|()| sandbox::forbid_core_dumps())
     {
-        eprintln!("athanor-greeter-ui: cannot apply the Landlock policy, refusing to run unconfined: {err}");
+        eprintln!(
+            "athanor-greeter-ui: cannot confine the process, refusing to run unconfined: {err}"
+        );
         return glib::ExitCode::FAILURE;
     }
 
