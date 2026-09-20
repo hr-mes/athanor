@@ -2,9 +2,12 @@ use greetd_ipc::{Request, Response};
 use std::io::Read;
 use std::io::Write;
 use std::os::unix::net::UnixStream;
+use zeroize::{Zeroize, Zeroizing};
 
 pub fn send_request(stream: &mut UnixStream, req: &Request) -> Result<Response, String> {
-    let json = serde_json::to_string(req).map_err(|e| e.to_string())?;
+    // The frame of a PostAuthMessageResponse carries the password in cleartext: erase
+    // the serialised copy when it goes out of scope rather than leaving it in freed heap.
+    let json = Zeroizing::new(serde_json::to_string(req).map_err(|e| e.to_string())?);
     let len = (json.len() as u32).to_ne_bytes();
     stream.write_all(&len).map_err(|e| e.to_string())?;
     stream
@@ -209,10 +212,20 @@ where
                     resp = send_request(&mut stream, &req)?;
                 } else {
                     status_cb("Verifica credenziali in corso...");
-                    let req = Request::PostAuthMessageResponse {
+                    let mut req = Request::PostAuthMessageResponse {
                         response: Some(password.to_string()),
                     };
-                    resp = send_request(&mut stream, &req)?;
+                    let sent = send_request(&mut stream, &req);
+                    // The copy greetd_ipc owns is erased as soon as the frame is on the
+                    // socket, before the result is propagated, so that no path out of
+                    // this function leaves the password in freed heap.
+                    if let Request::PostAuthMessageResponse {
+                        response: Some(ref mut secret),
+                    } = req
+                    {
+                        secret.zeroize();
+                    }
+                    resp = sent?;
                 }
             }
             Response::Success => {

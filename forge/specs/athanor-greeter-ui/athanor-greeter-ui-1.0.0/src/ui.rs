@@ -463,7 +463,13 @@ pub fn build_ui(app: &Application) {
         let status_label = status_label.clone();
         let submit_btn = submit_btn.clone();
         move || {
-            let password = entry.text().to_string();
+            // The password is held in a buffer that erases itself when it is dropped,
+            // and the entry is emptied as soon as its text has been taken, on the way
+            // to a successful login as well as on a failed one. GTK keeps copies of its
+            // own inside the widget -- the entry buffer's reallocations, the text
+            // layout -- and those are outside our control.
+            let password = zeroize::Zeroizing::new(entry.text().to_string());
+            entry.set_text("");
             entry.set_sensitive(false);
             submit_btn.set_sensitive(false);
             err_label.set_visible(false);

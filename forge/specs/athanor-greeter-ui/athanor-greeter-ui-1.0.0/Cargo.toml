@@ -17,6 +17,8 @@ landlock = { workspace = true }
 # prctl(PR_SET_DUMPABLE) and setrlimit(RLIMIT_CORE): safe wrappers, no unsafe block here.
 nix = { workspace = true, features = ["process", "resource"] }
 serde_json = { workspace = true }
+# Zeroizing<String> over every copy of the password this process owns.
+zeroize = { workspace = true }
 chrono = "0.4"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
