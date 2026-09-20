@@ -88,7 +88,9 @@ build-greeter)
     podman run --rm --memory 8g --security-opt label=disable \
         -v "$root:/repo:ro" -v "$out:/out" -v athanor-cargo-registry:/root/.cargo/registry \
         -e CARGO_TARGET_DIR=/out/target -w /repo "$local_image:build" \
-        bash -c 'cargo build --release --locked -p athanor-greeter-ui \
+        bash -c 'cargo clippy --locked -p athanor-greeter-ui -p athanor-style --all-targets -- -D warnings \
+                 && cargo test --locked -p athanor-greeter-ui -p athanor-style \
+                 && cargo build --release --locked -p athanor-greeter-ui \
                  && install -m 0755 /out/target/release/athanor-greeter-ui /out/bin/ \
                  && python3 -B forge/scripts/check_shim_link_order.py /out/bin/athanor-greeter-ui'
     ;;

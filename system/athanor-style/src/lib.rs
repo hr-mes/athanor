@@ -1,5 +1,13 @@
+//! Athanor's style crate. `calmo` (added by the design-system work) is the identity;
+//! the three modules below are the pre-Calmo glass theme, kept only because
+//! athanor-recovery still loads it. They predate the lint gate and keep their warnings
+//! silenced until recovery is re-skinned and they are deleted (doc_shell.md, SH4).
+
+#[allow(clippy::all, warnings)]
 pub mod accent_engine;
+#[allow(clippy::all, warnings)]
 pub mod appearance_engine;
+#[allow(clippy::all, warnings)]
 pub mod glass;
 
 pub use accent_engine::*;

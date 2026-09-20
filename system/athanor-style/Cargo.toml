@@ -15,9 +15,3 @@ toml = "0.8"
 zbus = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
-
-[profile.release]
-lto = "thin"
-opt-level = 3
-codegen-units = 1
-panic = "abort"
