@@ -69,3 +69,8 @@ jobs:
           python3 -B -m unittest discover -s system/athanor-style/calmo/tests -v
           python3 -B system/athanor-style/calmo/contrast.py
           python3 -B system/athanor-style/calmo/generate.py --check
+
+      - name: Forge scripts (unit tests)
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s forge/scripts/tests -v

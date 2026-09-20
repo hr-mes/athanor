@@ -5,7 +5,7 @@ Release:        1%{?dist}
 Summary:        The Athanor greeter
 License:        MIT
 
-BuildRequires:  rust cargo gcc pkgconf-pkg-config gtk4-devel glib2-devel gtk4-layer-shell-devel
+BuildRequires:  rust cargo gcc pkgconf-pkg-config gtk4-devel glib2-devel gtk4-layer-shell-devel binutils python3
 Requires:       gtk4 gtk4-layer-shell greetd
 
 %description
@@ -22,6 +22,10 @@ cargo build --release --locked -p %{name}
 
 %install
 install -D -m 0755 target/release/athanor-greeter-ui %{buildroot}/usr/bin/athanor-greeter-ui
+
+%check
+# doc_shell.md, SH4: the layer-shell shim must load before libwayland-client and GTK.
+python3 -B forge/scripts/check_shim_link_order.py target/release/athanor-greeter-ui
 
 %files
 /usr/bin/athanor-greeter-ui
