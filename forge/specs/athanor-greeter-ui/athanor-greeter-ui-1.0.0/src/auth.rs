@@ -13,15 +13,22 @@ use zeroize::{Zeroize, Zeroizing};
 /// the socket bound into the sandbox from outside.
 const MAX_REPLY_BYTES: u32 = 1024 * 1024;
 
+/// Capacity reserved up front for a serialised request. The longest frame this greeter
+/// sends is a `PostAuthMessageResponse` carrying a password; 4 KiB covers that and every
+/// other request without a single reallocation.
+const REQUEST_BUFFER_BYTES: usize = 4096;
+
 pub fn send_request(stream: &mut UnixStream, req: &Request) -> Result<Response, String> {
     // The frame of a PostAuthMessageResponse carries the password in cleartext: erase
     // the serialised copy when it goes out of scope rather than leaving it in freed heap.
-    let json = Zeroizing::new(serde_json::to_string(req).map_err(|e| e.to_string())?);
+    // Serialising into a buffer reserved at its final size matters: a growing Vec
+    // reallocates, and each buffer it abandons on the way is freed without being erased,
+    // leaving copies of the password that the wrapper around the last buffer never reaches.
+    let mut json = Zeroizing::new(Vec::with_capacity(REQUEST_BUFFER_BYTES));
+    serde_json::to_writer(&mut *json, req).map_err(|e| e.to_string())?;
     let len = (json.len() as u32).to_ne_bytes();
     stream.write_all(&len).map_err(|e| e.to_string())?;
-    stream
-        .write_all(json.as_bytes())
-        .map_err(|e| e.to_string())?;
+    stream.write_all(&json).map_err(|e| e.to_string())?;
 
     let mut len_buf = [0u8; 4];
     stream.read_exact(&mut len_buf).map_err(|e| e.to_string())?;
