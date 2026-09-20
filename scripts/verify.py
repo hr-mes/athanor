@@ -240,20 +240,42 @@ def check_polkit():
 # 4. percorsi runtime — niente artefatti letti da target/ o stato in /tmp
 # --------------------------------------------------------------------------- #
 
+# Alberi congelati: codice morto che si mina e si cancella, non si sviluppa. La vecchia
+# shell è ferma a GTK 0.7 in un workspace suo (doc_shell.md, SH4) e il suo Cargo.toml dice
+# "do not develop here", quindi un rilievo là dentro non ha niente da dire — e sistemarlo
+# contraddirebbe il congelamento. L'esclusione sparisce insieme all'albero.
+FROZEN_TREES = ("forge/specs/athanor-shell-rs/",)
+
+
+def is_frozen(relative_path):
+    """True se il file sta in un albero congelato: si mina e si cancella, non si sviluppa."""
+    return any(relative_path.startswith(tree) for tree in FROZEN_TREES)
+
+
+def path_problems(relative_path, text):
+    """I rilievi di percorso di un file, già formattati con riga e motivo."""
+    if is_frozen(relative_path):
+        return []
+    # un build script gira a build time: può legittimamente parlare di target/
+    is_build_script = Path(relative_path).name == "build.rs"
+    problems = []
+    for i, line in enumerate(text.split("\n"), 1):
+        code = line.split("//")[0]
+        if not is_build_script and re.search(r'"[^"]*\btarget/[a-z0-9_./-]*"', code):
+            problems.append(f"{relative_path}:{i} carica un artefatto da target/ — percorso "
+                            f"dell'albero di build, inesistente su un sistema installato")
+        if re.search(r'"/tmp/', code):
+            problems.append(f"{relative_path}:{i} percorso hard-coded in /tmp — usa "
+                            f"/run/athanor (0700) per stato privilegiato")
+    return problems
+
+
 @check("paths", "Nessun artefatto runtime da target/, nessuno stato privilegiato in /tmp")
 def check_paths():
     r = Result()
     for p in rust_files():
-        # un build script gira a build time: può legittimamente parlare di target/
-        is_build_script = p.name == "build.rs"
-        for i, line in enumerate(read(p).split("\n"), 1):
-            code = line.split("//")[0]
-            if not is_build_script and re.search(r'"[^"]*\btarget/[a-z0-9_./-]*"', code):
-                r.fail(f"{rel(p)}:{i} carica un artefatto da target/ — percorso dell'albero "
-                       f"di build, inesistente su un sistema installato")
-            if re.search(r'"/tmp/', code):
-                r.fail(f"{rel(p)}:{i} percorso hard-coded in /tmp — usa /run/athanor (0700) "
-                       f"per stato privilegiato")
+        for problem in path_problems(rel(p), read(p)):
+            r.fail(problem)
     return r
 
 
