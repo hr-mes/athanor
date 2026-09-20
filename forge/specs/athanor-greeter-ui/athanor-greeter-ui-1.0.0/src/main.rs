@@ -4,6 +4,7 @@
 //! execs this binary inside a bubblewrap sandbox. It takes no arguments.
 
 mod auth;
+mod layer_guard;
 mod power;
 mod sandbox;
 mod ui;

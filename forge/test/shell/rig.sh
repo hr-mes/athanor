@@ -8,6 +8,8 @@
 #   rig.sh css-parse        GTK parse gate over the generated stylesheets
 #   rig.sh cosmic-keys      every key COSMIC ships exists in our overlay
 #   rig.sh cosmic-preview   capture cosmic-panel and Settings under the Calmo defaults
+#   rig.sh build-greeter    release build of athanor-greeter-ui into <out>/bin
+#   rig.sh layer-guard      the greeter must refuse to run when the shim loads late
 set -euo pipefail
 
 root=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
@@ -58,6 +60,7 @@ css-parse)
 cosmic-keys)
     # Every key file COSMIC ships must exist in our overlay: resolution is per directory,
     # so a key we do not carry falls back to a compiled-in default, not to COSMIC's file.
+    # shellcheck disable=SC2016  # the body is expanded by the shell inside the rig.
     in_rig "$(rig_image)" bash -c '
         status=0
         overlay=/repo/system/athanor-style/calmo/generated/cosmic/cosmic
@@ -80,8 +83,32 @@ cosmic-preview)
         dbus-run-session -- /repo/forge/test/shell/scene.sh 1920 1080 1.0 cosmic-preview-dark -- cosmic-settings appearance
     echo "look at $out/cosmic-preview-light.png and $out/cosmic-preview-dark.png"
     ;;
+build-greeter)
+    mkdir -p "$out/bin" "$out/target"
+    podman run --rm --memory 8g --security-opt label=disable \
+        -v "$root:/repo:ro" -v "$out:/out" -v athanor-cargo-registry:/root/.cargo/registry \
+        -e CARGO_TARGET_DIR=/out/target -w /repo "$local_image:build" \
+        bash -c 'cargo build --release --locked -p athanor-greeter-ui \
+                 && install -m 0755 /out/target/release/athanor-greeter-ui /out/bin/ \
+                 && python3 -B forge/scripts/check_shim_link_order.py /out/bin/athanor-greeter-ui'
+    ;;
+layer-guard)
+    rm -f "$out/layer-guard.status"
+    # Preloading libwayland-client reproduces the wrong load order on purpose.
+    # shellcheck disable=SC2016  # the body is expanded by the shell inside the rig.
+    in_rig "$(rig_image)" env RIG_SETTLE=6 ATHANOR_LOGIN_USER=ermete \
+        dbus-run-session -- /repo/forge/test/shell/scene.sh 1280 800 1.0 layer-guard -- \
+        bash -c 'LD_PRELOAD=/usr/lib64/libwayland-client.so.0 /out/bin/athanor-greeter-ui; echo $? > /out/layer-guard.status; sleep 60'
+    # A greeter that never exits writes no status file: report that, do not die on cat.
+    status=$(cat "$out/layer-guard.status" 2> /dev/null) || status=
+    if [ "$status" != 1 ] || ! grep -q "not a layer surface" "$out/layer-guard-client.log"; then
+        echo "layer-guard: expected exit status 1 and the guard's message, got status '$status'" >&2
+        exit 1
+    fi
+    echo "layer-guard: the greeter refused to run as an ordinary window"
+    ;;
 *)
-    sed -n '2,9p' "${BASH_SOURCE[0]}" >&2
+    sed -n '2,12p' "${BASH_SOURCE[0]}" >&2
     exit 2
     ;;
 esac

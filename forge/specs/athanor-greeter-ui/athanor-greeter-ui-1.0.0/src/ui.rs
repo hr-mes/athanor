@@ -229,6 +229,12 @@ pub fn build_ui(app: &Application) {
         .build();
 
     window.init_layer_shell();
+    if let Err(reason) = crate::layer_guard::require_layer_surface(&window) {
+        // No tracing subscriber may be listening this early in a failing start; stderr
+        // reaches the journal through the compositor's systemd-cat.
+        eprintln!("athanor-greeter-ui: not a layer surface: {reason}");
+        std::process::exit(1);
+    }
     window.set_layer(Layer::Overlay);
     window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::Exclusive);
     window.set_namespace(Some("greeter"));
