@@ -104,6 +104,7 @@ mimalloc = { version = "0.1.43", default-features = false }
 greetd_ipc = "0.10.3"
 landlock = "0.4"
 rand = "0.8.5"
+chrono = "0.4.45"
 
 [profile.dev]
 panic = "abort"

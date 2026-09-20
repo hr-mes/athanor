@@ -4,6 +4,15 @@ use std::io::Write;
 use std::os::unix::net::UnixStream;
 use zeroize::{Zeroize, Zeroizing};
 
+/// The largest greetd reply this greeter will allocate for. A greetd frame is a short
+/// JSON object -- a response type, an auth message, at worst an error description -- so
+/// a megabyte is orders of magnitude more than any legitimate reply and still small
+/// enough that a malformed length prefix cannot exhaust memory: with `panic = "abort"`
+/// a failed allocation would kill the greeter, and greetd would restart it until its
+/// start limit. The length is peer-controlled, and the peer is trusted only as far as
+/// the socket bound into the sandbox from outside.
+const MAX_REPLY_BYTES: u32 = 1024 * 1024;
+
 pub fn send_request(stream: &mut UnixStream, req: &Request) -> Result<Response, String> {
     // The frame of a PostAuthMessageResponse carries the password in cleartext: erase
     // the serialised copy when it goes out of scope rather than leaving it in freed heap.
@@ -17,6 +26,11 @@ pub fn send_request(stream: &mut UnixStream, req: &Request) -> Result<Response, 
     let mut len_buf = [0u8; 4];
     stream.read_exact(&mut len_buf).map_err(|e| e.to_string())?;
     let reply_len = u32::from_ne_bytes(len_buf);
+    if reply_len > MAX_REPLY_BYTES {
+        return Err(format!(
+            "Risposta del demone auth troppo grande: {reply_len} byte"
+        ));
+    }
 
     let mut reply_buf = vec![0u8; reply_len as usize];
     stream
@@ -258,6 +272,25 @@ pub async fn authenticate(password: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reply_longer_than_the_bound_is_refused_before_it_is_allocated() {
+        let (mut ours, theirs) = UnixStream::pair().expect("a socket pair");
+        // A peer announcing a 4 GiB frame. Nothing follows the prefix: reaching the
+        // read would block, so the test passing at all proves the bound came first.
+        (&theirs)
+            .write_all(&u32::MAX.to_ne_bytes())
+            .expect("the length prefix");
+
+        let err = send_request(
+            &mut ours,
+            &Request::CreateSession {
+                username: "tester".to_string(),
+            },
+        )
+        .expect_err("an oversized reply must be refused");
+        assert!(err.contains("troppo grande"), "{err}");
+    }
 
     #[test]
     fn badge_names_the_session_the_greeter_starts() {

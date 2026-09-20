@@ -64,8 +64,9 @@ pub fn apply_landlock_sandbox() -> Result<(), Box<dyn std::error::Error>> {
 /// set, so they need no grant; creating or removing anything here is not granted.
 const DRM_DEVICE_DIR: &str = "/dev/dri";
 
-/// Every grant of the sandbox: the unit's writable directories with the whole write
-/// set, and the DRM nodes with `WriteFile` alone.
+/// Every grant of the sandbox: /tmp and the runtime directory with the whole write set,
+/// and the DRM nodes with `WriteFile` alone. The greeter has no systemd unit -- it is
+/// confined by athanor-greeter-client and by this ruleset, and by nothing else.
 fn grants() -> Vec<(PathBuf, BitFlags<AccessFs>)> {
     let write_access = AccessFs::from_write(ABI::V1);
     let mut grants: Vec<_> = writable_paths()
