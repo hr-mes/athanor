@@ -276,11 +276,16 @@ mod tests {
     #[test]
     fn a_reply_longer_than_the_bound_is_refused_before_it_is_allocated() {
         let (mut ours, theirs) = UnixStream::pair().expect("a socket pair");
-        // A peer announcing a 4 GiB frame. Nothing follows the prefix: reaching the
-        // read would block, so the test passing at all proves the bound came first.
+        // A peer announcing one byte more than the bound, and nothing after it. Its
+        // write half is then closed so that a greeter without the bound fails at once
+        // with UnexpectedEof instead of blocking: the assertion below is pinned to the
+        // bound's own message, so that error cannot pass for a refusal.
         (&theirs)
-            .write_all(&u32::MAX.to_ne_bytes())
+            .write_all(&(MAX_REPLY_BYTES + 1).to_ne_bytes())
             .expect("the length prefix");
+        theirs
+            .shutdown(std::net::Shutdown::Write)
+            .expect("the peer's write half closes");
 
         let err = send_request(
             &mut ours,
