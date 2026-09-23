@@ -1,0 +1,75 @@
+#!/usr/bin/python3
+"""atspi_check.py <application-name> <minimum-interactive>
+
+doc_shell.md, SH13: "every interactive widget exposes a role and a name in the AT-SPI
+tree". Walks the tree of one application on the accessibility bus and fails when a
+showing interactive widget has no name, or when fewer interactive widgets than expected
+are found, which is what an empty or missing tree looks like.
+"""
+import sys
+import time
+
+# at-spi2-core 2.58 (the rig's) names ROLE_BUTTON "button"; older releases said "push button".
+INTERACTIVE = {"button", "push button", "toggle button", "check box", "radio button", "password text", "entry",
+               "text", "combo box", "slider", "spin button", "link", "menu item", "switch"}
+
+
+def problems(nodes, expected):
+    """nodes: [(role, name, showing)]."""
+    found = []
+    interactive = [(role, name) for role, name, showing in nodes if showing and role in INTERACTIVE]
+    for role, name in interactive:
+        if not name.strip():
+            found.append(f"a showing '{role}' has no accessible name")
+    if len(interactive) < expected:
+        found.append(f"{len(interactive)} interactive widget(s) in the tree, expected at least {expected}: "
+                     f"the accessibility tree is missing or incomplete")
+    return found
+
+
+def walk(accessible, Atspi, depth=0, out=None):
+    out = [] if out is None else out
+    states = accessible.get_state_set()
+    out.append((accessible.get_role_name(), accessible.get_name() or "", states.contains(Atspi.StateType.SHOWING), depth))
+    for index in range(accessible.get_child_count()):
+        child = accessible.get_child_at_index(index)
+        if child is not None:
+            walk(child, Atspi, depth + 1, out)
+    return out
+
+
+def find_application(Atspi, name, seconds=20):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        desktop = Atspi.get_desktop(0)
+        for index in range(desktop.get_child_count()):
+            app = desktop.get_child_at_index(index)
+            if app is not None and app.get_name() == name:
+                return app
+        time.sleep(0.5)
+    return None
+
+
+def main(argv):
+    if len(argv) != 2:
+        print(__doc__, file=sys.stderr)
+        return 2
+    import gi
+    gi.require_version("Atspi", "2.0")
+    from gi.repository import Atspi
+
+    app = find_application(Atspi, argv[0])
+    if app is None:
+        print(f"no application named {argv[0]!r} on the accessibility bus", file=sys.stderr)
+        return 1
+    tree = walk(app, Atspi)
+    for role, name, showing, depth in tree:
+        print(f"{'  ' * depth}{role}: {name!r}{'' if showing else ' (hidden)'}")
+    found = problems([(role, name, showing) for role, name, showing, _ in tree], int(argv[1]))
+    for line in found:
+        print(f"FAIL {line}", file=sys.stderr)
+    return 1 if found else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

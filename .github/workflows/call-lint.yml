@@ -74,3 +74,4 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B -m unittest discover -s forge/scripts/tests -v
+          python3 -B -m unittest discover -s forge/test/shell/tests -v

@@ -11,6 +11,7 @@
 #   rig.sh build-greeter    release build of athanor-greeter-ui into <out>/bin
 #   rig.sh layer-guard      the greeter must refuse to run when the shim loads late
 #   rig.sh greeter-preview  one capture of the greeter per variant, for the eye
+#   rig.sh atspi greeter    every interactive widget has a role and a name
 set -euo pipefail
 
 root=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
@@ -126,8 +127,21 @@ greeter-preview)
     done
     echo "look at $out/greeter-preview-*.png"
     ;;
+atspi)
+    [ "${2:-}" = greeter ] || {
+        echo "rig.sh atspi: unknown surface '${2:-}'" >&2
+        exit 2
+    }
+    # A screen reader announces itself by setting IsEnabled; GTK exports its tree then.
+    # The greeter has 6 interactive widgets: password, sign in, contrast, three power chips.
+    in_rig "$(rig_image)" env GTK_A11Y=atspi ATHANOR_LOGIN_USER=rig RIG_LOCALE=en_US.UTF-8 RIG_SETTLE=6 \
+        RIG_HOLD="python3 /repo/forge/test/shell/atspi_check.py athanor-greeter-ui 6" \
+        dbus-run-session -- /repo/forge/test/shell/scene.sh 1280 800 1.0 atspi-greeter -- \
+        bash -c 'busctl --user set-property org.a11y.Bus /org/a11y/bus org.a11y.Status IsEnabled b true \
+                 && exec /out/bin/athanor-greeter-ui'
+    ;;
 *)
-    sed -n '2,13p' "${BASH_SOURCE[0]}" >&2
+    sed -n '2,14p' "${BASH_SOURCE[0]}" >&2
     exit 2
     ;;
 esac
