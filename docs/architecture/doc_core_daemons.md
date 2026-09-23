@@ -150,8 +150,9 @@ When any process attempts binary execution on these filesystems, the Linux kerne
 5. **Approval & Bubblewrap Sandboxing**:
    - User approves execution via D-Bus method call `approve_execution(fd_id)`.
    - **Polkit Check**: Gatekeeper executes `pkcheck --system-bus-name <sender> --action-id os.athanor.gatekeeper.approve`.
-   - Upon authorization, removes `user.athanor.quarantine` extended attribute.
-   - Spawns target binary inside a restricted **Bubblewrap (`bwrap`)** sandbox (`--unshare-all`, `--share-net`, `--ro-bind` for `/usr`, `/lib`, `/lib64`, `/etc`, `--proc /proc`).
+   - Upon authorization, launches the target inside the strongest available isolation boundary: a `crosvm` or `cloud-hypervisor` MicroVM when a guest kernel is present, otherwise a restricted **Bubblewrap (`bwrap`)** compartment (`--unshare-all` with the network unshared, `--ro-bind` for `/usr`, `/lib`, `/lib64`, `/etc`, `--proc /proc`, the executable copied in from the verified file descriptor). The Gatekeeper has no per-application network policy, so the network is never shared.
+   - If no boundary can be established, `approve_execution` returns an error to the caller and the file stays quarantined; nothing runs outside a boundary.
+   - Once the application is contained, removes the `user.athanor.quarantine` extended attribute.
    - Emits **`FAN_DENY`** to the kernel for the original unsandboxed execution request, handing off execution exclusively to the sandboxed child process.
 
 ---

@@ -477,7 +477,6 @@ dependencies = [
  "anyhow",
  "athanor-bus-api",
  "libc",
- "pqc_dilithium",
  "serde",
  "subtle",
  "tokio",
