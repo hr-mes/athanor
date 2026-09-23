@@ -4,6 +4,7 @@
 //! execs this binary inside a bubblewrap sandbox. It takes no arguments.
 
 mod auth;
+mod i18n;
 mod layer_guard;
 mod power;
 mod sandbox;
@@ -66,6 +67,8 @@ fn main() -> glib::ExitCode {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
+
+    i18n::init();
 
     // The workspace builds zbus on Tokio, and the greetd conversation sleeps on a Tokio
     // timer: both need a runtime that is current on this thread, or they abort with

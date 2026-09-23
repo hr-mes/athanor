@@ -1,0 +1,62 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: athanor-greeter-ui\n"
+"Report-Msgid-Bugs-To: forge@athanor.os\n"
+"Language: it\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Not verified"
+msgstr "Non verificato"
+
+msgid "The system image has not been verified yet."
+msgstr "L'immagine di sistema non è ancora stata verificata."
+
+msgid "Password"
+msgstr "Password"
+
+msgid "Password for {name}"
+msgstr "Password di {name}"
+
+msgid "Sign in"
+msgstr "Accedi"
+
+msgid "Signing in…"
+msgstr "Accesso in corso…"
+
+msgid "Sign-in failed: {reason}"
+msgstr "Accesso non riuscito: {reason}"
+
+msgid "The login service cannot be reached."
+msgstr "Il servizio di accesso non è raggiungibile."
+
+msgid "Checking your credentials…"
+msgstr "Verifica delle credenziali…"
+
+msgid "The login service gave an unexpected answer."
+msgstr "Il servizio di accesso ha dato una risposta inattesa."
+
+msgid "Too many authentication steps."
+msgstr "Troppi passaggi di autenticazione."
+
+msgid "High contrast"
+msgstr "Contrasto elevato"
+
+msgid "Keyboard layout: {layout}"
+msgstr "Disposizione della tastiera: {layout}"
+
+msgid "Suspend"
+msgstr "Sospendi"
+
+msgid "Restart"
+msgstr "Riavvia"
+
+msgid "Shut down"
+msgstr "Spegni"
+
+#. TRANSLATORS: the date under the clock, in g_date_time_format() syntax:
+#. %A weekday, %-d day of the month, %B month.
+msgid "%A %-d %B"
+msgstr "%A %-d %B"
