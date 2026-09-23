@@ -85,6 +85,28 @@ class Check(unittest.TestCase):
         self.assertEqual(len(found), 1)
         self.assertIn("nvidia-drm-connector.c", found[0])
 
+    def test_kbuild_object_without_the_warnings_fails(self):
+        kernel_open = pathlib.Path(tempfile.mkdtemp())
+        (kernel_open / "nvidia").mkdir()
+        flags = " ".join(kcfi_check.WARNINGS)
+        (kernel_open / "nvidia/.nv.o.cmd").write_text(
+            f"savedcmd_nvidia/nv.o := clang -O2 {flags} -c -o nvidia/nv.o nvidia/nv.c\n"
+        )
+        (kernel_open / ".nvidia.o.cmd").write_text(
+            "savedcmd_nvidia.o := ld.lld -r -o nvidia.o nvidia/nv.o\n"
+        )
+        self.assertEqual(kcfi_check.kbuild(kernel_open), [])
+
+        (kernel_open / "nvidia/.nv-acpi.o.cmd").write_text(
+            "savedcmd_nvidia/nv-acpi.o := clang -O2 -c -o nvidia/nv-acpi.o nvidia/nv-acpi.c\n"
+        )
+        found = kcfi_check.kbuild(kernel_open)
+        self.assertEqual(len(found), 1)
+        self.assertIn("nv-acpi.o.cmd", found[0])
+
+    def test_kbuild_without_compile_commands_fails(self):
+        self.assertEqual(len(kcfi_check.kbuild(pathlib.Path(tempfile.mkdtemp()))), 1)
+
     def test_a_log_without_the_warning_fails(self):
         self.assertEqual(len(kcfi_check.casts("CC foo.c\n")), 1)
 

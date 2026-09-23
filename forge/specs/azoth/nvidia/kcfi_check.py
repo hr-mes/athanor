@@ -16,6 +16,11 @@ source and in the build logs:
             stored in a slot whose type differs only by an enum against its
             underlying integer, which C accepts and kCFI hashes apart.
 
+The Kbuild part warns about nothing once patched, so its silence proves nothing:
+
+  kbuild    a C object of kernel-open whose saved Kbuild command (.<obj>.cmd) lacks
+            either warning, or no such command at all.
+
 A function pointer laundered through NvP64 or void * is invisible to all of them:
 only a boot on the hardware with cfi=warn finds those.
 
@@ -27,6 +32,8 @@ Usage: kcfi_check.py SRC LOG...
 import pathlib
 import re
 import sys
+
+WARNINGS = ("-Wcast-function-type-strict", "-Wincompatible-function-pointer-types-strict")
 
 EXPORT = ("NV_STATUS (*)(void *, void *)", "NV_STATUS (*)(void *)")
 # (file, from, to): casts that never reach a call with the wrong type.
@@ -122,13 +129,29 @@ def casts(log):
             found.append(f"casts: {file}: {m.group('src')} -> {m.group('dst')}")
     for m in ENUM.finditer(log):
         msg = re.sub(r" \(aka '[^']*'\)", "", m.group("msg"))
-        found.append(f"enums: {m.group('file').split('/src/')[-1]}: {msg}")
+        found.append(f"enums: {m.group('file').split('/src/', 1)[-1]}: {msg}")
     # The exported-method tables always warn: silence means the flags were lost.
     if exceptions == 0:
         found.append(
             "casts: no -Wcast-function-type-strict warning in the log, the flag did not reach the RM build"
         )
     return sorted(set(found))
+
+
+def kbuild(kernel_open):
+    """The compile commands Kbuild saved for the C objects, each with both warnings."""
+    found, compiled = [], 0
+    for path in sorted(kernel_open.rglob(".*.o.cmd")):
+        command = path.read_text(errors="replace").partition("\n")[0]
+        if " -c " not in command:  # a link of objects, not a compilation
+            continue
+        compiled += 1
+        missing = [w for w in WARNINGS if w not in command.split()]
+        if missing:
+            found.append(f"kbuild: {path.relative_to(kernel_open)} built without {' '.join(missing)}")
+    if compiled == 0:
+        found.append("kbuild: no saved compile command under kernel-open, the Kbuild flags cannot be verified")
+    return found
 
 
 def main(argv):
@@ -139,6 +162,7 @@ def main(argv):
     problems = (
         bindata(generated)
         + exports(generated)
+        + kbuild(pathlib.Path(argv[1]) / "kernel-open")
         + casts("".join(pathlib.Path(a).read_text(errors="replace") for a in argv[2:]))
     )
     for p in problems:
@@ -146,7 +170,7 @@ def main(argv):
     if problems:
         print(f"kcfi_check: {len(problems)} kCFI type mismatches", file=sys.stderr)
         return 1
-    print("kcfi_check: bindata getters, exported methods, function casts and enum slots consistent")
+    print("kcfi_check: bindata getters, exported methods, function casts and enum slots consistent, Kbuild flags present")
     return 0
 
 
