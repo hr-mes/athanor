@@ -538,6 +538,27 @@ solo `-mharden-sls=all` alla parte modeset (qui arriva da `EXTRA_CFLAGS`),
 l'ultima è un hack sul Makefile che non serve, le tre in mezzo sono correzioni
 DSC/DisplayPort: candidate a un `nvidia/patches.list` se servono, non default.
 
+**I tipi kCFI del RM aperto.** NVIDIA non compila il RM con kCFI, e il RM
+contiene chiamate indirette verso funzioni di tipo diverso da quello del punto
+di chiamata: comportamento indefinito che senza kCFI passa inosservato, con
+kCFI una trappola e, con `oops=panic`, un panic all'avvio (610.57.04:
+`kgspAllocateScrubberUcodeImage_IMPL` durante l'avvio del GSP, 2026-09-17).
+Le patch in `nvidia/patches/open/`, applicate da `nvidia.sh` dopo il clone,
+correggono i tipi dove sbagliano: i getter bindata del SEC2 generati con un
+argomento in meno dello slot NVOC che li contiene, i distruttori IOM chiamati
+come `void (*)(Dynamic *)`, la callback del timer chiamata con un tipo di
+ritorno diverso. Una patch che non si applica dopo un bump ferma la build.
+`nvidia/kcfi_check.py` ferma invece la build se compare una violazione nuova:
+confronta ogni getter bindata con la sua dichiarazione NVOC, l'arità di ogni
+voce delle tabelle dei metodi esportati con il suo `paramSize` (resControl la
+riconverte in base a quello), e ammette dal log di `-Wcast-function-type-strict`
+solo i cast ragionati (l'andata e ritorno di quelle tabelle, il parcheggio della
+callback nel timer). Il limite: un puntatore a funzione che passa per `NvP64`
+o `void *` sfugge a entrambi; lo trova solo un avvio con `CFI_PERMISSIVE`
+sull'hardware, che registra le violazioni invece di fermarsi. Le patch sono
+candidate all'upstream; i getter stanno in file generati, quindi la correzione
+vera è nel generatore di NVIDIA.
+
 **Il ramo legacy e il kernel 7.1.** Con `CONFIG_CFI=y`, il 7.1 rifiuta in
 modpost ogni modulo non GPL, anche uno vuoto che include solo `<linux/mm.h>`:
 `KCFI_REFERENCE(__clear_pages_unrolled)` in `asm/page_64.h` mette in ogni

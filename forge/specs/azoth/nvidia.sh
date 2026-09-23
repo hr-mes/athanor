@@ -121,12 +121,23 @@ build() {
       [[ $(git -C "$WORK/src" rev-parse HEAD) == "$NVIDIA_OPEN_COMMIT" ]] \
         || die "tag $NVIDIA_OPEN_VERSION does not point to the pinned commit $NVIDIA_OPEN_COMMIT"
       src="$WORK/src"; kodir="$src/kernel-open"; version=$NVIDIA_OPEN_VERSION
+      # NVIDIA does not build the RM with kCFI: the patches give the functions it calls
+      # indirectly the type of their call sites. A patch that no longer applies after a
+      # bump stops the build here, before a module that would trap at boot.
+      local patch
+      for patch in "$HERE"/nvidia/patches/open/*.patch; do
+        git -C "$src" apply "$patch" || die "${patch##*/} does not apply to $NVIDIA_OPEN_VERSION"
+        echo "applied ${patch##*/}"
+      done
       # The RM part (nv-kernel.o, nv-modeset-kernel.o), built by NVIDIA outside Kbuild:
       # EXTRA_CFLAGS is the hook of utils.mk, and the kernel flags go through it.
+      # -Wcast-function-type-strict feeds kcfi_check.py below.
       rm_targets=(kernel-open/nvidia/nv-kernel.o_binary kernel-open/nvidia-modeset/nv-modeset-kernel.o_binary)
       step "RM part with clang and the kernel flags ($flags)"
-      make -C "$src" -j"$(nproc)" -Otarget CC=clang CXX=clang++ LD=ld.lld AR=llvm-ar EXTRA_CFLAGS="$flags" "${rm_targets[@]}" \
+      make -C "$src" -j"$(nproc)" -Otarget CC=clang CXX=clang++ LD=ld.lld AR=llvm-ar EXTRA_CFLAGS="$flags -Wcast-function-type-strict" "${rm_targets[@]}" \
         > "$OUT/$DRIVER-rm.log" 2>&1 || { tail -n 30 "$OUT/$DRIVER-rm.log"; die "RM part failed, log in $OUT/$DRIVER-rm.log"; }
+      step "kCFI types of the RM part"
+      python3 "$HERE/nvidia/kcfi_check.py" "$src" "$OUT/$DRIVER-rm.log" || die "kCFI type mismatches in the RM part, log in $OUT/$DRIVER-rm.log"
       ;;
     legacy)
       local run="NVIDIA-Linux-x86_64-$NVIDIA_LEGACY_VERSION-no-compat32.run"
