@@ -85,7 +85,7 @@ cosmic-preview)
     ;;
 build-greeter)
     mkdir -p "$out/bin" "$out/target"
-    podman run --rm --memory 8g --security-opt label=disable \
+    podman run --rm --memory 6g --security-opt label=disable \
         -v "$root:/repo:ro" -v "$out:/out" -v athanor-cargo-registry:/root/.cargo/registry \
         -e CARGO_TARGET_DIR=/out/target -w /repo "$local_image:build" \
         bash -c 'cargo clippy --locked -p athanor-greeter-ui -p athanor-style --all-targets -- -D warnings \
@@ -98,7 +98,7 @@ layer-guard)
     rm -f "$out/layer-guard.status"
     # Preloading libwayland-client reproduces the wrong load order on purpose.
     # shellcheck disable=SC2016  # the body is expanded by the shell inside the rig.
-    in_rig "$(rig_image)" env RIG_SETTLE=6 ATHANOR_LOGIN_USER=ermete \
+    in_rig "$(rig_image)" env RIG_SETTLE=6 ATHANOR_LOGIN_USER=rig \
         dbus-run-session -- /repo/forge/test/shell/scene.sh 1280 800 1.0 layer-guard -- \
         bash -c 'LD_PRELOAD=/usr/lib64/libwayland-client.so.0 /out/bin/athanor-greeter-ui; echo $? > /out/layer-guard.status; sleep 60'
     # A greeter that never exits writes no status file: report that, do not die on cat.
