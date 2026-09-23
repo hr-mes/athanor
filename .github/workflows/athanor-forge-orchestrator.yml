@@ -165,6 +165,9 @@ jobs:
     uses: ./.github/workflows/nvidia-kmod.yml
     with:
       kernel_digest: ${{ needs.kernel-artifacts.outputs.kernel_digest }}
+    # A called workflow sees the signing environment's secrets only when the caller
+    # inherits them; without it the sign job reads an empty MODULE_SIGNING_KEY.
+    secrets: inherit
 
   kernel-artifacts-final:
     # The single source of the digests the images are built from: resolved again after
@@ -208,7 +211,14 @@ jobs:
     # gh workflow run -f sends "true"/"false" as a string, which GitHub Actions does not
     # coerce to the declared boolean type, so a bare `|| inputs.force_image` would treat a
     # future explicit "false" as truthy (any non-empty string is truthy).
-    needs: [orchestrator-brain, dag-compile, build-builder, kernel-artifacts, kernel-artifacts-final]
+    needs:
+      [
+        orchestrator-brain,
+        dag-compile,
+        build-builder,
+        kernel-artifacts,
+        kernel-artifacts-final,
+      ]
     if: ${{ !cancelled() && needs.orchestrator-brain.result == 'success' && needs.kernel-artifacts-final.result == 'success' && needs.build-builder.result == 'success' && (needs.dag-compile.result == 'success' || needs.dag-compile.result == 'skipped') && (needs.orchestrator-brain.outputs.has_changes == 'true' || needs.kernel-artifacts.outputs.state != 'ready' || inputs.force_image == true || inputs.force_image == 'true') }}
     uses: ./.github/workflows/call-system-image.yml
     with:
