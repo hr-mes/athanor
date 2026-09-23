@@ -13,19 +13,41 @@ use zeroize::{Zeroize, Zeroizing};
 /// the socket bound into the sandbox from outside.
 const MAX_REPLY_BYTES: u32 = 1024 * 1024;
 
-/// Capacity reserved up front for a serialised request. The longest frame this greeter
-/// sends is a `PostAuthMessageResponse` carrying a password; 4 KiB covers that and every
-/// other request without a single reallocation.
+/// Capacity of the buffer a request is serialised into, and so the largest request this
+/// greeter sends. The longest is a `PostAuthMessageResponse` carrying a password; 4 KiB
+/// covers any password a person types, and a longer one is refused, never reallocated.
 const REQUEST_BUFFER_BYTES: usize = 4096;
+
+/// A writer that appends to a buffer and refuses to grow it. A growing Vec reallocates,
+/// and each buffer it abandons on the way is freed without being erased: with this
+/// writer the only buffer a request ever occupies is the one reserved up front, which
+/// its `Zeroizing` wrapper erases.
+struct FixedBuffer<'a>(&'a mut Vec<u8>);
+
+impl Write for FixedBuffer<'_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if buf.len() > self.0.capacity() - self.0.len() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::OutOfMemory,
+                format!("request larger than {REQUEST_BUFFER_BYTES} bytes"),
+            ));
+        }
+        // Within capacity: extend_from_slice does not reallocate.
+        self.0.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
 
 pub fn send_request(stream: &mut UnixStream, req: &Request) -> Result<Response, String> {
     // The frame of a PostAuthMessageResponse carries the password in cleartext: erase
     // the serialised copy when it goes out of scope rather than leaving it in freed heap.
-    // Serialising into a buffer reserved at its final size matters: a growing Vec
-    // reallocates, and each buffer it abandons on the way is freed without being erased,
-    // leaving copies of the password that the wrapper around the last buffer never reaches.
+    // FixedBuffer keeps it in the one buffer reserved here, so no copy escapes the erasure.
     let mut json = Zeroizing::new(Vec::with_capacity(REQUEST_BUFFER_BYTES));
-    serde_json::to_writer(&mut *json, req).map_err(|e| e.to_string())?;
+    serde_json::to_writer(FixedBuffer(&mut json), req).map_err(|e| e.to_string())?;
     let len = (json.len() as u32).to_ne_bytes();
     stream.write_all(&len).map_err(|e| e.to_string())?;
     stream.write_all(&json).map_err(|e| e.to_string())?;
@@ -302,6 +324,24 @@ mod tests {
         )
         .expect_err("an oversized reply must be refused");
         assert!(err.contains("troppo grande"), "{err}");
+    }
+
+    #[test]
+    fn a_request_longer_than_the_buffer_is_refused_before_anything_is_sent() {
+        let (mut ours, theirs) = UnixStream::pair().expect("a socket pair");
+        let err = send_request(
+            &mut ours,
+            &Request::PostAuthMessageResponse {
+                response: Some("x".repeat(REQUEST_BUFFER_BYTES)),
+            },
+        )
+        .expect_err("an oversized request must be refused");
+        assert!(err.contains("request larger than"), "{err}");
+
+        drop(ours);
+        let mut sent = Vec::new();
+        (&theirs).read_to_end(&mut sent).expect("the peer reads to EOF");
+        assert!(sent.is_empty(), "{} bytes reached the socket", sent.len());
     }
 
     #[test]
