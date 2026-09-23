@@ -127,7 +127,10 @@ else
 fi
 # The NVIDIA driver's device nodes, for the -nvidia image variants: the control and
 # modeset nodes by name, one numbered node per GPU. A node that does not exist is skipped.
-for node in /dev/nvidiactl /dev/nvidia-modeset /dev/nvidia-uvm /dev/nvidia-uvm-tools /dev/nvidia[0-9]*; do
+# The nvidia-uvm nodes serve CUDA only and stay out: the greeter renders without them, and
+# they are created late with a generic SELinux label that xdm_t may not stat, which bwrap
+# treats as fatal and which left the machine at a black screen.
+for node in /dev/nvidiactl /dev/nvidia-modeset /dev/nvidia[0-9]*; do
     set -- "$@" --dev-bind-try "$node" "$node"
 done
 
