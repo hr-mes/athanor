@@ -1,6 +1,6 @@
 # 🌋 Athanor Forge — Private OCI Micro-Container & RPM Forge
 
-> 📚 **Deep-Dive Technical Documentation:** Per l'architettura dettagliata della pipeline CI/CD, l'idempotenza e il meccanismo deterministico Nix-Hermetic, consulta **[Build System & CI/CD Pipeline](../docs/architecture/doc_build_system.md)** e **[Desktop UI Stack](../docs/architecture/doc_shell_ui.md)**.
+> 📚 **Deep-Dive Technical Documentation:** Per l'architettura dettagliata della pipeline CI/CD, l'idempotenza e il meccanismo deterministico Nix-Hermetic, consulta **[Build System & CI/CD Pipeline](../docs/architecture/doc_build_system.md)** e **[Desktop Shell](../docs/architecture/doc_shell.md)**.
 
 **The absolute zero-trust, high-performance CachyOS-level compiler and package builder for Athanor OS.**
 

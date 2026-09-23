@@ -922,7 +922,8 @@ Found on the running system and in the repository (2026-09-14):
   variants (doc_system_image.md, S4). `athanor-base-config` overrides
   `bootc-fetch-apply-updates` to stage updates automatically, which conflicts with the
   confirmation of section 8 once enabled (inactive today only because `80-athanor-system.preset` names the non-existent
-  `bootc-fetch-apply.timer`).
+  `bootc-fetch-apply.timer`); `doc_shell.md`, SH11, removes that override and the preset line and replaces them with a
+  `--download-only` timer that follows section 8.
 - **Command line sources:** `kargs.d` 02–06, `system/athanor-install.ks`,
   `system/scripts/assemble_uki.sh`, `forge/specs/athanor-secure-boot/SOURCES/usr/libexec/athanor-secure-boot-measure.sh`
   (`iommu=pt`, `oops=panic`,
