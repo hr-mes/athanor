@@ -188,16 +188,17 @@ def evr_compare(one, two):
 
 
 def select(primary_xml, names, version, companions=()):
-    """One entry per name at exactly `version`, for x86_64 or noarch, and one per companion
-    (a package whose version does not follow the driver's) at its newest published release."""
-    found = {name: [] for name in names}
-    published = {name: [] for name in companions}
+    """One entry per name at exactly `version`, and one per companion (a package whose version
+    does not follow the driver's) at any version, for x86_64 or noarch. Each takes its newest
+    published release: a repository may keep several rebuilds of one version, and the lock
+    records the chosen file by SHA-256 either way."""
+    releases = {name: [] for name in (*names, *companions)}
     for pkg in parse_xml(primary_xml).iter(f"{COMMON}package"):
         name = pkg.findtext(f"{COMMON}name")
-        if name not in found and name not in published:
+        if name not in releases:
             continue
         ver = attribute(pkg, f"{COMMON}version", "ver", name)
-        if pkg.findtext(f"{COMMON}arch") not in ARCHES or (name in found and ver != version):
+        if pkg.findtext(f"{COMMON}arch") not in ARCHES or (name in names and ver != version):
             continue
         if attribute(pkg, f"{COMMON}checksum", "type", name) != "sha256":
             raise LockError(f"{name}: checksum type {pkg.find(f'{COMMON}checksum').get('type')}, sha256 required")
@@ -205,30 +206,25 @@ def select(primary_xml, names, version, companions=()):
         if not sha:
             raise LockError(f"{name}: empty checksum in the repository metadata")
         entry = {"name": name, "href": attribute(pkg, f"{COMMON}location", "href", name), "sha256": sha}
-        if name in found:
-            found[name].append(entry)
-        else:
-            epoch = pkg.find(f"{COMMON}version").get("epoch") or "0"
-            if not epoch.isascii() or not epoch.isdigit():
-                raise LockError(f"{name}: epoch {epoch!r} in the repository metadata is not a number")
-            evr = (int(epoch), ver, attribute(pkg, f"{COMMON}version", "rel", name))
-            published[name].append((evr, entry))
-    missing = sorted(n for n, entries in found.items() if not entries)
+        epoch = pkg.find(f"{COMMON}version").get("epoch") or "0"
+        if not epoch.isascii() or not epoch.isdigit():
+            raise LockError(f"{name}: epoch {epoch!r} in the repository metadata is not a number")
+        evr = (int(epoch), ver, attribute(pkg, f"{COMMON}version", "rel", name))
+        releases[name].append((evr, entry))
+    missing = sorted(n for n in names if not releases[n])
     if missing:
         raise NotPublished(f"not published at {version}: {', '.join(missing)}")
-    ambiguous = sorted(n for n, entries in found.items() if len(entries) > 1)
-    if ambiguous:
-        raise LockError(f"ambiguous at {version} (several releases or arches): {', '.join(ambiguous)}")
-    missing = sorted(n for n, releases in published.items() if not releases)
+    missing = sorted(n for n in companions if not releases[n])
     if missing:
         raise LockError(f"not published: {', '.join(missing)}")
-    for name, releases in published.items():
-        newest = max((evr for evr, _ in releases), key=functools.cmp_to_key(evr_compare))
-        top = [entry for evr, entry in releases if evr_compare(evr, newest) == 0]
+    chosen = {}
+    for name, published in releases.items():
+        newest = max((evr for evr, _ in published), key=functools.cmp_to_key(evr_compare))
+        top = [entry for evr, entry in published if evr_compare(evr, newest) == 0]
         if len(top) > 1:
             raise LockError(f"ambiguous at its newest release: {name}")
-        found[name] = top
-    return [found[n][0] for n in sorted(found)]
+        chosen[name] = top[0]
+    return [chosen[n] for n in sorted(chosen)]
 
 
 def vtuple(version):
