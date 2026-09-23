@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Builds one Athanor system image (docs/architecture/doc_system_image.md, S2, S8) from
-# system/Containerfile, in CI and locally.
+# system/Containerfile, in CI and locally, from the kernel and NVIDIA module digests that
+# system/kernel-artifacts.sh verified (docs/architecture/doc_build_ordering.md, O4): run its
+# resolve (or require-ready) first. Every image carries the digests it was built from as labels.
 # Usage: build-image.sh --gpu none|nvidia|nvidia-legacy --registry REG --tag TAG [--tag TAG]... [--push|--push-only]
 #   --push       build, then push every tag
 #   --push-only  push every tag of an image built earlier, without building
@@ -53,7 +55,18 @@ if [[ $MODE == push-only ]]; then
   exit 0
 fi
 
-args=(--layers --pull=newer --format docker --build-arg "AZOTH_NVR=$(bash "$ROOT/forge/specs/azoth/nvr.sh")" --build-arg "GPU=$GPU")
+artifact() { bash "$ROOT/system/kernel-artifacts.sh" get "$1"; }
+nvr=$(artifact nvr)
+pinned=$(bash "$ROOT/forge/specs/azoth/nvr.sh")
+[[ $nvr == "$pinned" ]] || { echo "${0##*/}: the kernel artifacts were resolved for ${nvr}, the pins give ${pinned}: run system/kernel-artifacts.sh resolve again" >&2; exit 2; }
+registry=$(artifact registry)
+kernel=$(artifact kernel_digest)
+args=(--layers --pull=newer --format docker --build-arg "AZOTH_NVR=$nvr" --build-arg "GPU=$GPU"
+  --build-arg "KERNEL_REGISTRY=$registry" --label "io.athanor.azoth.digest=$kernel")
+case $GPU in
+  nvidia) modules=$(artifact nvidia_open_digest); args+=(--build-arg "NVIDIA_OPEN_DIGEST=$modules" --label "io.athanor.azoth-nvidia.digest=$modules") ;;
+  nvidia-legacy) modules=$(artifact nvidia_legacy_digest); args+=(--build-arg "NVIDIA_LEGACY_DIGEST=$modules" --label "io.athanor.azoth-nvidia.digest=$modules") ;;
+esac
 if [[ -n ${SECUREBOOT_SIGNING_KEY:-} ]]; then
   # The Secure Boot key and its certificate reach assemble_uki.sh as build secrets: never a layer.
   args+=(--secret "id=uki_key,env=SECUREBOOT_SIGNING_KEY" --secret "id=uki_cert,src=$ROOT/forge/specs/azoth/keys/secureboot/athanor-secureboot.pem")

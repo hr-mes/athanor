@@ -12,6 +12,10 @@ on:
       # already published ISO. Rebuilding the whole DAG when one of its files changes
       # costs an hour and produces the same images.
       - "!forge/test/**"
+      # The kernel directory belongs to Kernel Build, which dispatches this workflow when a
+      # kernel is published or its modules are missing (docs/architecture/doc_build_ordering.md,
+      # O1). No DAG node hashes anything under it.
+      - "!forge/specs/azoth/**"
       # Workspace crates under system/ feed the DAG packages; the Containerfile,
       # scripts and disk configuration under it feed the system image.
       - "system/**"
@@ -21,7 +25,19 @@ on:
       - "flake.lock"
       - ".github/workflows/athanor-forge-orchestrator.yml"
       - ".github/workflows/call-*.yml"
+      # The module chain this workflow calls.
+      - ".github/workflows/nvidia-kmod.yml"
+      - ".github/workflows/nvidia-build.yml"
   workflow_dispatch:
+    inputs:
+      sha:
+        description: "commit whose Kernel Build dispatched this run; empty for a manual run"
+        type: string
+        default: ""
+      force_image:
+        description: "build the system images even when no DAG node changed: the kernel is outside the DAG (Kernel Build sets it)"
+        type: boolean
+        default: false
   schedule:
     - cron: "0 4 * * *"
 
@@ -34,10 +50,16 @@ permissions:
   packages: write
   pull-requests: write
   id-token: write
+  # NVIDIA kmod, called below, attests its modules and reads the run list for its
+  # retention: a called workflow cannot exceed the permissions of its caller.
+  attestations: write
+  actions: read
 
+# A newer run waits instead of cancelling one that may be pushing or signing images; GitHub
+# keeps only the newest waiting run of the group (docs/architecture/doc_build_ordering.md, O6).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   lint:
@@ -80,6 +102,95 @@ jobs:
     needs: [lint]
     uses: ./.github/workflows/call-build-builder.yml
 
+  kernel-artifacts:
+    # The kernel and module artifacts of the pins and whether this run owns their cycle
+    # (docs/architecture/doc_build_ordering.md, O3, O4): system/kernel-artifacts.sh decides,
+    # this job only routes on its answer.
+    # needs: [lint] so a red lint (which runs the system/tests suite that exercises this very
+    # script) cannot still resolve, sign and publish through nvidia-kmod below: before this,
+    # only the image path was gated on lint (transitively, through build-builder). Downstream
+    # of a skipped kernel-artifacts, nvidia-kmod's implicit success() on its needs skips it
+    # too, and kernel-artifacts-final and system-image already check .result == 'success'
+    # explicitly, so nothing past this job can run with lint red.
+    needs: [lint]
+    runs-on: ubuntu-24.04
+    # resolve makes about 11 registry/Rekor calls (skopeo/cosign, twice for the kernel plus
+    # a digest/signed/predicates probe per module branch), each wrapped in retry.sh: 5
+    # attempts, delay doubling from 15 s, so a call that fails every attempt sleeps
+    # 15+30+60+120 = 225 s (~3.75 min) before its own error surfaces. Two or three of the 11
+    # calls hitting a flaky-but-transient registry and retrying to exhaustion (2-3 x ~3.75
+    # min = 7.5-11.25 min) already threatened the previous 15-minute budget; 25 minutes
+    # gives that headroom. A persistent, real error still fails fast, inside the first
+    # attempt of whichever call finds it, so this only changes the diagnosis of a flaky run,
+    # never the outcome of a broken one (review finding 7).
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      # The same knob kernel-build.yml sets, not the REGISTRY above (that one is for the
+      # forge package images this workflow builds, unrelated to the kernel path): a
+      # repository variable override must reach every resolve of the chain identically,
+      # or this job would see kernel-missing forever (doc_build_ordering.md, O9).
+      KERNEL_REGISTRY: ${{ vars.KERNEL_REGISTRY }}
+    outputs:
+      state: ${{ steps.artifacts.outputs.state }}
+      cycle: ${{ steps.artifacts.outputs.cycle }}
+      kernel_digest: ${{ steps.artifacts.outputs.kernel_digest }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+      - name: Resolve the kernel artifacts and the cycle (system/kernel-artifacts.sh)
+        id: artifacts
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          bash system/kernel-artifacts.sh resolve
+          bash system/kernel-artifacts.sh cycle --event "$EVENT" --before "$BEFORE" --after "$AFTER" --sha "$SHA" --head "$GITHUB_SHA"
+          grep -E '^(state|cycle|kernel_digest)=' kernel-artifacts/kernel-artifacts.env >> "$GITHUB_OUTPUT"
+
+  nvidia-kmod:
+    # Only when the modules of the pins are missing; its approval comes before the image's.
+    needs: [kernel-artifacts]
+    if: ${{ needs.kernel-artifacts.outputs.cycle == 'build' && needs.kernel-artifacts.outputs.state == 'modules-missing' }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      actions: read
+    uses: ./.github/workflows/nvidia-kmod.yml
+    with:
+      kernel_digest: ${{ needs.kernel-artifacts.outputs.kernel_digest }}
+
+  kernel-artifacts-final:
+    # The single source of the digests the images are built from: resolved again after
+    # NVIDIA kmod and required to be ready. A job cannot run twice, hence a second job.
+    needs: [kernel-artifacts, nvidia-kmod]
+    if: ${{ !cancelled() && needs.kernel-artifacts.result == 'success' && needs.kernel-artifacts.outputs.cycle == 'build' && (needs.nvidia-kmod.result == 'success' || needs.nvidia-kmod.result == 'skipped') }}
+    runs-on: ubuntu-24.04
+    # require-ready runs the same resolve() as the kernel-artifacts job above, at the same
+    # registry/Rekor cost: see the arithmetic on that job's timeout-minutes.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      # Same knob as the kernel-artifacts job above: require-ready resolves again.
+      KERNEL_REGISTRY: ${{ vars.KERNEL_REGISTRY }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+      - name: Require ready (system/kernel-artifacts.sh)
+        run: bash system/kernel-artifacts.sh require-ready
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kernel-artifacts
+          path: kernel-artifacts/kernel-artifacts.env
+          if-no-files-found: error
+
   dag-compile:
     needs: [orchestrator-brain, build-builder]
     uses: ./.github/workflows/call-dag-compile.yml
@@ -91,10 +202,15 @@ jobs:
       builder_hash: ${{ needs.build-builder.outputs.content_hash }}
 
   system-image:
-    needs: [orchestrator-brain, dag-compile, build-builder]
-    if: ${{ !cancelled() && needs.orchestrator-brain.outputs.has_changes == 'true' && needs.build-builder.result == 'success' && (needs.dag-compile.result == 'success' || needs.dag-compile.result == 'skipped') }}
+    # The images run when a DAG node changed, when the kernel artifacts were not ready at
+    # the start (the kernel is outside the DAG), or when the dispatch forces them (O4).
+    # inputs.force_image is compared against both the boolean and the string form: a
+    # gh workflow run -f sends "true"/"false" as a string, which GitHub Actions does not
+    # coerce to the declared boolean type, so a bare `|| inputs.force_image` would treat a
+    # future explicit "false" as truthy (any non-empty string is truthy).
+    needs: [orchestrator-brain, dag-compile, build-builder, kernel-artifacts, kernel-artifacts-final]
+    if: ${{ !cancelled() && needs.orchestrator-brain.result == 'success' && needs.kernel-artifacts-final.result == 'success' && needs.build-builder.result == 'success' && (needs.dag-compile.result == 'success' || needs.dag-compile.result == 'skipped') && (needs.orchestrator-brain.outputs.has_changes == 'true' || needs.kernel-artifacts.outputs.state != 'ready' || inputs.force_image == true || inputs.force_image == 'true') }}
     uses: ./.github/workflows/call-system-image.yml
     with:
       builder_content_hash: ${{ needs.build-builder.outputs.content_hash }}
-      has_changes: ${{ needs.orchestrator-brain.outputs.has_changes == 'true' }}
     secrets: inherit
