@@ -69,37 +69,6 @@ pub fn verify_auth_token(
     Ok(true)
 }
 
-/// Validates authorization token using Post-Quantum Dilithium5 (ML-DSA) signature.
-pub fn verify_pqc_auth_token(
-    payload: &[u8],
-    signature: &[u8],
-    public_key: &[u8],
-) -> Result<bool, SecurityError> {
-    if pqc_dilithium::verify(signature, payload, public_key).is_ok() {
-        Ok(true)
-    } else {
-        Err(SecurityError::DigestMismatch)
-    }
-}
-
-/// Verifies signature of an open file descriptor directly from the FD (TOCTOU-safe),
-/// opening the file as a file descriptor first (`File::open`), reading and verifying the FD contents,
-/// to prevent symlink race conditions where a file path is modified after check.
-#[cfg(feature = "std")]
-pub fn verify_file_fd_signature(
-    file: &mut std::fs::File,
-    signature: &[u8],
-    public_key: &[u8],
-) -> Result<bool, SecurityError> {
-    use std::io::{Read, Seek, SeekFrom};
-    file.seek(SeekFrom::Start(0)).map_err(|_| SecurityError::BufferTooSmall)?;
-
-    let mut contents = Vec::new();
-    file.read_to_end(&mut contents).map_err(|_| SecurityError::BufferTooSmall)?;
-
-    verify_pqc_auth_token(&contents, signature, public_key)
-}
-
 /// Executes a verified binary via its open file descriptor path `/proc/self/fd/{fd}`
 /// to prevent TOCTOU symlink and path swapping attacks.
 #[cfg(feature = "std")]

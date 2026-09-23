@@ -1,9 +1,7 @@
 use std::fs::File;
 use std::os::unix::fs::MetadataExt;
-use std::io::{Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::Path;
-use athanor_gatekeeper_rs::security::verify_file_fd_signature;
 
 /// Strict seccomp policy for the crosvm VMM. The package installs it read-only under
 /// `/usr`; the Gatekeeper never generates it at runtime, so no writable location can
@@ -89,8 +87,12 @@ fn check_trusted_inode(path: &Path, meta: &std::fs::Metadata, owner_uid: u32) ->
 /// Returns an error when no boundary can be established; the application is never run
 /// outside one. The result names the boundary in use.
 ///
-/// TOCTOU-Safe Implementation: Opens the file as a file descriptor (`File::open`) first,
-/// verifies the FD contents/signature, and hands that same descriptor to the boundary.
+/// TOCTOU-Safe Implementation: Opens the file as a file descriptor (`File::open`) first
+/// and hands that same descriptor to the boundary.
+///
+/// The file itself is not trusted: it runs because the user approved it, and only inside
+/// the boundary. No signature is checked, since no trusted signer exists for quarantined
+/// files and a key read from the file's own attributes would prove nothing.
 pub async fn spawn_microvm_isolated_app(target_path: &Path) -> Result<IsolatedApp, anyhow::Error> {
     let parent = match target_path.parent() {
         Some(p) if p != Path::new("/") => p,
@@ -100,25 +102,14 @@ pub async fn spawn_microvm_isolated_app(target_path: &Path) -> Result<IsolatedAp
         .file_name()
         .ok_or_else(|| anyhow::anyhow!("Target path {:?} has no file name", target_path))?;
 
-    // TOCTOU Fix Step 1: Open the target executable file as a File descriptor first
-    let mut file = File::open(target_path).map_err(|e| {
+    // TOCTOU fix: open the target executable as a file descriptor first
+    let file = File::open(target_path).map_err(|e| {
         anyhow::anyhow!("Failed to open target executable file {:?} safely: {}", target_path, e)
     })?;
 
     let fd = file.as_raw_fd();
     let proc_fd_path = format!("/proc/self/fd/{}", fd);
 
-    // TOCTOU Fix Step 2: Verify FD contents / signature if signature xattr present
-    let sig_attr = xattr::get(&proc_fd_path, "user.athanor.signature").ok().flatten();
-    let pubkey_attr = xattr::get(&proc_fd_path, "user.athanor.pubkey").ok().flatten();
-    if let (Some(sig), Some(pubkey)) = (sig_attr, pubkey_attr) {
-        if !verify_file_fd_signature(&mut file, &sig, &pubkey).unwrap_or(false) {
-            anyhow::bail!("PQC signature verification failed for file descriptor {}", fd);
-        }
-    }
-    // The compartment copies the executable from this descriptor: start from its beginning.
-    file.seek(SeekFrom::Start(0))
-        .map_err(|e| anyhow::anyhow!("Failed to rewind file descriptor {}: {}", fd, e))?;
 
     println!(
         "[Level 11 Micro-VM Hypervisor] Intercepting execution. Launching isolated app for FD {} ({})",

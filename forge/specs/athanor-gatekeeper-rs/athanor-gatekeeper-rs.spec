@@ -100,6 +100,8 @@ EOF
 - Report a launch as approved only when an isolation boundary is running: drop the
   unconfigured firecracker fallback, unshare the network in the bubblewrap
   compartment, and return an error to the D-Bus caller when no boundary starts
+- Drop the signature check on quarantined files: it verified the file against a
+  public key read from the file's own user xattrs, so it proved nothing
 
 * Thu Sep 17 2026 Athanor Forge <forge@athanor.os> - 1.0.0-3
 - Ship the crosvm seccomp policy read-only under /usr and refuse to launch when it is
