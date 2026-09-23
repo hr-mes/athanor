@@ -94,6 +94,8 @@ mkdir -p /etc/yum.repos.d
 * Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-44
 - The greeter session exports the locale of /etc/locale.conf: greetd passes only PAM's
   environment, which left GTK and the date in the C locale.
+  The file is parsed, not sourced: only the locale variables, and only values made of
+  locale-name characters, are taken from it.
 * Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-43
 - The greeter is athanor-greeter-ui: athanor-greeter-client execs
   /usr/bin/athanor-greeter-ui and no longer binds theme.css, which that program does

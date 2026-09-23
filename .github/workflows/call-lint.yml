@@ -47,6 +47,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B -m unittest discover -s forge/specs/athanor-system-services/tests -v
+      - name: Greeter session script (unit tests)
+        run: python3 -B -m unittest discover -s forge/specs/athanor-system-config/tests -v
       # Run directly rather than through unittest discovery: this suite holds no
       # TestCase, so `unittest discover` collects nothing from it and would report a
       # green step having run no check at all. Its own main() runs the cases in order
