@@ -1,0 +1,7 @@
+msgid ""
+msgstr ""
+"Language: it\n"
+"Content-Type: text/plain; charset=ISO-8859-1\n"
+
+msgid "Shut down"
+msgstr "Spegni"

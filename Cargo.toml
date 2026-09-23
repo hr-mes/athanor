@@ -1,33 +1,34 @@
 [workspace]
 members = [
-    "forge/specs/athanor-backup/athanor-backup-1.0.0",
-    "forge/specs/athanor-cloud-rs/athanor-cloud-rs-1.0.0",
-    "forge/specs/athanor-doctor/athanor-doctor-1.0.0",
-    "forge/specs/athanor-gatekeeper-rs/athanor-gatekeeper-rs-1.0.0",
-    "forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0",
-    "forge/specs/athanor-lvfs-rs/athanor-lvfs-rs-1.0.0",
-    "forge/specs/athanor-mdm-rs/athanor-mdm-rs-1.0.0",
-    "forge/specs/athanor-mesh-sync/athanor-mesh-sync-1.0.0",
-    "forge/specs/athanor-recovery/athanor-recovery-1.0.0",
-    "forge/specs/athanor-sysmon-ebpf/athanor-sysmon-ebpf-1.0.0",
-    "forge/specs/athanor-xdg-desktop-portal-athanor/xdg-desktop-portal-athanor-1.0.0",
-    "forge/specs/athanor-niri-ipc",
-    "system/confidential_computing/athanor-attestation",
-    "system/ebpf/ebpf-core",
-    "system/ebpf/ebpf-loader",
-    "system/athanor-agentic-kernel",
-    "system/athanor-bus-api",
-    "system/athanor-cluster-mesh",
-    "system/athanor-compositor",
-    "system/athanor-ebpf-sched",
-    "system/athanor-greeter",
-    "system/athanor-hypervisor-daemon",
-    "system/athanor-init-oracle",
-    "system/athanor-mesh-bus",
-    "system/athanor-net-unikernel",
-    "system/athanor-store",
-    "system/athanor-telemetry",
-    "system/athanor-updater-rs"
+  "forge/specs/athanor-backup/athanor-backup-1.0.0",
+  "forge/specs/athanor-cloud-rs/athanor-cloud-rs-1.0.0",
+  "forge/specs/athanor-doctor/athanor-doctor-1.0.0",
+  "forge/specs/athanor-gatekeeper-rs/athanor-gatekeeper-rs-1.0.0",
+  "forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0",
+  "forge/specs/athanor-lvfs-rs/athanor-lvfs-rs-1.0.0",
+  "forge/specs/athanor-mdm-rs/athanor-mdm-rs-1.0.0",
+  "forge/specs/athanor-mesh-sync/athanor-mesh-sync-1.0.0",
+  "forge/specs/athanor-recovery/athanor-recovery-1.0.0",
+  "forge/specs/athanor-sysmon-ebpf/athanor-sysmon-ebpf-1.0.0",
+  "forge/specs/athanor-xdg-desktop-portal-athanor/xdg-desktop-portal-athanor-1.0.0",
+  "forge/specs/athanor-niri-ipc",
+  "system/confidential_computing/athanor-attestation",
+  "system/ebpf/ebpf-core",
+  "system/ebpf/ebpf-loader",
+  "system/athanor-agentic-kernel",
+  "system/athanor-bus-api",
+  "system/athanor-cluster-mesh",
+  "system/athanor-compositor",
+  "system/athanor-ebpf-sched",
+  "system/athanor-greeter",
+  "system/athanor-hypervisor-daemon",
+  "system/athanor-i18n",
+  "system/athanor-init-oracle",
+  "system/athanor-mesh-bus",
+  "system/athanor-net-unikernel",
+  "system/athanor-store",
+  "system/athanor-telemetry",
+  "system/athanor-updater-rs",
 ]
 
 # Out of this workspace since 2026-09-19 (doc_shell.md, SH4): gtk4-sys declares
@@ -35,14 +36,14 @@ members = [
 # its dock are frozen at GTK 0.7 in forge/specs/athanor-shell-rs/, a workspace of their
 # own; the other four ship nothing and are built by nothing until they are redesigned.
 exclude = [
-    "tests/fuzz",
-    "forge/tools/calmo-cosmic-theme",
-    "forge/specs/athanor-shell-rs",
-    "forge/specs/athanor-dock/athanor-dock-1.0.0",
-    "forge/specs/athanor-daemon-rs/athanor-daemon-rs-0.2.1",
-    "forge/specs/athanor-settings-rs/athanor-settings-rs-1.0.0",
-    "forge/specs/athanor-store-rs/athanor-store-rs-1.0.0",
-    "system/athanor-oobe"
+  "tests/fuzz",
+  "forge/tools/calmo-cosmic-theme",
+  "forge/specs/athanor-shell-rs",
+  "forge/specs/athanor-dock/athanor-dock-1.0.0",
+  "forge/specs/athanor-daemon-rs/athanor-daemon-rs-0.2.1",
+  "forge/specs/athanor-settings-rs/athanor-settings-rs-1.0.0",
+  "forge/specs/athanor-store-rs/athanor-store-rs-1.0.0",
+  "system/athanor-oobe",
 ]
 
 resolver = "2"
@@ -117,7 +118,3 @@ panic = "abort"
 strip = true
 rpath = false
 overflow-checks = true
-
-
-
-

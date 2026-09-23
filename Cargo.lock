@@ -463,6 +463,7 @@ dependencies = [
 name = "athanor-greeter-ui"
 version = "1.0.0"
 dependencies = [
+ "athanor-i18n",
  "chrono",
  "glib",
  "greetd_ipc",
@@ -501,6 +502,10 @@ dependencies = [
  "vmm-sys-util",
  "zbus",
 ]
+
+[[package]]
+name = "athanor-i18n"
+version = "1.0.0"
 
 [[package]]
 name = "athanor-init-oracle"
