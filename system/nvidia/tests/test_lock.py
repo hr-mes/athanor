@@ -57,12 +57,21 @@ class Select(unittest.TestCase):
         with self.assertRaisesRegex(lock.LockError, "DTD"):
             lock.select(xml, ["nvidia-driver"], "610.57.04")
 
-    def test_two_releases_of_one_version_are_ambiguous(self):
+    def test_two_releases_of_one_version_take_the_newest(self):
         xml = primary(
-            package("nvidia-driver", 3, "610.57.04", "1.fc43", "x86_64", "a.rpm", "a" * 64),
+            package("nvidia-driver", 3, "610.57.04", "10.fc43", "x86_64", "a.rpm", "a" * 64),
             package("nvidia-driver", 3, "610.57.04", "2.fc43", "x86_64", "b.rpm", "b" * 64),
+            package("nvidia-driver", 3, "615.71.09", "1.fc43", "x86_64", "c.rpm", "c" * 64),
         )
-        with self.assertRaisesRegex(lock.LockError, "ambiguous"):
+        got = lock.select(xml, ["nvidia-driver"], "610.57.04")
+        self.assertEqual([(e["href"], e["sha256"]) for e in got], [("a.rpm", "a" * 64)])
+
+    def test_one_release_twice_is_ambiguous(self):
+        xml = primary(
+            package("nvidia-driver", 3, "610.57.04", "2.fc43", "x86_64", "a.rpm", "a" * 64),
+            package("nvidia-driver", 3, "610.57.04", "2.fc43", "noarch", "b.rpm", "b" * 64),
+        )
+        with self.assertRaisesRegex(lock.LockError, "ambiguous at its newest release: nvidia-driver"):
             lock.select(xml, ["nvidia-driver"], "610.57.04")
 
     def test_utf16le_without_bom_with_doctype_is_refused(self):

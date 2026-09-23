@@ -13,6 +13,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 SCRIPT = ROOT / "system" / "kernel-artifacts.sh"
 PINS = dict(re.findall(r"^(\w+)=(.*)$", (ROOT / "forge/specs/azoth/pins.env").read_text(), re.M))
+# A version the NVIDIA open pin never holds, so a bump built from it always moves the pin.
+NVIDIA_OPEN_BUMP = f"{PINS['NVIDIA_OPEN_VERSION']}.1"
 NVR = subprocess.run(["bash", str(ROOT / "forge/specs/azoth/nvr.sh")], capture_output=True, text=True, check=True).stdout.strip()
 REG = "ghcr.io/hr-mes"
 KERNEL = "sha256:" + "1" * 64
@@ -710,7 +712,7 @@ class CheckPlan(Repo):
 
     def test_nvidia_pin_bump_builds_the_default_image(self):
         self.state("modules-missing", kernel_digest=KERNEL)
-        r = self.plan({**self.pin_change(NVIDIA_OPEN_VERSION="615.71.09"), "system/nvidia/locks/open.lock": "l\n"})
+        r = self.plan({**self.pin_change(NVIDIA_OPEN_VERSION=NVIDIA_OPEN_BUMP), "system/nvidia/locks/open.lock": "l\n"})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual((self.state_file()["check_gpus"], self.state_file()["check_delta"]), ("none", "true"))
 
@@ -722,14 +724,14 @@ class CheckPlan(Repo):
 
     def test_nvidia_and_kernel_pins_together_with_missing_modules_fail(self):
         self.state("modules-missing", kernel_digest=KERNEL)
-        r = self.plan(self.pin_change(NVIDIA_OPEN_VERSION="615.71.09", CACHYOS_PATCHES_COMMIT="f" * 40))
+        r = self.plan(self.pin_change(NVIDIA_OPEN_VERSION=NVIDIA_OPEN_BUMP, CACHYOS_PATCHES_COMMIT="f" * 40))
         self.assertEqual(r.returncode, 1)
 
     def test_kernel_missing_with_only_nvidia_pins_moved_fails(self):
         # only_kernel_pins is true (the diff touches only pins.env, a KERNEL_PIN_FILES member),
         # but no kernel pin actually moved: that never explains a missing kernel.
         self.state("kernel-missing")
-        r = self.plan(self.pin_change(NVIDIA_OPEN_VERSION="615.71.09"))
+        r = self.plan(self.pin_change(NVIDIA_OPEN_VERSION=NVIDIA_OPEN_BUMP))
         self.assertEqual(r.returncode, 1)
 
     def test_kernel_pin_files_match_the_bump_workflow(self):
