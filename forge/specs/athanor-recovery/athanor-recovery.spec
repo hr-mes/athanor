@@ -30,8 +30,8 @@ install -D -m 0755 target/release/athanor-recovery-ui %{buildroot}/usr/bin/athan
 install -D -m 0644 %{crate_dir}/systemd/athanor-recovery.service %{buildroot}/usr/lib/systemd/system/athanor-recovery.service
 install -D -m 0644 %{crate_dir}/systemd/athanor-recovery.target %{buildroot}/usr/lib/systemd/system/athanor-recovery.target
 install -D -m 0644 %{crate_dir}/systemd/greetd-recovery-fallback.conf %{buildroot}/usr/lib/systemd/system/greetd.service.d/recovery-fallback.conf
-/usr/lib/sysusers.d/athanor-recovery.conf
 install -D -m 0644 %{crate_dir}/systemd/athanor-recovery.sysusers %{buildroot}/usr/lib/sysusers.d/athanor-recovery.conf
+install -D -m 0644 %{crate_dir}/systemd/athanor-recovery.pam %{buildroot}/usr/lib/pam.d/athanor-recovery
 
 %files
 /usr/bin/athanor-recovery-ui
@@ -39,6 +39,8 @@ install -D -m 0644 %{crate_dir}/systemd/athanor-recovery.sysusers %{buildroot}/u
 /usr/lib/systemd/system/athanor-recovery.target
 %dir /usr/lib/systemd/system/greetd.service.d
 /usr/lib/systemd/system/greetd.service.d/recovery-fallback.conf
+/usr/lib/sysusers.d/athanor-recovery.conf
+/usr/lib/pam.d/athanor-recovery
 
 %changelog
 * Thu Sep 24 2026 Athanor Forge <forge@athanor.os> - 1.0.0-5
@@ -47,6 +49,9 @@ install -D -m 0644 %{crate_dir}/systemd/athanor-recovery.sysusers %{buildroot}/u
   left a black screen.
 - Give the kiosk a RuntimeDirectory for XDG_RUNTIME_DIR: /run/user belongs to root and
   the kiosk user could not create its own directory there.
+- Run the kiosk in a logind session: PAMName=athanor-recovery with its own session
+  stack, on VT1 where greetd was. Without a session cosmic-comp could not become DRM
+  master nor open the input devices, so the kiosk could not draw.
 * Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-5
 - Build against gtk4 0.11 and relm4 0.11 (doc_shell.md, SH4). No source change was needed.
 * Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - recovery on cosmic-comp
