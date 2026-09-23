@@ -18,6 +18,7 @@
 @define-color ath_ink #0e101b;
 @define-color ath_ink2 #33374c;
 @define-color ath_ink3 #585c74;
+@define-color ath_ink_ph #484c60;
 @define-color ath_line #636883;
 @define-color ath_ok #12805f;
 @define-color ath_ok_bg #dbf4ec;
@@ -44,14 +45,10 @@ window.athanor-surface *:focus-visible {
     outline-offset: 2px;
 }
 
-/* The hearth: concentric discs rising from the bottom right corner. */
+/* The hearth: concentric discs rising from the bottom right corner. High contrast
+ * variants replace this with a flat, gated fill instead (no discs in the mockup). */
 window.athanor-greeter {
-    background-image:
-        radial-gradient(circle at 80% 122%, @ath_d1 0%, @ath_d1 22%, transparent 22.12%),
-        radial-gradient(circle at 80% 122%, @ath_d2 0%, @ath_d2 37%, transparent 37.12%),
-        radial-gradient(circle at 80% 122%, @ath_d3 0%, @ath_d3 54%, transparent 54.12%),
-        radial-gradient(circle at 80% 122%, @ath_d4 0%, @ath_d4 74%, transparent 74.12%),
-        linear-gradient(165deg, @ath_bg1, @ath_bg2);
+    background-color: @ath_bg1;
 }
 
 .greeter-wordmark {
@@ -77,7 +74,7 @@ window.athanor-greeter {
 
 .greeter-card {
     background-color: @ath_surf;
-    border: 1px solid @ath_line;
+    border: 2px solid @ath_line;
     border-radius: 18px;
     box-shadow: 0 2px 6px @ath_shadow_near, 0 24px 60px @ath_shadow_float;
     padding: 22px 22px 18px 22px;
@@ -103,7 +100,7 @@ window.athanor-greeter {
     min-height: 40px;
     border-radius: 11px;
     background-color: @ath_surf2;
-    border: 1.5px solid @ath_acc;
+    border: 2px solid @ath_acc;
     color: @ath_ink;
     caret-color: @ath_acc;
     padding: 0 5px 0 12px;
@@ -113,6 +110,11 @@ window.athanor-greeter {
 
 .greeter-field image {
     color: @ath_ink3;
+}
+
+.greeter-field text placeholder {
+    color: @ath_ink_ph;
+    opacity: 1;
 }
 
 .greeter-submit {
@@ -149,7 +151,7 @@ window.athanor-greeter {
     min-height: 34px;
     min-width: 34px;
     padding: 0 10px;
-    border: 1px solid @ath_line;
+    border: 2px solid @ath_line;
     border-radius: 10px;
     background-image: none;
     background-color: @ath_bar;

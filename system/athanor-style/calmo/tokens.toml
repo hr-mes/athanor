@@ -48,6 +48,7 @@ line = { s = 26, l = 87 }
 ink = { s = 32, l = 15 }
 ink2 = { s = 14, l = 40 }
 ink3 = { s = 12, l = 58 }
+ink_ph = { s = 14, l = 50 }
 chip = { s = 30, l = 93.5 }
 acc = { s = "accent", l = 47 }
 acc_ink = "#ffffff"
@@ -78,6 +79,7 @@ line = { s = 22, l = 25 }
 ink = { s = 40, l = 95 }
 ink2 = { s = 18, l = 72 }
 ink3 = { s = 14, l = 54 }
+ink_ph = { s = 16, l = 46 }
 chip = { s = 24, l = 21 }
 acc = { s = "accent+25", l = 75 }
 acc_ink = { s = 50, l = 10 }
@@ -103,6 +105,7 @@ inherits = "light"
 ink = { s = 32, l = 8 }
 ink2 = { s = 20, l = 25 }
 ink3 = { s = 14, l = 40 }
+ink_ph = { s = 14, l = 33 }
 line = { s = 14, l = 45 }
 acc = { s = "accent", l = 38 }
 clock_ink = { s = 40, l = 10 }
@@ -113,6 +116,7 @@ inherits = "dark"
 ink = { s = 40, l = 98 }
 ink2 = { s = 18, l = 84 }
 ink3 = { s = 18, l = 72 }
+ink_ph = { s = 18, l = 70 }
 line = { s = 14, l = 54 }
 acc = { s = "accent+25", l = 82 }
 clock_ink = { s = 60, l = 99 }
@@ -131,6 +135,20 @@ fg = "ink2"
 bg = ["surf", "surf2", "bar"]
 each = true
 kind = "text"
+only = ["light", "dark"]
+[[pair]]
+fg = "ink2"
+bg = ["surf", "surf2", "bar"]
+each = true
+kind = "text"
+min = 7.0
+only = ["light-hc", "dark-hc"]
+[[pair]]
+fg = "ink_ph"
+bg = "surf2"
+kind = "text"
+min = 7.0
+only = ["light-hc", "dark-hc"]
 [[pair]]
 fg = "ink3"
 bg = ["surf", "surf2", "bar"]

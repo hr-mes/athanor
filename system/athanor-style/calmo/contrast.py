@@ -1,4 +1,5 @@
 """WCAG AA gate over every declared pair of the tokens, in the four variants."""
+
 import sys
 
 import tokens as tk
@@ -38,7 +39,17 @@ def check(tokens):
                 continue
             bg = flatten(pair["bg"], palette)
             fg = over(palette[pair["fg"]], bg)
-            rows.append((variant, pair["fg"], pair["bg"], pair["kind"], contrast(fg, bg), THRESHOLD[pair["kind"]]))
+            needed = pair.get("min", THRESHOLD[pair["kind"]])
+            rows.append(
+                (
+                    variant,
+                    pair["fg"],
+                    pair["bg"],
+                    pair["kind"],
+                    contrast(fg, bg),
+                    needed,
+                )
+            )
     return rows
 
 
@@ -47,7 +58,9 @@ def main():
     for variant, fg, bg, kind, ratio, needed in check(tk.load()):
         ok = ratio >= needed
         failures += not ok
-        print(f"{'ok  ' if ok else 'FAIL'} {variant:9s} {fg:13s} on {str(bg):34s} {kind:5s} {ratio:5.2f} (needs {needed})")
+        print(
+            f"{'ok  ' if ok else 'FAIL'} {variant:9s} {fg:13s} on {str(bg):34s} {kind:5s} {ratio:5.2f} (needs {needed})"
+        )
     print(f"{failures} failing pair(s)")
     return 1 if failures else 0
 

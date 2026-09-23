@@ -18,6 +18,7 @@
 @define-color ath_ink #edeff7;
 @define-color ath_ink2 #abafc4;
 @define-color ath_ink3 #797e9a;
+@define-color ath_ink_ph #636888;
 @define-color ath_line #32364e;
 @define-color ath_ok #5fdcc0;
 @define-color ath_ok_bg #103d38;
@@ -44,7 +45,8 @@ window.athanor-surface *:focus-visible {
     outline-offset: 2px;
 }
 
-/* The hearth: concentric discs rising from the bottom right corner. */
+/* The hearth: concentric discs rising from the bottom right corner. High contrast
+ * variants replace this with a flat, gated fill instead (no discs in the mockup). */
 window.athanor-greeter {
     background-image:
         radial-gradient(circle at 80% 122%, @ath_d1 0%, @ath_d1 22%, transparent 22.12%),
@@ -113,6 +115,11 @@ window.athanor-greeter {
 
 .greeter-field image {
     color: @ath_ink3;
+}
+
+.greeter-field text placeholder {
+    color: @ath_ink_ph;
+    opacity: 1;
 }
 
 .greeter-submit {
