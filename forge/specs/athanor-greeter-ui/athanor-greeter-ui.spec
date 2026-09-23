@@ -1,12 +1,12 @@
 %global debug_package %{nil}
 Name:           athanor-greeter-ui
 Version:        1.0.0
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        The Athanor greeter
 License:        MIT
 
 BuildRequires:  rust cargo gcc pkgconf-pkg-config gtk4-devel glib2-devel gtk4-layer-shell-devel binutils python3 gettext
-Requires:       gtk4 gtk4-layer-shell greetd
+Requires:       gtk4 gtk4-layer-shell greetd athanor-calmo cosmic-icon-theme
 
 %description
 The greeter of Athanor OS: one GTK4 layer-shell surface that talks to greetd. A program
@@ -43,6 +43,23 @@ python3 -B forge/scripts/check_shim_link_order.py target/release/athanor-greeter
 %lang(en) /usr/share/locale/en/LC_MESSAGES/athanor-greeter-ui.mo
 
 %changelog
+* Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-3
+- The greeter is drawn on the Calmo tokens (doc_shell.md, SH5): the generated GTK4
+  stylesheet of the variant replaces the inline sheet, in light, dark and their
+  high-contrast forms, chosen by ATHANOR_GREETER_VARIANT and by a high-contrast toggle.
+  It reads nothing from COSMIC.
+- Every interactive widget has an accessible name, a failed sign-in is an alert, every
+  string is translated through athanor-i18n, and the layout mirrors for a right-to-left
+  language.
+- The seal is shown top right with the exclamation badge and "Not verified". This is a
+  constant on purpose: the greeter has no verifier to ask until the shield package
+  binds the trust state file into its sandbox, and it never shows the check meanwhile.
+- The password field is GtkPasswordEntry: its peek icon and Caps Lock warning replace
+  the hand-made ones, which drew Nerd Font glyphs no shipped font has.
+- Removed: the "Theme" button, which was connected to nothing, and the session badge
+  under the user name.
+- The keyboard layout chip shows what the seat reports and is hidden when it reports none.
+
 * Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-2
 - Italian and English catalogs, read by athanor-i18n.
 

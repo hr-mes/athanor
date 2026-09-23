@@ -1,232 +1,170 @@
-use crate::auth::*;
+//! The greeter: the first Athanor surface drawn on the Calmo tokens.
+//!
+//! It reads nothing from COSMIC: the accent is the factory accent, and the variant comes
+//! from ATHANOR_GREETER_VARIANT and from the high-contrast toggle (doc_shell.md, SH5).
+//! Every interactive widget carries an accessible name and every string goes through
+//! gettext (SH13).
+
+use std::rc::Rc;
+
+use athanor_style::calmo::{self, Variant};
+use gtk4::accessible::Property;
 use gtk4::prelude::*;
-use gtk4::{Align, Application, ApplicationWindow, Box, Button, Entry, Label, Orientation};
-use gtk4_layer_shell::{Edge, Layer, LayerShell};
+use gtk4::{
+    gdk, Align, Application, ApplicationWindow, Box, Button, Image, Label, Orientation,
+    PasswordEntry, ToggleButton,
+};
+use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
-const GREETER_CSS: &str = r#"
-window.background {
-    background-color: transparent;
+use crate::auth::{authenticate_interactive, discover_target_user, UserInfo};
+use crate::i18n::{tr, tr_with};
+
+/// The seal's state. The greeter has no verifier to ask yet: package 1b-shield binds the
+/// root-owned trust state file into the sandbox and replaces this constant with what
+/// that file says. Until then the only claim the greeter can back is "not verified", so
+/// it shows the exclamation badge and never the check (doc_shell.md, SH1 "no facades",
+/// SH12 "the shield reports only what a verifier backs").
+const SEAL_ICON: &str = "athanor-seal-attention-symbolic";
+
+/// The icons come from the theme the image ships (doc_shell.md, SH5: cosmic-icon-theme
+/// stays in stage 1); the seal is ours, installed into hicolor, which every theme inherits.
+const ICON_THEME: &str = "Cosmic";
+
+fn initial_variant() -> Variant {
+    std::env::var("ATHANOR_GREETER_VARIANT")
+        .ok()
+        .and_then(|name| Variant::from_name(&name))
+        .unwrap_or(Variant::Light)
 }
 
-.greeter-backdrop {
-    background-color: rgba(10, 12, 18, 0.45);
+fn named<W: IsA<gtk4::Widget> + IsA<gtk4::Accessible>>(widget: &W, id: &str, label: &str) {
+    widget.set_widget_name(id);
+    widget.update_property(&[Property::Label(label)]);
 }
 
-.greeter-topbar-title {
-    font-family: 'Inter', 'SF Pro Display', sans-serif;
-    font-size: 14px;
-    font-weight: 800;
-    letter-spacing: 4px;
-    color: rgba(255, 255, 255, 0.90);
-    text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+fn icon_chip(id: &str, icon: &str, label: &str) -> Button {
+    let button = Button::builder()
+        .icon_name(icon)
+        .css_classes(["greeter-chip"])
+        .tooltip_text(label)
+        .build();
+    named(&button, id, label);
+    button
 }
 
-.greeter-status-pill {
-    font-family: 'Inter', 'SF Pro Text', sans-serif;
-    font-size: 13px;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.95);
-    background-color: rgba(255, 255, 255, 0.15);
-    padding: 8px 16px;
-    border-radius: 999px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    transition: background-color 0.3s ease;
+fn now_text(format: &str) -> String {
+    glib::DateTime::now_local()
+        .and_then(|now| now.format(format))
+        .map(|text| text.to_string())
+        .unwrap_or_default()
 }
 
-.greeter-status-pill:hover {
-    background-color: rgba(255, 255, 255, 0.25);
+/// The avatar: the account's picture when there is one, the initial on the accent otherwise.
+fn avatar(user: &UserInfo) -> gtk4::Widget {
+    if let Some(path) = &user.avatar_path {
+        let picture = gtk4::Picture::for_filename(path);
+        picture.set_size_request(60, 60);
+        picture.set_content_fit(gtk4::ContentFit::Cover);
+        picture.set_overflow(gtk4::Overflow::Hidden);
+        picture.add_css_class("greeter-avatar");
+        picture.set_halign(Align::Center);
+        picture.update_property(&[Property::Label(&user.real_name)]);
+        return picture.upcast();
+    }
+    let initial: String = user
+        .real_name
+        .chars()
+        .next()
+        .map(|c| c.to_uppercase().collect())
+        .unwrap_or_default();
+    Label::builder()
+        .label(initial)
+        .css_classes(["greeter-avatar"])
+        .halign(Align::Center)
+        .build()
+        .upcast()
 }
 
-.greeter-clock-time {
-    font-family: 'Inter', 'SF Pro Display', sans-serif;
-    font-size: 84px;
-    font-weight: 300;
-    color: #ffffff;
-    letter-spacing: -3px;
-    text-shadow: 0 8px 24px rgba(0,0,0,0.4);
-    margin-bottom: -10px;
-}
-
-.greeter-clock-date {
-    font-family: 'Inter', 'SF Pro Text', sans-serif;
-    font-size: 20px;
-    font-weight: 500;
-    color: rgba(255, 255, 255, 0.90);
-    margin-bottom: 24px;
-    text-shadow: 0 4px 12px rgba(0,0,0,0.4);
-}
-
-.greeter-card {
-    background-color: rgba(24, 27, 36, 0.55);
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    border-radius: 36px;
-    padding: 42px 52px;
-    min-width: 400px;
-    box-shadow: 0 32px 84px rgba(0, 0, 0, 0.8), inset 0 1px 1px rgba(255, 255, 255, 0.15);
-    transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-}
-
-.greeter-avatar-frame {
-    border: 2px solid rgba(255, 255, 255, 0.4);
-    border-radius: 999px;
-    min-width: 96px;
-    min-height: 96px;
-    background-color: rgba(255, 255, 255, 0.15);
-    font-size: 40px;
-    color: #ffffff;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
-    transition: all 0.3s ease;
-}
-
-.greeter-user-name {
-    font-family: 'Inter', 'SF Pro Display', sans-serif;
-    font-size: 26px;
-    font-weight: 700;
-    color: #ffffff;
-    margin-top: 18px;
-    text-shadow: 0 4px 16px rgba(0,0,0,0.5);
-}
-
-.greeter-badge {
-    font-family: 'Inter', 'SF Pro Text', sans-serif;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    color: rgba(255, 255, 255, 0.70);
-    margin-top: 6px;
-    margin-bottom: 22px;
-}
-
-.greeter-caps-pill {
-    font-family: 'Inter', 'SF Pro Text', sans-serif;
-    font-size: 12px;
-    font-weight: 700;
-    border-radius: 999px;
-    padding: 6px 14px;
-    margin-bottom: 12px;
-    letter-spacing: 1px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    transition: all 0.3s ease;
-    color: #ffd166;
-    background-color: rgba(255, 209, 102, 0.20);
-    border: 1px solid rgba(255, 209, 102, 0.40);
-}
-
-.greeter-entry-box {
-    background-color: rgba(0, 0, 0, 0.25);
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    border-radius: 20px;
-    padding: 6px 10px;
-    box-shadow: inset 0 2px 8px rgba(0,0,0,0.3);
-    transition: all 0.3s ease;
-}
-
-.greeter-entry-box:focus-within {
-    border-color: rgba(255, 255, 255, 0.6);
-    background-color: rgba(0, 0, 0, 0.35);
-    box-shadow: inset 0 2px 8px rgba(0,0,0,0.4), 0 0 12px rgba(255,255,255,0.2);
-}
-
-.greeter-entry {
-    background: transparent;
-    border: none;
-    color: #ffffff;
-    caret-color: #6ea8fe;
-    font-family: 'Inter', 'SF Pro Text', sans-serif;
-    font-size: 16px;
-    min-height: 44px;
-    box-shadow: none;
-}
-
-.greeter-icon-btn {
-    background: transparent;
-    border: none;
-    color: rgba(255, 255, 255, 0.75);
-    font-size: 18px;
-    padding: 8px 12px;
-    border-radius: 12px;
-    transition: all 0.2s ease;
-    box-shadow: none;
-}
-
-.greeter-icon-btn:hover {
-    background-color: rgba(255, 255, 255, 0.15);
-    color: #ffffff;
-}
-
-.greeter-error {
-    color: #ff6b6b;
-    font-family: 'Inter', 'SF Pro Text', sans-serif;
-    font-size: 14px;
-    font-weight: 600;
-    margin-top: 12px;
-    transition: opacity 0.3s ease;
-}
-
-.greeter-status-msg {
-    color: #6ea8fe;
-    font-family: 'Inter', 'SF Pro Text', sans-serif;
-    font-size: 14px;
-    font-weight: 600;
-    margin-top: 12px;
-    transition: opacity 0.3s ease;
-}
-
-.greeter-power-btn {
-    background-color: rgba(255, 255, 255, 0.15);
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    border-radius: 999px;
-    color: #ffffff;
-    font-family: 'Inter', 'SF Pro Text', sans-serif;
-    font-size: 14px;
-    font-weight: 600;
-    padding: 12px 24px;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
-    transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-}
-
-.greeter-power-btn:hover {
-    background-color: rgba(255, 255, 255, 0.25);
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
-}
-"#;
-
-fn format_italian_date(now: &chrono::DateTime<chrono::Local>) -> String {
-    use chrono::Datelike;
-    let weekday = match now.weekday() {
-        chrono::Weekday::Mon => "Lunedì",
-        chrono::Weekday::Tue => "Martedì",
-        chrono::Weekday::Wed => "Mercoledì",
-        chrono::Weekday::Thu => "Giovedì",
-        chrono::Weekday::Fri => "Venerdì",
-        chrono::Weekday::Sat => "Sabato",
-        chrono::Weekday::Sun => "Domenica",
+/// The keyboard layout, read from the seat. Hidden when the seat names none: the chip
+/// never shows a constant.
+fn layout_chip(display: &gdk::Display) -> Label {
+    let chip = Label::builder()
+        .css_classes(["greeter-chip"])
+        .visible(false)
+        .build();
+    chip.set_widget_name("greeter-layout");
+    let Some(keyboard) = display.default_seat().and_then(|seat| seat.keyboard()) else {
+        return chip;
     };
-    let month = match now.month() {
-        1 => "gennaio",
-        2 => "febbraio",
-        3 => "marzo",
-        4 => "aprile",
-        5 => "maggio",
-        6 => "giugno",
-        7 => "luglio",
-        8 => "agosto",
-        9 => "settembre",
-        10 => "ottobre",
-        11 => "novembre",
-        12 => "dicembre",
-        _ => "",
+    let refresh = {
+        let chip = chip.clone();
+        move |keyboard: &gdk::Device| {
+            let names = keyboard.layout_names();
+            let active = usize::try_from(keyboard.active_layout_index())
+                .ok()
+                .and_then(|index| names.get(index));
+            match active {
+                Some(name) => {
+                    chip.set_label(name);
+                    chip.update_property(&[Property::Label(&tr_with(
+                        "Keyboard layout: {layout}",
+                        "layout",
+                        name,
+                    ))]);
+                    chip.set_visible(true);
+                }
+                None => chip.set_visible(false),
+            }
+        }
     };
-    format!("{}, {} {}", weekday, now.day(), month)
+    refresh(&keyboard);
+    keyboard.connect_active_layout_index_notify(refresh.clone());
+    keyboard.connect_layout_names_notify(refresh);
+    chip
+}
+
+#[derive(Clone, Copy)]
+enum Power {
+    Suspend,
+    Restart,
+    ShutDown,
+}
+
+fn power_chip(id: &str, icon: &str, label: &str, which: Power) -> Button {
+    let button = icon_chip(id, icon, label);
+    button.connect_clicked(move |_| {
+        glib::MainContext::default().spawn_local(async move {
+            let result = async {
+                let connection = zbus::Connection::system().await?;
+                let proxy = crate::power::LogindProxy::new(&connection).await?;
+                match which {
+                    Power::Suspend => proxy.suspend(true).await,
+                    Power::Restart => proxy.reboot(true).await,
+                    Power::ShutDown => proxy.power_off(true).await,
+                }
+            }
+            .await;
+            if let Err(err) = result {
+                tracing::error!(error = %err, "logind refused the power request");
+            }
+        });
+    });
+    button
 }
 
 pub fn build_ui(app: &Application) {
-    let title = "Athanor Greeter";
+    // The direction comes from the language of the catalog in use, not from a process
+    // locale, and has to be set before the first widget exists.
+    if crate::i18n::is_rtl() {
+        gtk4::Widget::set_default_direction(gtk4::TextDirection::Rtl);
+    }
+
     let window = ApplicationWindow::builder()
         .application(app)
-        .title(title)
+        .title("Athanor")
         .build();
+    window.add_css_class("athanor-surface");
+    window.add_css_class("athanor-greeter");
 
     window.init_layer_shell();
     if let Err(reason) = crate::layer_guard::require_layer_surface(&window) {
@@ -236,361 +174,249 @@ pub fn build_ui(app: &Application) {
         std::process::exit(1);
     }
     window.set_layer(Layer::Overlay);
-    window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::Exclusive);
+    window.set_keyboard_mode(KeyboardMode::Exclusive);
     window.set_namespace(Some("greeter"));
-
-    window.set_anchor(Edge::Top, true);
-    window.set_anchor(Edge::Bottom, true);
-    window.set_anchor(Edge::Left, true);
-    window.set_anchor(Edge::Right, true);
-
-    if let Some(display) = gtk4::gdk::Display::default() {
-        let provider = gtk4::CssProvider::new();
-        provider.load_from_string(GREETER_CSS);
-        gtk4::style_context_add_provider_for_display(
-            &display,
-            &provider,
-            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
+    for edge in [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right] {
+        window.set_anchor(edge, true);
     }
-    let root_vbox = Box::builder()
-        .orientation(Orientation::Vertical)
-        .css_classes(["greeter-backdrop"])
-        .hexpand(true)
-        .vexpand(true)
+
+    let display = gtk4::prelude::WidgetExt::display(&window);
+    if let Some(settings) = gtk4::Settings::default() {
+        settings.set_gtk_icon_theme_name(Some(ICON_THEME));
+    }
+    let variant = initial_variant();
+    calmo::load(&display, variant);
+
+    // Top: the wordmark on the left, the seal on the right.
+    let wordmark = Label::builder()
+        .label("Athanor")
+        .css_classes(["greeter-wordmark"])
         .build();
-
-    // Zone 1: Top Bar
-    let topbar = Box::builder()
-        .orientation(Orientation::Horizontal)
-        .margin_top(20)
-        .margin_start(28)
-        .margin_end(28)
-        .build();
-
-    let os_title = Label::builder()
-        .label("ATHANOR OS")
-        .css_classes(["greeter-topbar-title"])
-        .build();
-
-    let spacer = Box::builder()
-        .orientation(Orientation::Horizontal)
-        .hexpand(true)
-        .build();
-
-    let theme_toggle = Button::builder()
-        .label("🎨 Theme")
-        .css_classes(["greeter-status-pill"])
-        .build();
-
-    // The top bar carried a second pill reading "󰤨   󰁹   IT": a wifi glyph, a full
-    // battery glyph and a keyboard layout, none of them read from anything. The greeter
-    // cannot read any of the three -- NetworkManager is not on its filtered bus, the
-    // sandbox is not given the power supply class and nothing tells it the layout -- and
-    // on the dev VM it drew a connected network and a full battery on a machine with
-    // neither (and two tofu boxes, the glyphs being absent from the font). Removed
-    // rather than faked.
-
-    let right_box = Box::builder()
+    let seal = Box::builder()
         .orientation(Orientation::Horizontal)
         .spacing(8)
+        .css_classes(["greeter-chip"])
         .build();
-    right_box.append(&theme_toggle);
-
-    topbar.append(&os_title);
-    topbar.append(&spacer);
-    topbar.append(&right_box);
-
-    // Zone 2: Center Clock + Card
-    let center_box = Box::builder()
-        .orientation(Orientation::Vertical)
-        .valign(Align::Center)
-        .halign(Align::Center)
-        .hexpand(true)
-        .vexpand(true)
-        .spacing(24)
+    seal.set_widget_name("greeter-seal");
+    seal.set_tooltip_text(Some(&tr("The system image has not been verified yet.")));
+    let seal_icon = Image::builder()
+        .icon_name(SEAL_ICON)
+        .css_classes(["athanor-seal"])
+        .pixel_size(24)
         .build();
-
-    let clock_box = Box::builder()
-        .orientation(Orientation::Vertical)
-        .halign(Align::Center)
-        .spacing(4)
+    seal_icon.update_property(&[Property::Label(&tr("Not verified"))]);
+    seal.append(&seal_icon);
+    seal.append(&Label::new(Some(&tr("Not verified"))));
+    let top = gtk4::CenterBox::builder()
+        .margin_top(12)
+        .margin_start(20)
+        .margin_end(16)
         .build();
+    top.set_start_widget(Some(&wordmark));
+    top.set_end_widget(Some(&seal));
 
-    let time_label = Label::builder().css_classes(["greeter-clock-time"]).build();
-
-    let date_label = Label::builder().css_classes(["greeter-clock-date"]).build();
-
-    let now = chrono::Local::now();
-    time_label.set_text(&now.format("%H:%M").to_string());
-    date_label.set_text(&format_italian_date(&now));
-
-    let time_label_clone = time_label.clone();
-    let date_label_clone = date_label.clone();
+    // Centre: the clock, the date, the card.
+    let clock = Label::builder().css_classes(["greeter-clock"]).build();
+    let date = Label::builder()
+        .css_classes(["greeter-date"])
+        .margin_top(8)
+        .margin_bottom(34)
+        .build();
+    let tick = {
+        let (clock, date) = (clock.clone(), date.clone());
+        move || {
+            clock.set_label(&now_text("%H:%M"));
+            date.set_label(&now_text(&tr("%A %-d %B")));
+        }
+    };
+    tick();
     glib::timeout_add_seconds_local(1, move || {
-        let now = chrono::Local::now();
-        time_label_clone.set_text(&now.format("%H:%M").to_string());
-        date_label_clone.set_text(&format_italian_date(&now));
+        tick();
         glib::ControlFlow::Continue
     });
 
-    clock_box.append(&time_label);
-    clock_box.append(&date_label);
-
-    let card_box = Box::builder()
-        .orientation(Orientation::Vertical)
-        .halign(Align::Center)
-        .css_classes(["greeter-card"])
+    let user = discover_target_user();
+    let name = Label::builder()
+        .label(&user.real_name)
+        .css_classes(["greeter-name"])
+        .margin_top(10)
+        .margin_bottom(14)
         .build();
 
-    let user_info = discover_target_user();
-
-    // Avatar rendering
-    let avatar_widget: gtk4::Widget = if let Some(path) = &user_info.avatar_path {
-        let picture = gtk4::Picture::for_filename(path);
-        picture.set_can_shrink(true);
-        picture.set_size_request(88, 88);
-        picture.add_css_class("greeter-avatar-frame");
-        picture.upcast()
-    } else {
-        let lbl = Label::builder()
-            .label("")
-            .css_classes(["greeter-avatar-frame"])
-            .halign(Align::Center)
-            .build();
-        lbl.upcast()
-    };
-    avatar_widget.set_halign(Align::Center);
-
-    let user_label = Label::builder()
-        .label(&user_info.real_name)
-        .halign(Align::Center)
-        .css_classes(["greeter-user-name"])
+    let password = PasswordEntry::builder()
+        .placeholder_text(tr("Password"))
+        .show_peek_icon(true)
+        .hexpand(true)
+        .css_classes(["greeter-field"])
         .build();
-
-    // Built from the session request the greeter will send, not written out here: the
-    // hard-coded "WAYLAND • NIRI" survived niri's replacement by cosmic-comp and told
-    // every user of the published image something untrue.
-    let badge_label = Label::builder()
-        .label(session_badge(&session_command()))
-        .halign(Align::Center)
-        .css_classes(["greeter-badge"])
+    let password_label = tr_with("Password for {name}", "name", &user.real_name);
+    named(&password, "greeter-password", &password_label);
+    if let Some(delegate) = password.delegate() {
+        // The text widget inside the entry is the node a screen reader lands on.
+        delegate.update_property(&[Property::Label(&password_label)]);
+    }
+    let submit = Button::builder()
+        .icon_name("go-next-symbolic")
+        .css_classes(["greeter-submit"])
+        .valign(Align::Center)
         .build();
-
-    // The card used to carry a pill reading "BIOMETRIA (TPM 2.0 / FPRINTD) & KEYRING
-    // UNLOCK ATTIVI", shown whenever a system bus socket existed. That is not evidence
-    // of any of the three: the dev VM has no /dev/tpm*, fprintd inactive and showed the
-    // pill all the same. Nor can the greeter earn the claim here -- its bus is filtered
-    // down to three logind methods by xdg-dbus-proxy, so net.reactivated.Fprint and
-    // tpm2 state are out of reach by design, and whether PAM unlocks the keyring is
-    // decided by the stack greetd runs, not by anything visible before login. An
-    // unbacked security claim is worse than no claim, so the pill is gone. The PAM
-    // conversation already names a fingerprint prompt when there is one
-    // (authenticate_interactive's status callback).
-
-    let caps_label = Label::builder()
-        .label("󰪛 MAIUSC ATTIVO")
-        .halign(Align::Center)
-        .css_classes(["greeter-caps-pill"])
-        .visible(false)
-        .build();
-
-    // Password Entry Row
-    let entry_row = Box::builder()
+    named(&submit, "greeter-submit", &tr("Sign in"));
+    let field_row = Box::builder()
         .orientation(Orientation::Horizontal)
-        .css_classes(["greeter-entry-box"])
-        .hexpand(true)
+        .spacing(6)
         .build();
+    field_row.append(&password);
+    field_row.append(&submit);
 
-    let password_entry = Entry::builder()
-        .placeholder_text("Password di accesso...")
-        .visibility(false)
-        .hexpand(true)
-        .css_classes(["greeter-entry"])
+    let status = Label::builder()
+        .css_classes(["greeter-status"])
+        .margin_top(12)
+        .wrap(true)
+        .visible(false)
         .build();
-
-    let reveal_btn = Button::builder()
-        .label("󰈈")
-        .css_classes(["greeter-icon-btn"])
-        .build();
-
-    let entry_reveal_clone = password_entry.clone();
-    let reveal_btn_clone = reveal_btn.clone();
-    reveal_btn.connect_clicked(move |_| {
-        let vis = gtk4::prelude::EntryExt::is_visible(&entry_reveal_clone);
-        entry_reveal_clone.set_visibility(!vis);
-        reveal_btn_clone.set_label(if !vis { "󰈉" } else { "󰈈" });
-    });
-
-    let submit_btn = Button::builder()
-        .label("➔")
-        .css_classes(["greeter-icon-btn"])
-        .build();
-
-    entry_row.append(&password_entry);
-    entry_row.append(&reveal_btn);
-    entry_row.append(&submit_btn);
-
-    // Caps Lock detection on key presses
-    let key_ctrl = gtk4::EventControllerKey::new();
-    let caps_clone = caps_label.clone();
-    key_ctrl.connect_key_pressed(move |_, _keyval, _keycode, state| {
-        let is_caps = state.contains(gtk4::gdk::ModifierType::LOCK_MASK);
-        caps_clone.set_visible(is_caps);
-        glib::Propagation::Proceed
-    });
-    password_entry.add_controller(key_ctrl);
-
-    let error_label = Label::builder()
-        .label("")
+    let error = Label::builder()
         .css_classes(["greeter-error"])
-        .visible(false)
+        .margin_top(12)
         .wrap(true)
-        .build();
-
-    let status_label = Label::builder()
-        .label("")
-        .css_classes(["greeter-status-msg"])
         .visible(false)
-        .wrap(true)
         .build();
+    // A failed sign-in is announced, not only painted.
+    error.set_accessible_role(gtk4::AccessibleRole::Alert);
 
-    let err_clear = error_label.clone();
-    let status_clear = status_label.clone();
-    password_entry.connect_changed(move |_| {
-        err_clear.set_visible(false);
-        status_clear.set_visible(false);
-    });
+    {
+        let (status, error) = (status.clone(), error.clone());
+        password.connect_changed(move |_| {
+            status.set_visible(false);
+            error.set_visible(false);
+        });
+    }
 
-    let app_ref = app.clone();
-    let submit_login = std::rc::Rc::new({
-        let entry = password_entry.clone();
-        let err_label = error_label.clone();
-        let status_label = status_label.clone();
-        let submit_btn = submit_btn.clone();
+    let sign_in = Rc::new({
+        let (app, password, submit, status, error) = (
+            app.clone(),
+            password.clone(),
+            submit.clone(),
+            status.clone(),
+            error.clone(),
+        );
         move || {
-            // The password is held in a buffer that erases itself when it is dropped,
-            // and the entry is emptied as soon as its text has been taken, on the way
-            // to a successful login as well as on a failed one. GTK keeps copies of its
-            // own inside the widget -- the entry buffer's reallocations, the text
-            // layout -- and those are outside our control.
-            let password = zeroize::Zeroizing::new(entry.text().to_string());
-            entry.set_text("");
-            entry.set_sensitive(false);
-            submit_btn.set_sensitive(false);
-            err_label.set_visible(false);
-            status_label.set_text("Accesso in corso...");
-            status_label.set_visible(true);
-
-            let entry_clone = entry.clone();
-            let err_clone = err_label.clone();
-            let status_clone = status_label.clone();
-            let submit_clone = submit_btn.clone();
-            let app_quit = app_ref.clone();
-
+            let secret = zeroize::Zeroizing::new(password.text().to_string());
+            password.set_sensitive(false);
+            submit.set_sensitive(false);
+            error.set_visible(false);
+            status.set_label(&tr("Signing in…"));
+            status.set_visible(true);
+            let (app, password, submit, status, error) = (
+                app.clone(),
+                password.clone(),
+                submit.clone(),
+                status.clone(),
+                error.clone(),
+            );
             glib::MainContext::default().spawn_local(async move {
-                let res = authenticate(&password).await;
-                match res {
-                    Ok(_) => {
-                        app_quit.quit();
-                    }
-                    Err(e) => {
-                        status_clone.set_visible(false);
-                        err_clone.set_text(&format!("Accesso non riuscito: {}", e));
-                        err_clone.set_visible(true);
-                        entry_clone.set_text("");
-                        entry_clone.set_sensitive(true);
-                        submit_clone.set_sensitive(true);
-                        entry_clone.grab_focus();
+                // PAM's own prompts (a fingerprint reader asking for a touch) are shown as
+                // they arrive.
+                let progress = status.clone();
+                match authenticate_interactive(&secret, &move |message: &str| {
+                    progress.set_label(message)
+                })
+                .await
+                {
+                    Ok(()) => app.quit(),
+                    Err(reason) => {
+                        status.set_visible(false);
+                        error.set_label(&tr_with("Sign-in failed: {reason}", "reason", &reason));
+                        error.set_visible(true);
+                        password.set_text("");
+                        password.set_sensitive(true);
+                        submit.set_sensitive(true);
+                        password.grab_focus();
                     }
                 }
             });
         }
     });
+    {
+        let sign_in = sign_in.clone();
+        password.connect_activate(move |_| sign_in());
+    }
+    submit.connect_clicked(move |_| sign_in());
 
-    let sl_clone = submit_login.clone();
-    password_entry.connect_activate(move |_| sl_clone());
-    submit_btn.connect_clicked(move |_| submit_login());
-
-    card_box.append(&avatar_widget);
-    card_box.append(&user_label);
-    card_box.append(&badge_label);
-    card_box.append(&caps_label);
-    card_box.append(&entry_row);
-    card_box.append(&error_label);
-    card_box.append(&status_label);
-
-    center_box.append(&clock_box);
-    center_box.append(&card_box);
-
-    // Zone 3: Bottom Power Buttons
-    let bottom_bar = Box::builder()
-        .orientation(Orientation::Horizontal)
+    let card = Box::builder()
+        .orientation(Orientation::Vertical)
         .halign(Align::Center)
-        .margin_bottom(32)
-        .spacing(16)
+        .css_classes(["greeter-card"])
         .build();
+    card.append(&avatar(&user));
+    card.append(&name);
+    card.append(&field_row);
+    card.append(&status);
+    card.append(&error);
 
-    let suspend_btn = Button::builder()
-        .label("Sospendi")
-        .css_classes(["greeter-power-btn"])
+    let centre = Box::builder()
+        .orientation(Orientation::Vertical)
+        .halign(Align::Center)
+        .valign(Align::Center)
+        .vexpand(true)
         .build();
-    suspend_btn.connect_clicked(|_| {
-        glib::MainContext::default().spawn_local(async move {
-            if let Ok(conn) = zbus::Connection::system().await {
-                if let Ok(proxy) = crate::power::LogindProxy::new(&conn).await {
-                    if let Err(e) = proxy.suspend(true).await {
-                        tracing::error!("Failed login1 suspend: {}", e);
-                    }
-                }
-            }
+    centre.append(&clock);
+    centre.append(&date);
+    centre.append(&card);
+
+    // Bottom right: keyboard layout, accessibility, power.
+    let contrast = ToggleButton::builder()
+        .icon_name("preferences-desktop-accessibility-symbolic")
+        .css_classes(["greeter-chip"])
+        .active(variant.is_high_contrast())
+        .build();
+    named(&contrast, "greeter-contrast", &tr("High contrast"));
+    contrast.set_tooltip_text(Some(&tr("High contrast")));
+    {
+        let display = display.clone();
+        contrast.connect_toggled(move |toggle| {
+            calmo::load(&display, variant.with_high_contrast(toggle.is_active()))
         });
-    });
+    }
 
-    let reboot_btn = Button::builder()
-        .label("Riavvia")
-        .css_classes(["greeter-power-btn"])
+    let bottom = Box::builder()
+        .orientation(Orientation::Horizontal)
+        .spacing(6)
+        .halign(Align::End)
+        .margin_bottom(14)
+        .margin_end(16)
         .build();
-    reboot_btn.connect_clicked(|_| {
-        glib::MainContext::default().spawn_local(async move {
-            if let Ok(conn) = zbus::Connection::system().await {
-                if let Ok(proxy) = crate::power::LogindProxy::new(&conn).await {
-                    if let Err(e) = proxy.reboot(true).await {
-                        tracing::error!("Failed login1 reboot: {}", e);
-                    }
-                }
-            }
-        });
-    });
+    bottom.append(&layout_chip(&display));
+    bottom.append(&contrast);
+    bottom.append(&power_chip(
+        "greeter-suspend",
+        "system-suspend-symbolic",
+        &tr("Suspend"),
+        Power::Suspend,
+    ));
+    bottom.append(&power_chip(
+        "greeter-restart",
+        "system-reboot-symbolic",
+        &tr("Restart"),
+        Power::Restart,
+    ));
+    bottom.append(&power_chip(
+        "greeter-shutdown",
+        "system-shutdown-symbolic",
+        &tr("Shut down"),
+        Power::ShutDown,
+    ));
 
-    let poweroff_btn = Button::builder()
-        .label("Spegni")
-        .css_classes(["greeter-power-btn"])
+    let root = Box::builder()
+        .orientation(Orientation::Vertical)
+        .hexpand(true)
+        .vexpand(true)
         .build();
-    poweroff_btn.connect_clicked(|_| {
-        glib::MainContext::default().spawn_local(async move {
-            if let Ok(conn) = zbus::Connection::system().await {
-                if let Ok(proxy) = crate::power::LogindProxy::new(&conn).await {
-                    if let Err(e) = proxy.power_off(true).await {
-                        tracing::error!("Failed login1 poweroff: {}", e);
-                    }
-                }
-            }
-        });
-    });
+    root.append(&top);
+    root.append(&centre);
+    root.append(&bottom);
+    window.set_child(Some(&root));
 
-    bottom_bar.append(&suspend_btn);
-    bottom_bar.append(&reboot_btn);
-    bottom_bar.append(&poweroff_btn);
-
-    root_vbox.append(&topbar);
-    root_vbox.append(&center_box);
-    root_vbox.append(&bottom_bar);
-
-    window.set_child(Some(&root_vbox));
-    // Keyboard focus starts on the password entry: the first key pressed is the first
-    // character of the password, nothing has to be clicked first. GTK moves focus to
-    // the first focusable widget otherwise, which is whatever the layout puts first.
-    password_entry.grab_focus();
+    // The first key pressed is the first character of the password.
+    password.grab_focus();
     window.present();
 }

@@ -464,7 +464,7 @@ name = "athanor-greeter-ui"
 version = "1.0.0"
 dependencies = [
  "athanor-i18n",
- "chrono",
+ "athanor-style",
  "glib",
  "greetd_ipc",
  "gtk4",

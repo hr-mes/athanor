@@ -10,6 +10,7 @@
 #   rig.sh cosmic-preview   capture cosmic-panel and Settings under the Calmo defaults
 #   rig.sh build-greeter    release build of athanor-greeter-ui into <out>/bin
 #   rig.sh layer-guard      the greeter must refuse to run when the shim loads late
+#   rig.sh greeter-preview  one capture of the greeter per variant, for the eye
 set -euo pipefail
 
 root=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
@@ -109,8 +110,24 @@ layer-guard)
     fi
     echo "layer-guard: the greeter refused to run as an ordinary window"
     ;;
+greeter-preview)
+    # The seal icons ship inside the athanor-calmo RPM, laid out under
+    # /usr/share/icons/hicolor/scalable/status the way its %install does; the rig has no
+    # such package, so the overlay reproduces that one directory, not the whole RPM.
+    icon_overlay=$out/greeter-preview-icons
+    mkdir -p "$icon_overlay/icons/hicolor/scalable/status"
+    install -m 0644 "$root"/system/athanor-style/calmo/generated/icons/*.svg \
+        "$icon_overlay/icons/hicolor/scalable/status/"
+    for variant in light dark light-hc dark-hc; do
+        in_rig "$(rig_image)" env ATHANOR_GREETER_VARIANT="$variant" ATHANOR_LOGIN_USER=ermete RIG_LOCALE=en_US.UTF-8 \
+            RIG_DATA_OVERLAY=/out/greeter-preview-icons \
+            dbus-run-session -- /repo/forge/test/shell/scene.sh 1920 1080 1.0 "greeter-preview-$variant" -- \
+            /out/bin/athanor-greeter-ui
+    done
+    echo "look at $out/greeter-preview-*.png"
+    ;;
 *)
-    sed -n '2,12p' "${BASH_SOURCE[0]}" >&2
+    sed -n '2,13p' "${BASH_SOURCE[0]}" >&2
     exit 2
     ;;
 esac

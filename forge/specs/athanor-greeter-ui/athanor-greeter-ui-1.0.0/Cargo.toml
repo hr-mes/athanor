@@ -8,6 +8,7 @@ description = "The Athanor greeter: one surface, one binary, the process that re
 
 [dependencies]
 athanor-i18n = { path = "../../../../system/athanor-i18n" }
+athanor-style = { path = "../../../../system/athanor-style" }
 gtk4 = { workspace = true }
 gtk4-layer-shell = { workspace = true }
 glib = { workspace = true }
@@ -20,6 +21,5 @@ nix = { workspace = true, features = ["process", "resource"] }
 serde_json = { workspace = true }
 # Zeroizing<String> over every copy of the password this process owns.
 zeroize = { workspace = true }
-chrono = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }

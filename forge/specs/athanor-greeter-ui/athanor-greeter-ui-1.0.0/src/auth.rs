@@ -4,6 +4,8 @@ use std::io::Write;
 use std::os::unix::net::UnixStream;
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::i18n::{tr, tr_with};
+
 /// The largest greetd reply this greeter will allocate for. A greetd frame is a short
 /// JSON object -- a response type, an auth message, at worst an error description -- so
 /// a megabyte is orders of magnitude more than any legitimate reply and still small
@@ -56,8 +58,10 @@ pub fn send_request(stream: &mut UnixStream, req: &Request) -> Result<Response, 
     stream.read_exact(&mut len_buf).map_err(|e| e.to_string())?;
     let reply_len = u32::from_ne_bytes(len_buf);
     if reply_len > MAX_REPLY_BYTES {
-        return Err(format!(
-            "Risposta del demone auth troppo grande: {reply_len} byte"
+        return Err(tr_with(
+            "The sign-in service sent a reply of {size} bytes, too large to read",
+            "size",
+            &reply_len.to_string(),
         ));
     }
 
@@ -201,19 +205,6 @@ pub fn session_command() -> String {
     first_installed(&SESSION_COMMAND_PATHS, SESSION_COMMAND_FALLBACK).to_string()
 }
 
-/// The badge under the user name on the greeter card: what this greeter is about to
-/// start, and nothing else. It is built from the session request itself, so it cannot
-/// go stale the way the hard-coded "WAYLAND • NIRI" did when cosmic-comp replaced niri.
-/// The compositor is not named: the greeter does not choose it and cannot read it out of
-/// the session command without parsing a shell script.
-pub fn session_badge(session_cmd: &str) -> String {
-    let name = std::path::Path::new(session_cmd)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(session_cmd);
-    format!("{} • {}", SESSION_TYPE.to_uppercase(), name.to_uppercase())
-}
-
 pub async fn authenticate_interactive<F>(password: &str, status_cb: &F) -> Result<(), String>
 where
     F: Fn(&str),
@@ -221,7 +212,7 @@ where
     let path = std::env::var("GREETD_SOCK").unwrap_or_else(|_| "/run/greetd.sock".to_string());
     if !std::path::Path::new(&path).exists() {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        return Err("Autenticazione fallita: demone auth irraggiungibile".to_string());
+        return Err(tr("The login service cannot be reached."));
     }
 
     let mut stream = UnixStream::connect(path).map_err(|e| e.to_string())?;
@@ -254,7 +245,7 @@ where
                     };
                     resp = send_request(&mut stream, &req)?;
                 } else {
-                    status_cb("Verifica credenziali in corso...");
+                    status_cb(&tr("Checking your credentials…"));
                     let mut req = Request::PostAuthMessageResponse {
                         response: Some(password.to_string()),
                     };
@@ -285,17 +276,13 @@ where
                 match start_resp {
                     Response::Success => return Ok(()),
                     Response::Error { description, .. } => return Err(description),
-                    _ => return Err("Risposta inattesa dal comando StartSession".to_string()),
+                    _ => return Err(tr("The login service gave an unexpected answer.")),
                 }
             }
             Response::Error { description, .. } => return Err(description),
         }
     }
-    Err("Timeout conversazione PAM (troppi passaggi di autenticazione)".to_string())
-}
-
-pub async fn authenticate(password: &str) -> Result<(), String> {
-    authenticate_interactive(password, &|_| {}).await
+    Err(tr("Too many authentication steps."))
 }
 
 #[cfg(test)]
@@ -323,7 +310,7 @@ mod tests {
             },
         )
         .expect_err("an oversized reply must be refused");
-        assert!(err.contains("troppo grande"), "{err}");
+        assert!(err.contains("too large to read"), "{err}");
     }
 
     #[test]
@@ -340,34 +327,10 @@ mod tests {
 
         drop(ours);
         let mut sent = Vec::new();
-        (&theirs).read_to_end(&mut sent).expect("the peer reads to EOF");
+        (&theirs)
+            .read_to_end(&mut sent)
+            .expect("the peer reads to EOF");
         assert!(sent.is_empty(), "{} bytes reached the socket", sent.len());
-    }
-
-    #[test]
-    fn badge_names_the_session_the_greeter_starts() {
-        assert_eq!(
-            session_badge("/usr/bin/athanor-session"),
-            "WAYLAND • ATHANOR-SESSION"
-        );
-        // A bare command, as the last fallback of session_command() returns it.
-        assert_eq!(
-            session_badge("athanor-session"),
-            "WAYLAND • ATHANOR-SESSION"
-        );
-    }
-
-    #[test]
-    fn badge_names_no_compositor() {
-        // The greeter neither chooses nor can read the compositor, so it must not claim
-        // one: "WAYLAND • NIRI" outlived niri by a whole release.
-        let badge = session_badge(&session_command());
-        for compositor in ["NIRI", "COSMIC", "COSMIC-COMP", "SWAY", "GNOME", "KDE"] {
-            assert!(
-                !badge.contains(compositor),
-                "badge {badge:?} names the compositor {compositor}"
-            );
-        }
     }
 
     /// A directory of this test's own, named after the case, removed at the end.
