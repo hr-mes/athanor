@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:43.fc43}
+Release:        %{?autorelease}%{!?autorelease:44.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -91,6 +91,9 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) %attr(0600,root,root) /etc/usbguard/rules.d/10-athanor-baseline.conf
 
 %changelog
+* Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-44
+- The greeter session exports the locale of /etc/locale.conf: greetd passes only PAM's
+  environment, which left GTK and the date in the C locale.
 * Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-43
 - The greeter is athanor-greeter-ui: athanor-greeter-client execs
   /usr/bin/athanor-greeter-ui and no longer binds theme.css, which that program does
