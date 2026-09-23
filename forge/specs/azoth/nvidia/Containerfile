@@ -10,5 +10,5 @@ RUN printf 'install_weak_deps=False\nkeepcache=False\n' >> /etc/dnf/dnf.conf
 
 RUN dnf -y install \
       clang lld llvm make gcc elfutils-libelf-devel \
-      rpm cpio curl git kmod openssl findutils diffutils \
+      rpm cpio curl git kmod openssl findutils diffutils python3 \
     && dnf clean all

@@ -1,0 +1,66 @@
+Give the SEC2 bindata getters the type of their NVOC slot
+
+ksec2GetBinArchiveSecurescrubUcode_AD10X and ksec2GetBinArchiveBlUcode_TU102 are
+defined by the bindata generator as (struct KernelSec2 *), while the halified NVOC
+slot they are stored in, and every caller, use (struct OBJGPU *, struct KernelSec2 *).
+Calling a function through a pointer of an incompatible type is undefined behaviour;
+under kCFI the type hashes differ and the call traps. The AD10X getter is reached
+from kgspAllocateScrubberUcodeImage_IMPL during GSP boot on AD102-AD107, the TU102
+one from ksec2 on TU10x and GA10x.
+
+diff --git a/src/nvidia/generated/g_bindata.c b/src/nvidia/generated/g_bindata.c
+index 31e3ffb..7a7226d 100644
+--- a/src/nvidia/generated/g_bindata.c
++++ b/src/nvidia/generated/g_bindata.c
+@@ -36,6 +36,7 @@
+ // e.g. eng_desc.h?
+ //
+ 
++struct OBJGPU;
+ struct KernelPmu;
+ struct KernelGsp;
+ struct KernelSec2;
+diff --git a/src/nvidia/generated/g_bindata_ksec2GetBinArchiveBlUcode_TU102.c b/src/nvidia/generated/g_bindata_ksec2GetBinArchiveBlUcode_TU102.c
+index 5786a37..da6bb5d 100644
+--- a/src/nvidia/generated/g_bindata_ksec2GetBinArchiveBlUcode_TU102.c
++++ b/src/nvidia/generated/g_bindata_ksec2GetBinArchiveBlUcode_TU102.c
+@@ -135,7 +135,7 @@ static const BINDATA_ARCHIVE __ksec2GetBinArchiveBlUcode_TU102 =
+ 
+ 
+ #if defined(BINDATA_INCLUDE_FUNCTION)
+-const BINDATA_ARCHIVE *ksec2GetBinArchiveBlUcode_TU102(struct KernelSec2 *pKernelSec2)
++const BINDATA_ARCHIVE *ksec2GetBinArchiveBlUcode_TU102(struct OBJGPU *pGpu, struct KernelSec2 *pKernelSec2)
+ {
+     return &__ksec2GetBinArchiveBlUcode_TU102;
+ }
+@@ -143,7 +143,7 @@ const BINDATA_ARCHIVE *ksec2GetBinArchiveBlUcode_TU102(struct KernelSec2 *pKerne
+ 
+ 
+ #if defined(BINDATA_INCLUDE_FUNCTION_STUB)
+-const BINDATA_ARCHIVE *ksec2GetBinArchiveBlUcode_TU102(struct KernelSec2 *pKernelSec2)
++const BINDATA_ARCHIVE *ksec2GetBinArchiveBlUcode_TU102(struct OBJGPU *pGpu, struct KernelSec2 *pKernelSec2)
+ {
+     return NULL;
+ }
+diff --git a/src/nvidia/generated/g_bindata_ksec2GetBinArchiveSecurescrubUcode_AD10X.c b/src/nvidia/generated/g_bindata_ksec2GetBinArchiveSecurescrubUcode_AD10X.c
+index b205824..1df4fd4 100644
+--- a/src/nvidia/generated/g_bindata_ksec2GetBinArchiveSecurescrubUcode_AD10X.c
++++ b/src/nvidia/generated/g_bindata_ksec2GetBinArchiveSecurescrubUcode_AD10X.c
+@@ -1257,7 +1257,7 @@ static const BINDATA_ARCHIVE __ksec2GetBinArchiveSecurescrubUcode_AD10X =
+ 
+ 
+ #if defined(BINDATA_INCLUDE_FUNCTION)
+-const BINDATA_ARCHIVE *ksec2GetBinArchiveSecurescrubUcode_AD10X(struct KernelSec2 *pKernelSec2)
++const BINDATA_ARCHIVE *ksec2GetBinArchiveSecurescrubUcode_AD10X(struct OBJGPU *pGpu, struct KernelSec2 *pKernelSec2)
+ {
+     return &__ksec2GetBinArchiveSecurescrubUcode_AD10X;
+ }
+@@ -1265,7 +1265,7 @@ const BINDATA_ARCHIVE *ksec2GetBinArchiveSecurescrubUcode_AD10X(struct KernelSec
+ 
+ 
+ #if defined(BINDATA_INCLUDE_FUNCTION_STUB)
+-const BINDATA_ARCHIVE *ksec2GetBinArchiveSecurescrubUcode_AD10X(struct KernelSec2 *pKernelSec2)
++const BINDATA_ARCHIVE *ksec2GetBinArchiveSecurescrubUcode_AD10X(struct OBJGPU *pGpu, struct KernelSec2 *pKernelSec2)
+ {
+     return NULL;
+ }
