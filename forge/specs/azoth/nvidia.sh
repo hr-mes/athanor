@@ -87,6 +87,11 @@ cc_option() { # cc_option FLAG...: the flags if clang accepts them, like cc-opti
   if clang -Werror "$@" -c -x c /dev/null -o /dev/null 2> /dev/null; then echo " $*"; fi
 }
 
+# The clang warnings for the two ways a function reaches an indirect call with a type
+# other than its own: a cast, and an assignment C accepts because an enum is compatible
+# with its underlying integer while kCFI hashes them apart. kcfi_check.py reads them.
+KCFI_WARNINGS="-Wcast-function-type-strict -Wincompatible-function-pointer-types-strict"
+
 build() {
   local src kodir version flags rm_targets=()
   devel_tree
@@ -131,13 +136,11 @@ build() {
       done
       # The RM part (nv-kernel.o, nv-modeset-kernel.o), built by NVIDIA outside Kbuild:
       # EXTRA_CFLAGS is the hook of utils.mk, and the kernel flags go through it.
-      # -Wcast-function-type-strict feeds kcfi_check.py below.
+      # KCFI_WARNINGS feed kcfi_check.py after the Kbuild part.
       rm_targets=(kernel-open/nvidia/nv-kernel.o_binary kernel-open/nvidia-modeset/nv-modeset-kernel.o_binary)
       step "RM part with clang and the kernel flags ($flags)"
-      make -C "$src" -j"$(nproc)" -Otarget CC=clang CXX=clang++ LD=ld.lld AR=llvm-ar EXTRA_CFLAGS="$flags -Wcast-function-type-strict" "${rm_targets[@]}" \
+      make -C "$src" -j"$(nproc)" -Otarget CC=clang CXX=clang++ LD=ld.lld AR=llvm-ar EXTRA_CFLAGS="$flags $KCFI_WARNINGS" "${rm_targets[@]}" \
         > "$OUT/$DRIVER-rm.log" 2>&1 || { tail -n 30 "$OUT/$DRIVER-rm.log"; die "RM part failed, log in $OUT/$DRIVER-rm.log"; }
-      step "kCFI types of the RM part"
-      python3 "$HERE/nvidia/kcfi_check.py" "$src" "$OUT/$DRIVER-rm.log" || die "kCFI type mismatches in the RM part, log in $OUT/$DRIVER-rm.log"
       ;;
     legacy)
       local run="NVIDIA-Linux-x86_64-$NVIDIA_LEGACY_VERSION-no-compat32.run"
@@ -154,8 +157,13 @@ build() {
   # Fedora clang gets updated between the kernel build and this one. Being clang is
   # enough: the kCFI hashes depend on the types, not on the version.
   # -Otarget: the output of each object as a block, so the objtool warnings stay attributable.
-  make -C "$src" -j"$(nproc)" -Otarget modules SYSSRC="$SYSSRC" CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 IGNORE_CC_MISMATCH=1 \
+  make -C "$src" -j"$(nproc)" -Otarget modules SYSSRC="$SYSSRC" CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 IGNORE_CC_MISMATCH=1 KCFLAGS="$KCFI_WARNINGS" \
     > "$OUT/$DRIVER-build.log" 2>&1 || { tail -n 40 "$OUT/$DRIVER-build.log"; die "build failed, log in $OUT/$DRIVER-build.log"; }
+  if [[ $DRIVER == open ]]; then
+    step "kCFI types of the open modules"
+    python3 "$HERE/nvidia/kcfi_check.py" "$src" "$OUT/$DRIVER-rm.log" "$OUT/$DRIVER-build.log" \
+      || die "kCFI type mismatches, logs in $OUT/$DRIVER-rm.log and $OUT/$DRIVER-build.log"
+  fi
   local objtool unmitigated
   objtool=$(awk '/warning: objtool:/ { n++ } END { print n + 0 }' "$OUT/$DRIVER-build.log")
   if [[ $DRIVER == open ]]; then

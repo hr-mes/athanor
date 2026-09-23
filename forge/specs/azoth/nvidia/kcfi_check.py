@@ -3,22 +3,25 @@
 
 Under kCFI an indirect call traps when the function type at the call site differs
 from the type of the target. NVIDIA does not build its RM code with kCFI, so it
-carries such mismatches. This check fails on the three kinds that can be found in
-the source and in the build log:
+carries such mismatches. This check fails on the kinds that can be found in the
+source and in the build logs:
 
   bindata   a generated g_bindata_* getter defined with a type other than the one
             its NVOC header declares (the getters are stored in typed HAL slots);
   exports   an entry of the NVOC exported-method tables whose function arity does
             not match paramSize (resControl casts the entry back by paramSize);
-  casts     a -Wcast-function-type-strict warning of the RM build that is not one
-            of the reasoned exceptions below.
+  casts     a -Wcast-function-type-strict warning that is not one of the reasoned
+            exceptions below;
+  enums     any -Wincompatible-function-pointer-types-strict warning: a function
+            stored in a slot whose type differs only by an enum against its
+            underlying integer, which C accepts and kCFI hashes apart.
 
-A function pointer laundered through NvP64 or void * is invisible to all three:
-only a boot with CONFIG_CFI_PERMISSIVE on the hardware finds those.
+A function pointer laundered through NvP64 or void * is invisible to all of them:
+only a boot on the hardware with cfi=warn finds those.
 
-Usage: kcfi_check.py SRC LOG
+Usage: kcfi_check.py SRC LOG...
   SRC  the open-gpu-kernel-modules tree, patched
-  LOG  the output of the RM build with -Wcast-function-type-strict
+  LOG  the output of the RM and the Kbuild builds, with both warnings
 """
 
 import pathlib
@@ -45,6 +48,10 @@ ALLOWED_CASTS = [
         ("TIMEPROC", "TMR_CALLBACK_FUNCTION"),
     ),
 ]
+ENUM = re.compile(
+    r"(?P<file>\S+?):\d+:\d+: warning: (?P<msg>incompatible function pointer types.*?)"
+    r" \[-Wincompatible-function-pointer-types-strict\]"
+)
 CAST = re.compile(
     r"(?P<file>\S+?):\d+:\d+: warning: cast from '(?P<src>[^']*)'(?: \(aka '[^']*'\))?"
     r" to '(?P<dst>[^']*)'(?: \(aka '[^']*'\))? converts to incompatible function type"
@@ -113,7 +120,10 @@ def casts(log):
             exceptions += 1
         else:
             found.append(f"casts: {file}: {m.group('src')} -> {m.group('dst')}")
-    # The exported-method tables always warn: silence means the flag was lost.
+    for m in ENUM.finditer(log):
+        msg = re.sub(r" \(aka '[^']*'\)", "", m.group("msg"))
+        found.append(f"enums: {m.group('file').split('/src/')[-1]}: {msg}")
+    # The exported-method tables always warn: silence means the flags were lost.
     if exceptions == 0:
         found.append(
             "casts: no -Wcast-function-type-strict warning in the log, the flag did not reach the RM build"
@@ -122,21 +132,21 @@ def casts(log):
 
 
 def main(argv):
-    if len(argv) != 3:
-        print("usage: kcfi_check.py SRC LOG", file=sys.stderr)
+    if len(argv) < 3:
+        print("usage: kcfi_check.py SRC LOG...", file=sys.stderr)
         return 2
     generated = pathlib.Path(argv[1]) / "src/nvidia/generated"
     problems = (
         bindata(generated)
         + exports(generated)
-        + casts(pathlib.Path(argv[2]).read_text(errors="replace"))
+        + casts("".join(pathlib.Path(a).read_text(errors="replace") for a in argv[2:]))
     )
     for p in problems:
         print(p, file=sys.stderr)
     if problems:
         print(f"kcfi_check: {len(problems)} kCFI type mismatches", file=sys.stderr)
         return 1
-    print("kcfi_check: bindata getters, exported methods and function casts consistent")
+    print("kcfi_check: bindata getters, exported methods, function casts and enum slots consistent")
     return 0
 
 

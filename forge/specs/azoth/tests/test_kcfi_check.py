@@ -75,6 +75,16 @@ class Check(unittest.TestCase):
             ["casts: generated/g_rpc_iom.c: void (*)(POBJRPC) -> NVOC_DYNAMIC_DTOR"],
         )
 
+    def test_enum_against_integer_slot_fails(self):
+        enum = (
+            "kernel-open/nvidia-drm/nvidia-drm-connector.c:636:21: warning: incompatible function pointer types "
+            "initializing 'enum drm_mode_status (*)(struct drm_connector *)' with an expression of type "
+            "'int (struct drm_connector *)' [-Wincompatible-function-pointer-types-strict]\n"
+        )
+        found = kcfi_check.casts(EXPORT_CAST + enum)
+        self.assertEqual(len(found), 1)
+        self.assertIn("nvidia-drm-connector.c", found[0])
+
     def test_a_log_without_the_warning_fails(self):
         self.assertEqual(len(kcfi_check.casts("CC foo.c\n")), 1)
 

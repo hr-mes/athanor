@@ -1,0 +1,78 @@
+Type the EVO scan-lock state slot with NVEvoLockAction
+
+NVEvoSubDevRec.scanLockState takes NvU32 action, while every lock state function
+in g_nvkms-evo-states.c takes NVEvoLockAction. C accepts the 183 assignments
+because the enum is compatible with its underlying integer type; kCFI hashes the
+two apart, so each modeset traps in nvEvoLockStatePreModeset/PostModeset. The enum
+moves from nvkms-evo-states.h, which includes nvkms-types.h, to nvkms-types.h so
+that the slot can name it.
+
+diff --git a/src/nvidia-modeset/include/nvkms-evo-states.h b/src/nvidia-modeset/include/nvkms-evo-states.h
+index ab34f2a..cd9a826 100644
+--- a/src/nvidia-modeset/include/nvkms-evo-states.h
++++ b/src/nvidia-modeset/include/nvkms-evo-states.h
+@@ -39,25 +39,6 @@ typedef enum NVEvoLockSignal {
+     NV_EVO_LOCK_SIGNAL_STEREO,
+ } NVEvoLockSignal;
+ 
+-typedef enum NVEvoLockAction {
+-    NV_EVO_PROHIBIT_LOCK,
+-    NV_EVO_PROHIBIT_LOCK_DISABLE,
+-    NV_EVO_LOCK_HEADS,
+-    NV_EVO_UNLOCK_HEADS,
+-    NV_EVO_ADD_FRAME_LOCK_SERVER,
+-    NV_EVO_REM_FRAME_LOCK_SERVER,
+-    NV_EVO_ADD_FRAME_LOCK_HOUSE_SYNC,
+-    NV_EVO_REM_FRAME_LOCK_HOUSE_SYNC,
+-    NV_EVO_ADD_FRAME_LOCK_CLIENT,
+-    NV_EVO_REM_FRAME_LOCK_CLIENT,
+-    NV_EVO_ADD_FRAME_LOCK_REF,
+-    NV_EVO_REM_FRAME_LOCK_REF,
+-    NV_EVO_ADD_SLI_SECONDARY,
+-    NV_EVO_ADD_SLI_LAST_SECONDARY,
+-    NV_EVO_ADD_SLI_PRIMARY,
+-    NV_EVO_REM_SLI,
+-} NVEvoLockAction;
+-
+ /* nv_evo.c */
+ 
+ NVEvoLockPin nvEvoGetPinForSignal(const NVDispEvoRec *,
+diff --git a/src/nvidia-modeset/include/nvkms-types.h b/src/nvidia-modeset/include/nvkms-types.h
+index b0c60a6..bd8da7a 100644
+--- a/src/nvidia-modeset/include/nvkms-types.h
++++ b/src/nvidia-modeset/include/nvkms-types.h
+@@ -128,6 +128,25 @@ extern "C" {
+                          NVKMS_COMPOSITION_COLOR_KEY_SELECT_DISABLE) ? 1 : 0); \
+          (__match) <= 1; (__match)++)
+ 
++typedef enum NVEvoLockAction {
++    NV_EVO_PROHIBIT_LOCK,
++    NV_EVO_PROHIBIT_LOCK_DISABLE,
++    NV_EVO_LOCK_HEADS,
++    NV_EVO_UNLOCK_HEADS,
++    NV_EVO_ADD_FRAME_LOCK_SERVER,
++    NV_EVO_REM_FRAME_LOCK_SERVER,
++    NV_EVO_ADD_FRAME_LOCK_HOUSE_SYNC,
++    NV_EVO_REM_FRAME_LOCK_HOUSE_SYNC,
++    NV_EVO_ADD_FRAME_LOCK_CLIENT,
++    NV_EVO_REM_FRAME_LOCK_CLIENT,
++    NV_EVO_ADD_FRAME_LOCK_REF,
++    NV_EVO_REM_FRAME_LOCK_REF,
++    NV_EVO_ADD_SLI_SECONDARY,
++    NV_EVO_ADD_SLI_LAST_SECONDARY,
++    NV_EVO_ADD_SLI_PRIMARY,
++    NV_EVO_REM_SLI,
++} NVEvoLockAction;
++
+ typedef struct _NVEvoApiHandlesRec *NVEvoApiHandlesPtr;
+ typedef struct _NVEvoSubDeviceRec *NVSubDeviceEvoPtr;
+ typedef struct _NVEvoDevRec *NVDevEvoPtr;
+@@ -803,7 +822,7 @@ typedef struct _NVEvoSubDevRec {
+     NVEvoHeadControl            headControlAssy[NVKMS_MAX_HEADS_PER_DISP];
+     NvBool                      (*scanLockState)(NVDispEvoPtr pDispEvo,
+                                                  NVEvoSubDevPtr pEvoSubDev,
+-                                                 NvU32 action,
++                                                 NVEvoLockAction action,
+                                                  /* NV_INVALID_HEAD-terminated
+                                                   * array of head indices */
+                                                  const NvU32 *pHeads);
