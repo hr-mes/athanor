@@ -72,6 +72,18 @@ open({ready!r}, "w").write(str(os.getpid()))
 time.sleep(3600)
 """
 
+# Stays up until the test creates the file it is watching, and then leaves of its own
+# accord, which is what ends a session. It saves the test from having to find the running
+# panel from outside and signal it: a pid looked up out there is one the wrapper may
+# already have replaced, and pgrep is a fork in this process, whose child os.wait() in
+# the wrapper would reap as readily as its own.
+LEAVES_WHEN_TOLD = """#!{python}
+import os, sys, time
+while not os.path.exists({over!r}):
+    time.sleep(0.01)
+sys.exit(0)
+"""
+
 
 def load_script():
     """Import the wrapper, which is installed without a .py suffix."""
@@ -360,18 +372,39 @@ class CosmicPanelWrapper(unittest.TestCase):
                 )
                 self.assertFalse(finished.is_set())
 
-                # The pair is being restarted the whole time, so there is a moment
-                # between the old panel going and the new one arriving: wait for one
-                # rather than sampling into the gap.
+                # Now end the session, which only the panel exiting does. While the pair
+                # is being restarted there is no panel whose exit means that: the wrapper
+                # is itself stopping one every few milliseconds, and a panel it has
+                # already condemned -- which is any panel running while the daemon dies
+                # the instant it starts -- is one whose exit belongs to that restart,
+                # correctly, and the wrapper starts another pair rather than returning.
+                # So let the daemon come back healthy first: the wrapper settles on a
+                # single pair and waits on it, nothing is being replaced, and the panel
+                # leaving is the end of the session and nothing else.
+                #
+                # The panel is replaced before the daemon so that the healthy daemon is
+                # never paired with the panel that only answers SIGTERM: run_once() reads
+                # DAEMON before PANEL, so a daemon that is the new one has a panel that
+                # is the new one too.
+                over = os.path.join(tmp, "session.over")
+                ready = os.path.join(tmp, "daemon.ready")
+                self.module.PANEL = write_stand_in(
+                    tmp, "settled-panel", LEAVES_WHEN_TOLD, over=over
+                )
+                self.module.DAEMON = write_stand_in(
+                    tmp, "healthy-daemon", SURVIVES, ready=ready
+                )
                 for _ in range(600):
-                    running = panels(self.module.PANEL)
-                    if len(running) == 1:
+                    if os.path.exists(ready):
                         break
                     finished.wait(0.05)
                 else:
-                    self.fail(f"no panel came back: {said(journal)}")
-                os.kill(int(running[0]), signal.SIGTERM)
-                self.assertTrue(finished.wait(30))
+                    self.fail(f"the daemon never came back up: {said(journal)}")
+
+                pathlib.Path(over).touch()
+                self.assertTrue(
+                    finished.wait(30), "the wrapper did not exit when the panel did"
+                )
 
     def test_the_window_is_measured_on_a_clock_that_survives_suspend(self):
         """The default clock is CLOCK_BOOTTIME, which keeps counting while suspended."""

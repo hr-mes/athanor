@@ -2,13 +2,18 @@
 # selected by the GPU build argument: none (athanor-system), nvidia (athanor-system-nvidia)
 # and nvidia-legacy (athanor-system-nvidia-legacy). Everything up to the `system` stage is
 # shared; the GPU stages add the signed NVIDIA modules of the Azoth kernel with the locked
-# vendor packages; the final stage gates, assembles the UKI and lints. AZOTH_NVR is passed by
-# system/build-image.sh from forge/specs/azoth/nvr.sh.
+# vendor packages; the final stage gates, assembles the UKI and lints. system/build-image.sh
+# passes AZOTH_NVR, the registry and the module digests from the file system/kernel-artifacts.sh
+# wrote (docs/architecture/doc_build_ordering.md, O4, O9). A stage the target does not use is
+# never pulled, so the default image builds without module digests.
 ARG AZOTH_NVR
 ARG GPU=none
+ARG KERNEL_REGISTRY=ghcr.io/hr-mes
+ARG NVIDIA_OPEN_DIGEST
+ARG NVIDIA_LEGACY_DIGEST
 
-FROM ghcr.io/hr-mes/azoth-nvidia:${AZOTH_NVR}-open AS nvidia-modules-open
-FROM ghcr.io/hr-mes/azoth-nvidia:${AZOTH_NVR}-legacy AS nvidia-modules-legacy
+FROM ${KERNEL_REGISTRY}/azoth-nvidia@${NVIDIA_OPEN_DIGEST} AS nvidia-modules-open
+FROM ${KERNEL_REGISTRY}/azoth-nvidia@${NVIDIA_LEGACY_DIGEST} AS nvidia-modules-legacy
 
 # The vendor RPMs of both NVIDIA branches, verified by hash and GPG, with the shim and the
 # configuration package (system/nvidia/build-rpms.sh). A throwaway stage: rpm-build never
@@ -32,6 +37,9 @@ ARG TETRAGON_VERSION=v1.3.0
 # TIER 0: BEDROCK HARDWARE & KERNEL FOUNDATION
 # The tier repositories mount under /tmp: in an ostree image /mnt is a symlink to var/mnt,
 # which does not exist at build time, so podman cannot create a mount target below it.
+# The registry here is a literal, not ${KERNEL_REGISTRY}: an ARG in a RUN --mount=...,from=
+# value made buildah 5.8.4 SIGSEGV at commit (exit 134), taking down all three images. Only
+# the two FROM ...@digest lines above tolerate the ARG; do not reapply it here.
 RUN --mount=type=bind,from=ghcr.io/hr-mes/athanor-forge-tier0-repo:latest,source=/,target=/tmp/tier0-repo \
     --mount=type=cache,dst=/var/cache --mount=type=cache,dst=/var/cache/libdnf5 \
     base_kernel=$(rpm -qa kernel kernel-core 'kernel-modules*' 'kernel-uki-virt*') && \

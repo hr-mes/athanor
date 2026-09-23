@@ -1,0 +1,63 @@
+Declare the IOM destructors with the NVOC destructor type
+
+__iom_dtor_OBJRPC and __iom_dtor_OBJRPCSTRUCTURECOPY take their class pointer but
+are stored, through a cast, in the NVOC_DYNAMIC_DTOR slot of the RTTI and called
+by __nvoc_destructFromBase as void (*)(Dynamic *). Under kCFI that call traps when
+the object is destroyed. Both bodies are empty, so taking Dynamic * is exact.
+
+diff --git a/src/nvidia/generated/g_rpc_iom.c b/src/nvidia/generated/g_rpc_iom.c
+index 36640a8..c9ab01e 100644
+--- a/src/nvidia/generated/g_rpc_iom.c
++++ b/src/nvidia/generated/g_rpc_iom.c
+@@ -60,12 +60,12 @@ rpcSetPropertiesSpecial
+ 
+ extern const struct NVOC_CLASS_DEF __iom_class_def_OBJRPC;
+ 
+-void      __iom_dtor_OBJRPC(POBJRPC);
++void      __iom_dtor_OBJRPC(Dynamic *);
+ 
+ const struct NVOC_RTTI __iom_rtti_OBJRPC_OBJRPC =
+ {
+     &__iom_class_def_OBJRPC,
+-    (NVOC_DYNAMIC_DTOR)&__iom_dtor_OBJRPC,
++    &__iom_dtor_OBJRPC,
+     0,
+ };
+ 
+@@ -120,7 +120,7 @@ NV_STATUS __iom_vctor_OBJRPC(Dynamic *pDynamic, va_list args)
+     return status;
+ }
+ 
+-void __iom_dtor_OBJRPC(POBJRPC pRpc)
++void __iom_dtor_OBJRPC(Dynamic *pDynamic)
+ {
+ }
+ 
+diff --git a/src/nvidia/generated/g_rpcstructurecopy_iom.c b/src/nvidia/generated/g_rpcstructurecopy_iom.c
+index f980ad7..5ea258c 100644
+--- a/src/nvidia/generated/g_rpcstructurecopy_iom.c
++++ b/src/nvidia/generated/g_rpcstructurecopy_iom.c
+@@ -49,12 +49,12 @@ rpcstructurecopySetPropertiesSpecial
+ 
+ extern const struct NVOC_CLASS_DEF __iom_class_def_OBJRPCSTRUCTURECOPY;
+ 
+-void      __iom_dtor_OBJRPCSTRUCTURECOPY(POBJRPCSTRUCTURECOPY);
++void      __iom_dtor_OBJRPCSTRUCTURECOPY(Dynamic *);
+ 
+ const struct NVOC_RTTI __iom_rtti_OBJRPCSTRUCTURECOPY_OBJRPCSTRUCTURECOPY =
+ {
+     &__iom_class_def_OBJRPCSTRUCTURECOPY,
+-    (NVOC_DYNAMIC_DTOR)&__iom_dtor_OBJRPCSTRUCTURECOPY,
++    &__iom_dtor_OBJRPCSTRUCTURECOPY,
+     0,
+ };
+ 
+@@ -109,7 +109,7 @@ NV_STATUS __iom_vctor_OBJRPCSTRUCTURECOPY(Dynamic *pDynamic, va_list args)
+     return status;
+ }
+ 
+-void __iom_dtor_OBJRPCSTRUCTURECOPY(POBJRPCSTRUCTURECOPY pRpcstructurecopy)
++void __iom_dtor_OBJRPCSTRUCTURECOPY(Dynamic *pDynamic)
+ {
+ }
+ 

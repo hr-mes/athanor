@@ -47,24 +47,24 @@ Decisioni già prese con il maintainer:
 
 Directory `forge/specs/azoth/` dopo il blocco:
 
-| File                     | Ruolo                                                                                                                                                                               |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pins.env`               | `FEDORA_KERNEL_NVR` (es. `7.1.12-100.fc43`), `FEDORA_SOURCE_RELEASE` (43), `CACHYOS_RELEASE` (es. `cachyos-7.1.8-1`), `CACHYOS_PATCHES_COMMIT`, `KERNEL_CHANNEL` (`stable` o `lts`) |
-| `SOURCES/sources.sha256` | hash del SRPM, del tarball CachyOS, delle patch singole; lo scrive `build.sh --stage manifest`                                                                                                                             |
-| `kernel-local`           | frammento di config, una riga di motivazione per opzione                                                                                                                            |
-| `patches.list`           | patch di `CachyOS/kernel-patches` da accodare dopo la base, in ordine                                                                                                               |
-| `patches/refreshed/`     | copie rinfrescate delle patch di `patches.list` che non entrano più senza fuzz, stesso percorso relativo; il preambolo registra commit e SHA-256 del file upstream da cui derivano (sezione 8) |
-| `patches/`               | patch di Athanor in formato git, applicate dopo `patches.list` in ordine di nome; il messaggio spiega il perché, e ogni patch è candidata all'upstream                            |
-| `patches/redhat/`        | patch di Athanor al codice che aggiunge solo la patch Red Hat: vanno soltanto sull'indice Fedora, non sull'albero CachyOS della derivazione del config, e non toccano Kconfig |
-| `fedora-wins.list`       | percorsi in cui un conflitto del merge tra base CachyOS e patch Red Hat si risolve con l'albero Fedora; ogni altro conflitto ferma la build                                        |
-| `cmdline`                | riga di comando del kernel, firmata nella UKI (sezione 6)                                                                                                                           |
-| `boot.sh`, `boot/`       | la boot matrix (sezione 7, gate 3): ambiente QEMU/OVMF/shim pinnato come il builder, PID 1 dell'initramfs di prova con le asserzioni                                              |
-| `builder/Containerfile`  | ambiente Fedora 43 (esiste già), base pinnata per digest                                                                                                                            |
-| `build.sh`               | l'intera build, riproducibile in locale e in CI                                                                                                                                     |
-| `build-inputs.py`        | gli input che cambiano gli RPM come JSON: predicato dell'attestazione dei pin e chiave del riuso (sezione 7)                                                                   |
+| File                     | Ruolo                                                                                                                                                                                                                                                                            |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pins.env`               | `FEDORA_KERNEL_NVR` (es. `7.1.12-100.fc43`), `FEDORA_SOURCE_RELEASE` (43), `CACHYOS_RELEASE` (es. `cachyos-7.1.8-1`), `CACHYOS_PATCHES_COMMIT`, `KERNEL_CHANNEL` (`stable` o `lts`)                                                                                              |
+| `SOURCES/sources.sha256` | hash del SRPM, del tarball CachyOS, delle patch singole; lo scrive `build.sh --stage manifest`                                                                                                                                                                                   |
+| `kernel-local`           | frammento di config, una riga di motivazione per opzione                                                                                                                                                                                                                         |
+| `patches.list`           | patch di `CachyOS/kernel-patches` da accodare dopo la base, in ordine                                                                                                                                                                                                            |
+| `patches/refreshed/`     | copie rinfrescate delle patch di `patches.list` che non entrano più senza fuzz, stesso percorso relativo; il preambolo registra commit e SHA-256 del file upstream da cui derivano (sezione 8)                                                                                   |
+| `patches/`               | patch di Athanor in formato git, applicate dopo `patches.list` in ordine di nome; il messaggio spiega il perché, e ogni patch è candidata all'upstream                                                                                                                           |
+| `patches/redhat/`        | patch di Athanor al codice che aggiunge solo la patch Red Hat: vanno soltanto sull'indice Fedora, non sull'albero CachyOS della derivazione del config, e non toccano Kconfig                                                                                                    |
+| `fedora-wins.list`       | percorsi in cui un conflitto del merge tra base CachyOS e patch Red Hat si risolve con l'albero Fedora; ogni altro conflitto ferma la build                                                                                                                                      |
+| `cmdline`                | riga di comando del kernel, firmata nella UKI (sezione 6)                                                                                                                                                                                                                        |
+| `boot.sh`, `boot/`       | la boot matrix (sezione 7, gate 3): ambiente QEMU/OVMF/shim pinnato come il builder, PID 1 dell'initramfs di prova con le asserzioni                                                                                                                                             |
+| `builder/Containerfile`  | ambiente Fedora 43 (esiste già), base pinnata per digest                                                                                                                                                                                                                         |
+| `build.sh`               | l'intera build, riproducibile in locale e in CI                                                                                                                                                                                                                                  |
+| `build-inputs.py`        | gli input che cambiano gli RPM come JSON: predicato dell'attestazione dei pin e chiave del riuso (sezione 7)                                                                                                                                                                     |
 | `keys/`                  | profili e generatore delle chiavi di firma (`profiles/`, `generate.sh`); certificati pubblici della chiave Secure Boot (`secureboot/`), della chiave dei moduli (`modules/`) e delle chiavi ritirate (`revoked/`) (sezione 6); le chiavi private sono nell'environment `signing` |
-| `microvm/`               | config e spec del kernel guest (sezione 9)                                                                                                                                          |
-| `KERNEL.md`              | cosa c'è nella directory, uso locale, bump; il bot (K5) ne riscrive la tabella dei pin                                                                                               |
+| `microvm/`               | config e spec del kernel guest (sezione 9)                                                                                                                                                                                                                                       |
+| `KERNEL.md`              | cosa c'è nella directory, uso locale, bump; il bot (K5) ne riscrive la tabella dei pin                                                                                                                                                                                           |
 
 Spariscono: `prepare-chimera.sh`, `build-local.sh`, `cachyos-patches/` (1031
 file, 7,4 milioni di righe), `patches/0001-acs-override.patch` (rompe
@@ -148,8 +148,8 @@ identica in locale. Passi, tutti senza rete tranne i download verificati:
 5. riduce lo spec a x86_64: gli altri `kernel-*-fedora.config` diventano
    `# EMPTY`, il valore che `process_configs.sh` salta per contratto;
 6. `rpmbuild -bp --with toolchain_clang --with clang_lto --without debug
-   --without tools --without perf --without libperf --without bpftool --without
-   ynl --without selftests --without doc`: patch e `process_configs.sh -w -n -c`.
+--without tools --without perf --without libperf --without bpftool --without
+ynl --without selftests --without doc`: patch e `process_configs.sh -w -n -c`.
    Poi il gate di Athanor: ogni riga del delta committato deve valere nel config
    generato (Fedora segnala i mismatch solo sulle opzioni presenti nel
    risultato, un'opzione caduta per dipendenza non soddisfatta passerebbe in
@@ -166,28 +166,28 @@ identica in locale. Passi, tutti senza rete tranne i download verificati:
    (`repro.py`): la chiave che firma moduli e immagine nasce in ogni build,
    quindi firma dei `.ko` e certificato in `.init.data` sono attesi; ogni altra
    differenza è un bug da aprire, e il job è rosso;
-7. ccache su directory persistente del runner (non `actions/cache`): tra due
+9. ccache su directory persistente del runner (non `actions/cache`): tra due
    patch level cambiano pochi file, la LTO finale no;
-8. pubblicazione (job `publish` su runner GitHub, dall'artefatto del job `build`):
-   tre pacchetti OCI con i soli RPM dentro, `ghcr.io/hr-mes/azoth`
-   (binari), `azoth-devel`, `azoth-debuginfo`, tag `<nvr>`.
-   Pacchetti separati e non suffissi del tag, perché la retention di ghcr è per
-   pacchetto (`retention.sh`, prima del gate, che così verifica ciò che resta):
-   del debuginfo restano le due release più recenti, di kernel e devel tutte; con
-   ogni release resta ciò che è raggiungibile dal suo digest, cioè l'indice dei
-   referrer che cosign v3 tiene sotto il tag di fallback `sha256-<hex>` (ghcr non
-   ha l'API referrers) e i bundle Sigstore che elenca, manifesti senza tag. Tutto
-   il resto se ne va: release oltre il limite con i loro referrer, indici
-   sostituiti da ogni attestazione successiva, manifesti di un push ripetuto
-   dello stesso NVR. Ogni immagine: firma cosign
-   keyless (identità OIDC del workflow), SBOM SPDX da syft come attestazione
-   `spdxjson`, attestazione custom con i pin (pins.env, hash di manifest, delta,
-   patches.list e Containerfile, immagine base del builder); la principale ha
-   anche la provenance SLSA di GitHub (`actions/attest-build-provenance`, commit e
-   workflow) nello store attestazioni di GitHub, non nel registro, verificabile
-   con `gh attestation verify`. Il gate K2 è il `cosign
-   verify` e `verify-attestation` nel workflow stesso. `:latest` si muove solo su
-   `main`, cioè al merge di una PR di bump. Una PR costruisce e non pubblica.
+10. pubblicazione (job `publish` su runner GitHub, dall'artefatto del job `build`):
+    tre pacchetti OCI con i soli RPM dentro, `ghcr.io/hr-mes/azoth`
+    (binari), `azoth-devel`, `azoth-debuginfo`, tag `<nvr>`.
+    Pacchetti separati e non suffissi del tag, perché la retention di ghcr è per
+    pacchetto (`retention.sh`, prima del gate, che così verifica ciò che resta):
+    del debuginfo restano le due release più recenti, di kernel e devel tutte; con
+    ogni release resta ciò che è raggiungibile dal suo digest, cioè l'indice dei
+    referrer che cosign v3 tiene sotto il tag di fallback `sha256-<hex>` (ghcr non
+    ha l'API referrers) e i bundle Sigstore che elenca, manifesti senza tag. Tutto
+    il resto se ne va: release oltre il limite con i loro referrer, indici
+    sostituiti da ogni attestazione successiva, manifesti di un push ripetuto
+    dello stesso NVR. Ogni immagine: firma cosign
+    keyless (identità OIDC del workflow), SBOM SPDX da syft come attestazione
+    `spdxjson`, attestazione custom con i pin (pins.env, hash di manifest, delta,
+    patches.list e Containerfile, immagine base del builder); la principale ha
+    anche la provenance SLSA di GitHub (`actions/attest-build-provenance`, commit e
+    workflow) nello store attestazioni di GitHub, non nel registro, verificabile
+    con `gh attestation verify`. Il gate K2 è il `cosign
+verify` e `verify-attestation` nel workflow stesso. `:latest` si muove solo su
+    `main`, cioè al merge di una PR di bump. Una PR costruisce e non pubblica.
 
 Il job del kernel è un workflow proprio (`kernel-build.yml`), attivato da cambi in
 `forge/specs/azoth/**` e a mano, con hash di idempotenza sugli input:
@@ -204,21 +204,21 @@ CAKE e FQ, e la lista LSM
 `lockdown,yama,integrity,selinux,bpf,landlock,ipe`. Il frammento Athanor è il
 delta, e resta corto:
 
-| Opzione                                               | Valore | Perché                                                                                                        |
-| ----------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------- |
-| `SCHED_BORE`                                          | y      | patch CachyOS, responsività desktop                                                                           |
+| Opzione                                               | Valore | Perché                                                                                                                                 |
+| ----------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `SCHED_BORE`                                          | y      | patch CachyOS, responsività desktop                                                                                                    |
 | `CC_OPTIMIZE_FOR_PERFORMANCE`                         | y      | `-O2`: la base CachyOS accende `-O3`, ma due A/B di K7 non gli hanno trovato vantaggi (sezione 13, punto 2); `variants/o3` lo rimisura |
-| `LTO_NONE`                                            | y      | ThinLTO spento: con `DEBUG_INFO_BTF`, `RUST` richiede `!LTO`; il bcond `clang_lto` resta per il toolchain (sezione 5) |
-| `RUST`                                                | y      | come Fedora: la porta ai driver che nascono in Rust; con kCFI seleziona `CFI_ICALL_NORMALIZE_INTEGERS`        |
-| `CFI`                                                 | y      | kCFI, richiede clang; con IBT già attivo                                                                      |
-| `ZERO_CALL_USED_REGS`                                 | y      | hardening a costo trascurabile                                                                                |
-| `RANDSTRUCT_NONE`                                     | y      | come Fedora: `RUST` dipende da `!RANDSTRUCT`, e il layout randomizzato costa in cache                         |
-| `MODULE_SIG_FORCE`                                    | y      | ogni modulo firmato: chiave effimera di build per l'albero, MOK per i kmod esterni                            |
-| `DEFAULT_TCP_CONG`                                    | "bbr3" | BBRv3 dalla base CachyOS                                                                                      |
-| `DEFAULT_FQ`                                          | y      | BBR richiede pacing: FQ come qdisc di default                                                                 |
-| `ZSWAP_COMPRESSOR_DEFAULT_ZSTD`, `ZRAM_DEF_COMP_ZSTD` | y      | compressione memoria zstd di default                                                                          |
-| `IKCONFIG`, `IKCONFIG_PROC`                           | y      | config verificabile a runtime, usato dall'attestazione                                                        |
-| `EROFS_FS`                                            | y      | built-in: la rootfs composefs non deve dipendere da un modulo nell'initrd                                     |
+| `LTO_NONE`                                            | y      | ThinLTO spento: con `DEBUG_INFO_BTF`, `RUST` richiede `!LTO`; il bcond `clang_lto` resta per il toolchain (sezione 5)                  |
+| `RUST`                                                | y      | come Fedora: la porta ai driver che nascono in Rust; con kCFI seleziona `CFI_ICALL_NORMALIZE_INTEGERS`                                 |
+| `CFI`                                                 | y      | kCFI, richiede clang; con IBT già attivo                                                                                               |
+| `ZERO_CALL_USED_REGS`                                 | y      | hardening a costo trascurabile                                                                                                         |
+| `RANDSTRUCT_NONE`                                     | y      | come Fedora: `RUST` dipende da `!RANDSTRUCT`, e il layout randomizzato costa in cache                                                  |
+| `MODULE_SIG_FORCE`                                    | y      | ogni modulo firmato: chiave effimera di build per l'albero, MOK per i kmod esterni                                                     |
+| `DEFAULT_TCP_CONG`                                    | "bbr3" | BBRv3 dalla base CachyOS                                                                                                               |
+| `DEFAULT_FQ`                                          | y      | BBR richiede pacing: FQ come qdisc di default                                                                                          |
+| `ZSWAP_COMPRESSOR_DEFAULT_ZSTD`, `ZRAM_DEF_COMP_ZSTD` | y      | compressione memoria zstd di default                                                                                                   |
+| `IKCONFIG`, `IKCONFIG_PROC`                           | y      | config verificabile a runtime, usato dall'attestazione                                                                                 |
+| `EROFS_FS`                                            | y      | built-in: la rootfs composefs non deve dipendere da un modulo nell'initrd                                                              |
 
 Non si toccano, e il documento lo dice perché il passato li ha toccati:
 `OBJTOOL`, `WERROR`, `STACK_VALIDATION`, `DEBUG_INFO_*` (senza DWARF non c'è BTF
@@ -267,7 +267,7 @@ patchano i Makefile per forzarlo.
   ai branch `main` e `iso-v0`. Un secret non è più sicuro per essere nato sul
   runner: conta dove si usa, e chi ne ha la custodia.
 - **Chiave Secure Boot**: firma la UKI e la sua policy PCR (`ukify
-  --pcr-private-key`; è la chiave pubblica con cui `athanor-tpm-luks-seal.sh`
+--pcr-private-key`; è la chiave pubblica con cui `athanor-tpm-luks-seal.sh`
   sigilla LUKS). Profilo `keys/profiles/secureboot.cnf`: non CA, `codeSigning`.
   Secret `SECUREBOOT_SIGNING_KEY`, certificato
   `keys/secureboot/athanor-secureboot.pem` (`.der` per `mokutil --import`). Non
@@ -394,7 +394,7 @@ default; a mano con `workflow_dispatch` su qualunque branch), in tre job:
    builder, `build.sh --stage manifest` e `nvidia.sh manifest` scaricano i
    sorgenti dei pin nuovi e riscrivono i due manifesti degli hash (il `.run`
    legacy è confrontato con l'hash che NVIDIA pubblica accanto); poi `build.sh
-   --stage prep`: firme PGP con le chiavi vendorizzate (una rotazione di chiave
+--stage prep`: firme PGP con le chiavi vendorizzate (una rotazione di chiave
    è un prep rosso, mai un'accettazione silenziosa), patch applicate,
    derivazione del config e gate di `kernel-local`. L'esito e le opzioni
    derivate (`listnewconfig` con i valori CachyOS) vanno nel corpo della PR,
@@ -481,11 +481,11 @@ spacchettato per vendor nell'immagine: nessun lavoro nel kernel oltre a non
 toglierli. NVIDIA, in un workflow proprio (`nvidia-kmod.yml`) che parte dopo il
 kernel:
 
-| Livello         | GPU                              | Meccanismo                                                                                                                                                         |
-| --------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| default         | tutte                            | `nouveau` in-tree, firmware GSP; NVK in Mesa                                                                                                                       |
-| `nvidia-open`   | Turing 2018+                     | moduli aperti 610.x compilati nel container Fedora contro `kernel-devel`, clang e kCFI coerenti, firmati con la chiave dei moduli                                                       |
-| `nvidia-legacy` | Maxwell, Pascal, Volta 2014–2018 | ramo 580, stesso meccanismo; la parte RM è il blob gcc di NVIDIA, senza kCFI né return thunk: rischio noto, verificabile solo su hardware                         |
+| Livello         | GPU                              | Meccanismo                                                                                                                                |
+| --------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| default         | tutte                            | `nouveau` in-tree, firmware GSP; NVK in Mesa                                                                                              |
+| `nvidia-open`   | Turing 2018+                     | moduli aperti 610.x compilati nel container Fedora contro `kernel-devel`, clang e kCFI coerenti, firmati con la chiave dei moduli         |
+| `nvidia-legacy` | Maxwell, Pascal, Volta 2014–2018 | ramo 580, stesso meccanismo; la parte RM è il blob gcc di NVIDIA, senza kCFI né return thunk: rischio noto, verificabile solo su hardware |
 
 Pubblicazione `azoth-nvidia:<kernel-nvr>-<driver>`; le immagini
 `athanor-system-nvidia` e `athanor-system-nvidia-legacy` le consumano insieme al firmware e
@@ -537,6 +537,40 @@ attestazione dei pin `NVIDIA_*`, retention, gate di verifica). Le patch
 solo `-mharden-sls=all` alla parte modeset (qui arriva da `EXTRA_CFLAGS`),
 l'ultima è un hack sul Makefile che non serve, le tre in mezzo sono correzioni
 DSC/DisplayPort: candidate a un `nvidia/patches.list` se servono, non default.
+
+**I tipi kCFI dei moduli aperti.** NVIDIA non compila i suoi moduli con kCFI,
+e contengono chiamate indirette verso funzioni di tipo diverso da quello del
+punto di chiamata: comportamento indefinito che senza kCFI passa inosservato,
+con kCFI una trappola e, con `oops=panic`, un panic all'avvio. La prova su
+hardware del 2026-09-23 (immagine `-nvidia` avviata con `cfi=warn`, RTX 3060 e
+RTX 4070 Ti SUPER) ha registrato come prima violazione
+`nv_drm_connector_mode_valid`, chiamata da `__drm_helper_update_and_validate`
+appena `nvidia-drm` registra lo schermo, poi `scanLockState` a ogni modeset;
+nessuna nel RM in quell'avvio. Le patch in `nvidia/patches/open/`, applicate da
+`nvidia.sh` dopo il clone, correggono i tipi dove sbagliano: i getter bindata
+del SEC2 generati con un argomento in meno dello slot NVOC che li contiene, i
+distruttori IOM chiamati come `void (*)(Dynamic *)`, la callback del timer
+chiamata con un tipo di ritorno diverso, `mode_valid` che restituisce `int`
+invece di `enum drm_mode_status`, lo slot `scanLockState` che prende `NvU32`
+dove le funzioni di stato prendono `NVEvoLockAction`, il dispatcher dei task
+NVSwitch convertito a `nv_q_func_t`. Una patch che non si applica dopo un bump
+ferma la build. `nvidia/kcfi_check.py` ferma invece la build se compare una
+violazione nuova, leggendo i log di entrambe le parti (RM e Kbuild): confronta
+ogni getter bindata con la sua dichiarazione NVOC, l'arità di ogni voce delle
+tabelle dei metodi esportati con il suo `paramSize` (resControl la riconverte in
+base a quello), ammette da `-Wcast-function-type-strict` solo i cast ragionati
+(l'andata e ritorno di quelle tabelle, il parcheggio della callback nel timer) e
+non ammette nessun avviso di `-Wincompatible-function-pointer-types-strict`:
+un'assegnazione che il C accetta perché un enum è compatibile con il suo intero,
+mentre kCFI li distingue. Una volta patchata, la parte Kbuild non emette avvisi,
+e il silenzio non prova che i flag le siano arrivati: il controllo legge quindi
+il comando che Kbuild salva per ogni oggetto C (`.<oggetto>.o.cmd`) e fallisce
+se uno manca di uno dei due avvisi, o se non ne trova nessuno. Il limite: un puntatore a funzione che passa per
+`NvP64` o `void *` sfugge a tutti; lo trova solo un avvio sull'hardware con
+l'opzione `cfi=warn`, che registra le violazioni invece di fermarsi, senza
+ricompilare il kernel. Le patch sono candidate all'upstream; i getter e gli
+stati EVO stanno in file generati, quindi la correzione vera è nei generatori
+di NVIDIA.
 
 **Il ramo legacy e il kernel 7.1.** Con `CONFIG_CFI=y`, il 7.1 rifiuta in
 modpost ogni modulo non GPL, anche uno vuoto che include solo `<linux/mm.h>`:
@@ -595,11 +629,11 @@ l'implementazione scopre che un gancio Fedora non è come descritto.
 4. Debuginfo pubblicato come OCI separato, retention di due versioni.
 5. (2026-09-14) Patch di terzi: niente fuzz nella build, mai. Quando una patch di
    `patches.list` smette di entrare si rinfresca una volta con `build.sh --stage
-   refresh`, una persona rivede gli hunk applicati con fuzz e la copia va in
+refresh`, una persona rivede gli hunk applicati con fuzz e la copia va in
    `patches/refreshed/`; la PR di bump in quel caso non ha l'auto-merge (sezione 8).
    Primo caso: la patch BORE della serie 7.2 su `include/linux/sched.h` di
    cachyos-7.2.5-1, che ha aggiunto `struct task_ipi_mask` davanti a `struct
-   task_struct`.
+task_struct`.
 6. (2026-09-14) Cache kmalloc partizionate in modalità casuale
    (`KMALLOC_PARTITION_RANDOM`, la protezione di `RANDOM_KMALLOC_CACHES` in 7.1). Fedora
    7.2 sceglie la modalità per tipo (`KMALLOC_PARTITION_TYPED`), più forte, che richiede i
@@ -613,4 +647,4 @@ l'implementazione scopre che un gancio Fedora non è come descritto.
    Fusion) alla versione esatta dei moduli firmati, con gate e lock per hash
    (docs/architecture/doc_system_image.md).
 
-| `bump.py`                | il bot di bump (sezione 8): pin nuovi da Bodhi, CachyOS, NVIDIA e registro; riscrive `pins.env`, i `FROM` e `KERNEL.md` |
+| `bump.py` | il bot di bump (sezione 8): pin nuovi da Bodhi, CachyOS, NVIDIA e registro; riscrive `pins.env`, i `FROM` e `KERNEL.md` |

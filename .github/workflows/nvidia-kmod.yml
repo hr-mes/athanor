@@ -1,37 +1,95 @@
 name: NVIDIA kmod
 
 # The NVIDIA kernel modules, signed and published (forge/specs/azoth/nvidia.sh,
-# docs/architecture/doc_kernel_build.md, section 10). build: nvidia-build.yml, the two
-# branches (open 610, legacy 580) against the kernel-devel published for the NVR of the
-# pins. sign: on a GitHub runner in the `signing` environment, a job that only sees the
-# .ko files and the module signing key. boot: in QEMU, every case of the matrix: the
-# signed nvidia.ko of each branch must pass the signature check against the certificate
-# compiled into the kernel (ENODEV: no GPU), while an unsigned copy and a copy signed by
-# an enrolled Secure Boot-profile MOK must be rejected (EKEYREJECTED). publish: OCI
-# azoth-nvidia:<nvr>-<branch> with cosign, SBOM, attestation of the pins and retention.
-# Runs only on dispatch: from Kernel Build downstream of the publication (or the reuse)
-# of the kernel, or by hand. The gate on PRs is the kmod job of Kernel Build.
+# docs/architecture/doc_kernel_build.md, section 10; docs/architecture/doc_build_ordering.md,
+# O1, O2, O5, O6). artifacts: system/kernel-artifacts.sh resolves the kernel of the pins by
+# digest and the module tags bound to it; unless the modules are missing (both branches
+# already published, signed and attested, or the kernel of the pins not published) the run
+# ends there with a notice, asking for no approval. build: nvidia-build.yml, the two branches
+# (open, legacy) against azoth-devel by digest. sign: on a GitHub runner in the `signing`
+# environment, a job that only sees the .ko files and the module signing key. boot: in QEMU,
+# every case of the matrix: the signed nvidia.ko of each branch must pass the signature check
+# against the certificate compiled into the kernel (ENODEV: no GPU), while an unsigned copy and
+# a copy signed by an enrolled Secure Boot-profile MOK must be rejected (EKEYREJECTED).
+# publish: nvidia-publish.sh, azoth-nvidia:<nvr>-k<12 hex of the kernel digest>-<branch>-<version>
+# with SBOM, signature and attestation, never overwriting a published tag; then the retention
+# and the verification. publish alone holds the azoth-nvidia-publish concurrency group with
+# cancel-in-progress false, so a queued publish never interleaves a push and its signature
+# with another run's. sign and boot stay out of the group: neither of them pushes anything,
+# and sharing the group with them would let a competing run's sign seize it and cancel this
+# run's already-queued boot or publish, leaving modules built and unpublished. The
+# Orchestrator calls this workflow when the modules are missing; it also runs by hand. The
+# gate on PRs is the kmod job of Kernel Build.
 
 on:
+  workflow_call:
+    inputs:
+      kernel_digest:
+        description: "digest of azoth:<nvr> that the caller resolved; the run fails if the registry holds another"
+        type: string
+        required: true
   workflow_dispatch:
-
-concurrency:
-  group: nvidia-${{ github.ref }}
-  cancel-in-progress: true
+    inputs:
+      kernel_digest:
+        description: "digest of azoth:<nvr>; empty: the one system/kernel-artifacts.sh resolves"
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 env:
-  KERNEL_IMAGE: ghcr.io/${{ github.repository_owner }}/azoth
-  IMAGE: ghcr.io/${{ github.repository_owner }}/azoth-nvidia
+  # The same knob kernel-build.yml sets (system/kernel-artifacts.sh reads it under this
+  # exact name): every resolve below must agree with what kernel-build.yml published to,
+  # or a repository variable override would make this workflow see kernel-missing forever
+  # (doc_build_ordering.md, O9).
+  KERNEL_REGISTRY: ${{ vars.KERNEL_REGISTRY }}
 
 jobs:
+  artifacts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      state: ${{ steps.artifacts.outputs.state }}
+      devel_digest: ${{ steps.artifacts.outputs.devel_digest }}
+      registry: ${{ steps.artifacts.outputs.registry }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+
+      - name: Resolve the kernel artifacts (system/kernel-artifacts.sh)
+        id: artifacts
+        env:
+          KERNEL_DIGEST: ${{ inputs.kernel_digest }}
+        run: |
+          set -euo pipefail
+          bash system/kernel-artifacts.sh resolve --expect-kernel-digest "$KERNEL_DIGEST"
+          grep -E '^(state|devel_digest|registry)=' kernel-artifacts/kernel-artifacts.env >> "$GITHUB_OUTPUT"
+
+      - name: Nothing to build
+        if: ${{ steps.artifacts.outputs.state != 'modules-missing' }}
+        env:
+          STATE: ${{ steps.artifacts.outputs.state }}
+        run: |
+          echo "::notice title=NVIDIA kmod::state ${STATE}: the modules of the pins are published, or their kernel is not; no build and no approval"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nvidia-kernel-artifacts
+          path: kernel-artifacts/kernel-artifacts.env
+          if-no-files-found: error
+
   build:
+    needs: artifacts
+    if: ${{ needs.artifacts.outputs.state == 'modules-missing' }}
     permissions:
       contents: read
       packages: read
     uses: ./.github/workflows/nvidia-build.yml
+    with:
+      devel-digest: ${{ needs.artifacts.outputs.devel_digest }}
+      registry: ${{ needs.artifacts.outputs.registry }}
 
   sign:
     needs: build
@@ -50,21 +108,28 @@ jobs:
           path: out
           merge-multiple: true
 
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: nvidia-kernel-artifacts
+          path: kernel-artifacts
+
       - name: Build the nvidia image
         env:
           BUILDAH_ISOLATION: chroot
         run: podman build -t localhost/azoth-nvidia forge/specs/azoth/nvidia
 
-      - name: Kernel-devel from the published image
+      - name: Kernel-devel from the published image, by digest
         # Only for scripts/sign-file, which nvidia.sh extracts from the RPM.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          nvr=$(bash forge/specs/azoth/nvr.sh)
-          echo "${GH_TOKEN}" | podman login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-          trap 'podman logout ghcr.io' EXIT
-          ctr=$(podman create "${KERNEL_IMAGE}-devel:${nvr}" /kernel-devel)
+          registry=$(bash system/kernel-artifacts.sh get registry)
+          devel=$(bash system/kernel-artifacts.sh get devel_digest)
+          host=${registry%%/*}
+          echo "${GH_TOKEN}" | podman login "$host" -u "${GITHUB_ACTOR}" --password-stdin
+          trap 'podman logout "$host"' EXIT
+          ctr=$(podman create "${registry}/azoth-devel@${devel}" /kernel-devel)
           mkdir -p devel && podman cp "${ctr}:/." devel/ && podman rm "$ctr" > /dev/null
 
       - name: Sign a copy with an enrolled-MOK-shaped key
@@ -140,11 +205,18 @@ jobs:
           name: nvidia-mok-signed
           path: mok
 
-      - name: Kernel-core from the published image
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: nvidia-kernel-artifacts
+          path: kernel-artifacts
+
+      - name: Kernel-core from the published image, by digest
         run: |
           set -euo pipefail
-          nvr=$(bash forge/specs/azoth/nvr.sh)
-          ctr=$(podman create "${KERNEL_IMAGE}:${nvr}" /kernel-core)
+          registry=$(bash system/kernel-artifacts.sh get registry)
+          kernel=$(bash system/kernel-artifacts.sh get kernel_digest)
+          nvr=$(bash system/kernel-artifacts.sh get nvr)
+          ctr=$(podman create "${registry}/azoth@${kernel}" /kernel-core)
           mkdir -p out && podman cp "${ctr}:/." out/ && podman rm "$ctr" > /dev/null
           echo "nvr=${nvr}" >> "$GITHUB_ENV"
 
@@ -187,12 +259,16 @@ jobs:
   publish:
     needs: [sign, boot]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
+    concurrency:
+      group: azoth-nvidia-publish
+      cancel-in-progress: false
     permissions:
       contents: read
       packages: write
       id-token: write
       attestations: write
+      actions: read
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -203,87 +279,48 @@ jobs:
           name: nvidia-signed
           path: out
 
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: nvidia-kernel-artifacts
+          path: resolved
+
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
 
       - uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26
 
-      - name: Publish one OCI image per branch
-        id: publish
+      - name: Resolve again inside the publication group
+        # A run that published the same tags while this one waited for the group leaves them
+        # in place: nvidia-publish.sh skips every branch the file lists with a digest (O2).
+        run: |
+          set -euo pipefail
+          expected=$(KERNEL_ARTIFACTS_DIR=resolved bash system/kernel-artifacts.sh get kernel_digest)
+          bash system/kernel-artifacts.sh resolve --expect-kernel-digest "$expected"
+
+      - name: Publish (nvidia-publish.sh)
         env:
           BUILDAH_ISOLATION: chroot
-        run: |
-          set -euo pipefail
-          nvr=$(bash forge/specs/azoth/nvr.sh)
-          echo "${GH_TOKEN}" | buildah login -u "${GITHUB_ACTOR}" --password-stdin ghcr.io
-          mkdir -p digests
-          for driver in open legacy; do
-            version=$(cat "out/${driver}/version")
-            [[ $(cat "out/${driver}/kver") == "${nvr}.x86_64" ]] || { echo "kver of the ${driver} modules differs from ${nvr}"; exit 1; }
-            ctr=$(buildah from scratch)
-            buildah copy "$ctr" "out/${driver}/" /
-            buildah config \
-              --label org.opencontainers.image.title="azoth-nvidia ${driver}" \
-              --label org.opencontainers.image.version="${nvr}-${driver}-${version}" \
-              --label org.opencontainers.image.revision="${GITHUB_SHA}" \
-              --label org.opencontainers.image.source="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
-              "$ctr"
-            buildah commit --omit-timestamp "$ctr" "${IMAGE}:${nvr}-${driver}"
-            buildah push --digestfile "digests/${driver}" "${IMAGE}:${nvr}-${driver}"
-            echo "${IMAGE}:${nvr}-${driver} @$(cat "digests/${driver}")"
-          done
-          echo "nvr=${nvr}" >> "$GITHUB_OUTPUT"
-
-      - name: SBOM, sign, attest
-        # cosign keyless; the SBOM comes from the kernel module cataloger of syft; the
-        # custom predicate binds the image to the NVIDIA pins and to the kernel.
-        run: |
-          set -euo pipefail
-          echo "${GH_TOKEN}" | cosign login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-          mkdir -p sbom
-          for driver in open legacy; do
-            ref="${IMAGE}@$(cat "digests/${driver}")"
-            python3 - "$driver" > "pins-${driver}.json" <<'PY'
-          import json, pathlib, re, sys
-          k = pathlib.Path("forge/specs/azoth")
-          pins = dict(re.findall(r"^(NVIDIA_\w+)=(.*)$", (k / "pins.env").read_text(), re.M))
-          driver = sys.argv[1]
-          print(json.dumps({"driver": driver, "version": (pathlib.Path("out") / driver / "version").read_text().strip(),
-                            "kernel": (pathlib.Path("out") / driver / "kver").read_text().strip(), "pins": pins}, indent=2))
-          PY
-            syft scan "registry:${ref}" -o "spdx-json=sbom/${driver}.spdx.json"
-            jq -e '[.packages[] | select(.name | startswith("nvidia"))] | length > 0' "sbom/${driver}.spdx.json" > /dev/null \
-              || { echo "SBOM of ${driver} lacks the nvidia modules"; exit 1; }
-            cosign sign --yes "$ref"
-            cosign attest --yes --type spdxjson --predicate "sbom/${driver}.spdx.json" "$ref"
-            cosign attest --yes --type custom --predicate "pins-${driver}.json" "$ref"
-          done
-        env:
-          SYFT_REGISTRY_AUTH_AUTHORITY: ghcr.io
           SYFT_REGISTRY_AUTH_USERNAME: ${{ github.actor }}
           SYFT_REGISTRY_AUTH_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          host=$(bash system/kernel-artifacts.sh get registry)
+          host=${host%%/*}
+          export SYFT_REGISTRY_AUTH_AUTHORITY="$host"
+          echo "${GH_TOKEN}" | buildah login -u "${GITHUB_ACTOR}" --password-stdin "$host"
+          echo "${GH_TOKEN}" | cosign login "$host" -u "${GITHUB_ACTOR}" --password-stdin
+          bash forge/specs/azoth/nvidia-publish.sh out
+          cat nvidia-publish/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Retention (retention.sh)
         run: bash forge/specs/azoth/retention.sh
 
       - name: Verify (gate K4)
-        run: |
-          set -euo pipefail
-          for driver in open legacy; do
-            ref="${IMAGE}@$(cat "digests/${driver}")"
-            cosign verify \
-              --certificate-identity-regexp "^${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/" \
-              --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" > /dev/null
-            cosign verify-attestation --type custom \
-              --certificate-identity-regexp "^${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/" \
-              --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" > /dev/null
-            echo "verified: $ref"
-          done
+        # The resolver verifies both tags again after the retention: signature by this
+        # workflow, and an attestation naming the pins and the kernel digest.
+        run: bash system/kernel-artifacts.sh require-ready
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: nvidia-attestations
-          path: |
-            sbom/
-            pins-*.json
-            digests/
+          path: nvidia-publish/
           if-no-files-found: error
