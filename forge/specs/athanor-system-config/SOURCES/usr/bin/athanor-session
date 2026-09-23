@@ -18,6 +18,12 @@ systemctl --user reset-failed
 export XDG_CURRENT_DESKTOP=Athanor:COSMIC
 export XDG_SESSION_TYPE=wayland
 
+# Athanor's defaults for COSMIC come from a data directory ahead of /usr/share (see
+# /usr/lib/environment.d/60-athanor-cosmic-defaults.conf, which covers the user
+# manager). cosmic-comp, and the locker and idle daemon athanor-desktop starts, are
+# children of this script, not of the user manager, so they need it from here.
+export XDG_DATA_DIRS="/usr/share/athanor/cosmic-defaults:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
 # The USB policy is relaxed for an unlocked session; the hook does nothing where
 # usbguard is not running.
 /usr/bin/athanor-usbguard-hook unlock

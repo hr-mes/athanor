@@ -14,8 +14,10 @@
     "kernel-profile",
     "matugen",
     "bibata",
+    "calmo",
     "dart-sass",
     "shell-rs",
+    "greeter-ui",
     "doctor",
     "cliphist",
     "backup",
@@ -65,6 +67,7 @@
   ],
   "custom_tier2": [
     "bibata",
+    "calmo",
     "matugen",
     "dart-sass",
     "keylime",
@@ -73,6 +76,7 @@
   ],
   "custom_tier3": [
     "shell-rs",
+    "greeter-ui",
     "doctor",
     "system-services",
     "desktop-ui",

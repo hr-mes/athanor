@@ -1,0 +1,142 @@
+/* Rules of the Athanor surfaces. GTK4 properties only: the parse gate rejects the rest.
+ * Nothing here moves, so nothing needs a reduced-motion path. */
+
+window.athanor-surface {
+    font-family: "$font_family";
+    font-feature-settings: $font_features;
+    font-size: ${size_body}px;
+    color: @ath_ink;
+}
+
+window.athanor-surface *:focus-visible {
+    outline: 2px solid @ath_acc;
+    outline-offset: 2px;
+}
+
+/* The hearth: concentric discs rising from the bottom right corner. High contrast
+ * variants replace this with a flat, gated fill instead (no discs in the mockup). */
+window.athanor-greeter {
+    $greeter_background
+}
+
+.greeter-wordmark {
+    font-size: ${size_date}px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: @ath_ink;
+}
+
+.greeter-clock {
+    font-size: ${size_clock}px;
+    font-weight: 300;
+    letter-spacing: -0.035em;
+    line-height: 1;
+    color: @ath_clock_ink;
+}
+
+.greeter-date {
+    font-size: ${size_date}px;
+    font-weight: 500;
+    color: @ath_ink;
+}
+
+.greeter-card {
+    background-color: @ath_surf;
+    border: ${border_width}px solid @ath_line;
+    border-radius: ${radius_card}px;
+    box-shadow: 0 2px 6px @ath_shadow_near, 0 24px 60px @ath_shadow_float;
+    padding: 22px 22px 18px 22px;
+    min-width: 276px;
+}
+
+.greeter-avatar {
+    min-width: 60px;
+    min-height: 60px;
+    border-radius: ${radius_round}px;
+    background-color: @ath_acc;
+    color: @ath_acc_ink;
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.greeter-name {
+    font-size: ${size_title}px;
+    font-weight: 600;
+}
+
+.greeter-field {
+    min-height: 40px;
+    border-radius: ${radius_field}px;
+    background-color: @ath_surf2;
+    border: ${field_border_width}px solid @ath_acc;
+    color: @ath_ink;
+    caret-color: @ath_acc;
+    padding: 0 5px 0 12px;
+    box-shadow: none;
+    outline: none;
+}
+
+.greeter-field image {
+    color: @ath_ink3;
+}
+
+.greeter-field text placeholder {
+    color: @ath_ink_ph;
+    opacity: 1;
+}
+
+.greeter-submit {
+    min-width: 30px;
+    min-height: 30px;
+    padding: 0;
+    border: none;
+    border-radius: ${radius_control}px;
+    background-image: none;
+    background-color: @ath_acc;
+    color: @ath_acc_ink;
+    box-shadow: none;
+}
+
+.greeter-submit:disabled {
+    background-color: @ath_chip;
+    color: @ath_ink2;
+}
+
+.greeter-status {
+    font-size: ${size_small}px;
+    font-weight: 500;
+    color: @ath_ink2;
+}
+
+.greeter-error {
+    font-size: ${size_small}px;
+    font-weight: 600;
+    color: @ath_bad;
+}
+
+/* The chips in the corners: the seal, the keyboard layout, accessibility, power. */
+.greeter-chip {
+    min-height: 34px;
+    min-width: 34px;
+    padding: 0 10px;
+    border: ${border_width}px solid @ath_line;
+    border-radius: ${radius_chip}px;
+    background-image: none;
+    background-color: @ath_bar;
+    color: @ath_ink;
+    box-shadow: 0 1px 2px @ath_shadow_near, 0 6px 18px @ath_shadow_panel;
+    font-size: ${size_small}px;
+    font-weight: 600;
+}
+
+button.greeter-chip:hover,
+button.greeter-chip:checked {
+    background-color: @ath_chip;
+}
+
+/* The seal: the mark in the ink colour, the badge in the fixed trust colours. */
+.athanor-seal {
+    -gtk-icon-size: 22px;
+    -gtk-icon-palette: success @ath_ok, warning @ath_warn, error @ath_bad;
+    color: @ath_ink;
+}

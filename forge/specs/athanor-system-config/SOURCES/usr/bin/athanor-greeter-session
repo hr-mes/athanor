@@ -16,6 +16,30 @@ if [ ! -d "$XDG_RUNTIME_DIR" ]; then
     mkdir -m 0700 "$XDG_RUNTIME_DIR"
 fi
 
+# The greeter speaks the system's language. Its own strings find /etc/locale.conf by
+# themselves (athanor-i18n); GTK's strings and the date's weekday and month names come
+# from glibc, which needs the variables. systemd applies locale.conf to services, but
+# greetd hands a session only PAM's environment. The file is parsed, never sourced: only
+# the locale variables are taken, and only values made of the characters a locale name
+# uses, so nothing in it runs in the process that starts the compositor.
+if [ -r /etc/locale.conf ]; then
+    while IFS='=' read -r variable value || [ -n "$variable" ]; do
+        case $variable in
+        LANG | LANGUAGE | LC_MESSAGES | LC_TIME) ;;
+        *) continue ;;
+        esac
+        # systemd's format allows the value in quotes.
+        value=${value#\"}
+        value=${value%\"}
+        value=${value#\'}
+        value=${value%\'}
+        case $value in
+        '' | *[!A-Za-z0-9_.@:-]*) continue ;;
+        esac
+        export "$variable=$value"
+    done < /etc/locale.conf
+fi
+
 # cosmic-comp given a program runs it as its client on a display of its own and exits
 # when it exits, the way cosmic-greeter-start uses it and the way cage was used here;
 # greetd then starts the session on the freed VT. Without WAYLAND_DISPLAY or DISPLAY in

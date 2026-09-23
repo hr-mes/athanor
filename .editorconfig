@@ -1,0 +1,9 @@
+# Read by shfmt when it is run without style flags, as editors and format hooks do.
+# Only shell scripts are configured here; other languages keep their own formatter
+# settings (rustfmt.toml, ruff, taplo).
+root = true
+
+[*.{sh,bash}]
+indent_style = space
+indent_size = 4
+space_redirects = true

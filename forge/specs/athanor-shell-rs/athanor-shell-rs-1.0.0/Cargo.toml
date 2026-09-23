@@ -20,7 +20,6 @@ notify-rust = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "rt", "sync", "time"] }
 notify = "6.1.1"
 clap = { workspace = true, features = ["derive"] }
-greetd_ipc = "0.10.3"
 meval = "0.2"
 relm4 = { workspace = true }
 landlock = "0.4"
@@ -35,7 +34,7 @@ arc-swap = "1.6"
 # Decoupled domain crates
 athanor-dock = { path = "../../athanor-dock/athanor-dock-1.0.0" }
 
-athanor-style = { path = "../../../../system/athanor-style" }
+athanor-style = { path = "../athanor-style-0.7" }
 athanor-niri-ipc = { version = "0.1.0", path = "../../athanor-niri-ipc" }
 
 

@@ -1,0 +1,63 @@
+name: Shell surfaces
+
+on:
+  push:
+    branches: [iso-v0]
+    paths:
+      - "system/athanor-style/**"
+      - "forge/specs/athanor-greeter-ui/**"
+      - "system/athanor-i18n/**"
+      - "forge/test/shell/**"
+      - ".github/workflows/shell-surfaces.yml"
+  pull_request:
+    paths:
+      - "system/athanor-style/**"
+      - "forge/specs/athanor-greeter-ui/**"
+      - "system/athanor-i18n/**"
+      - "forge/test/shell/**"
+      - ".github/workflows/shell-surfaces.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    uses: ./.github/workflows/call-lint.yml
+
+  css-parse:
+    name: GTK parse gate over the generated stylesheets
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Nested sandbox probe
+        run: bash forge/test/shell/rig.sh probe-sandbox
+      - name: GTK parse gate
+        run: bash forge/test/shell/rig.sh css-parse
+
+  greeter:
+    name: Greeter build, link order, layer-surface guard, accessibility and surface cases
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Rig image
+        run: bash forge/test/shell/rig.sh build-image
+      - name: Build the greeter and check the DT_NEEDED order
+        run: bash forge/test/shell/rig.sh build-greeter
+      - name: Layer-surface guard
+        run: bash forge/test/shell/rig.sh layer-guard
+      - name: Accessibility tree of the greeter
+        run: bash forge/test/shell/rig.sh atspi greeter
+      - name: Greeter surface cases (12) against the goldens
+        run: bash forge/test/shell/rig.sh surface greeter
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: shell-rig-greeter
+          path: |
+            .scratch/shell-rig/*.log
+            .scratch/shell-rig/greeter-*.png

@@ -12,22 +12,28 @@ athanor-init-oracle
 athanor-sysmon-ebpf
 athanor-mdm-rs
 athanor-greeter
-# Out of the system image since 2026-09-17: the source stays, the RPM does not ship.
-# athanor-store-rs ran `flatpak install` for any D-Bus caller without the polkit check
-# its policy declares, and verified package signatures against a caller-supplied key;
-# cosmic-store covers the store until it is redesigned.
-athanor-store-rs
-# athanor-settings-rs "signed" its CRDT writes with a Dilithium key generated for each
-# write and passed a Cloudflare API token to curl on the command line; cosmic-settings
-# covers settings until the application is redesigned.
-athanor-settings-rs
-# athanor-daemon-rs was D-Bus-activated on the session bus, outside its hardened system
-# unit, and claimed os.athanor.Bedrock and the athanor portal name there; nothing in the
-# COSMIC session uses it.
-athanor-daemon-rs
-# athanor-dock has no unit since the COSMIC dock replaced it; the crate stays a library
-# of athanor-shell-rs, only its standalone binary leaves the image.
-athanor-dock
+# The four blocks below need no entry of their own any more: the crates left
+# [workspace.members] on 2026-09-19 and the "shipped" check reads members only. The
+# reasons are kept, because they are why the crates are not coming back as they are.
+#
+# Out of the workspace since 2026-09-19, and out of the system image since 2026-09-17:
+# the source stays, the RPM does not ship. athanor-store-rs ran `flatpak install` for any
+# D-Bus caller without the polkit check its policy declares, and verified package
+# signatures against a caller-supplied key; cosmic-store covers the store until it is
+# redesigned.
+#
+# Out of the workspace since 2026-09-19, and athanor-settings-rs "signed" its CRDT writes
+# with a Dilithium key generated for each write and passed a Cloudflare API token to curl
+# on the command line; cosmic-settings covers settings until the application is
+# redesigned.
+#
+# Out of the workspace since 2026-09-19, and athanor-daemon-rs was D-Bus-activated on the
+# session bus, outside its hardened system unit, and claimed os.athanor.Bedrock and the
+# athanor portal name there; nothing in the COSMIC session uses it.
+#
+# Out of the workspace since 2026-09-19, and athanor-dock has no unit since the COSMIC
+# dock replaced it; the crate stays a library of athanor-shell-rs, in that program's
+# frozen workspace, and only its standalone binary leaves the image.
 # athanor-gatekeeper-rs is not fit to enable (independent review, 2026-09-17): its global
 # allocator ignores alignment, launch success is reported before any isolation boundary
 # runs, the fanotify group fd is inherited by sandboxed applications, and applications

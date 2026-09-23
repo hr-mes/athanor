@@ -17,9 +17,6 @@ tracing = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
-gtk4 = { workspace = true, optional = true }
-gtk4-layer-shell = { workspace = true, optional = true }
-glib = { workspace = true, optional = true }
 pam = "0.8"
 tss-esapi = "7.2.0"
 
@@ -27,7 +24,6 @@ tss-esapi = "7.2.0"
 
 [features]
 default = []
-gtk = ["dep:gtk4", "dep:gtk4-layer-shell", "dep:glib"]
 
 [profile.release]
 lto = "thin"

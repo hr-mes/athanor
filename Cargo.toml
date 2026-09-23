@@ -1,42 +1,49 @@
 [workspace]
 members = [
-    "forge/specs/athanor-backup/athanor-backup-1.0.0",
-    "forge/specs/athanor-cloud-rs/athanor-cloud-rs-1.0.0",
-    "forge/specs/athanor-daemon-rs/athanor-daemon-rs-0.2.1",
-    "forge/specs/athanor-dock/athanor-dock-1.0.0",
-    "forge/specs/athanor-doctor/athanor-doctor-1.0.0",
-    "forge/specs/athanor-gatekeeper-rs/athanor-gatekeeper-rs-1.0.0",
-    "forge/specs/athanor-lvfs-rs/athanor-lvfs-rs-1.0.0",
-    "forge/specs/athanor-mdm-rs/athanor-mdm-rs-1.0.0",
-    "forge/specs/athanor-mesh-sync/athanor-mesh-sync-1.0.0",
-    "forge/specs/athanor-recovery/athanor-recovery-1.0.0",
-    "forge/specs/athanor-settings-rs/athanor-settings-rs-1.0.0",
-    "forge/specs/athanor-shell-rs/athanor-shell-rs-1.0.0",
-    "forge/specs/athanor-store-rs/athanor-store-rs-1.0.0",
-    "forge/specs/athanor-sysmon-ebpf/athanor-sysmon-ebpf-1.0.0",
-    "forge/specs/athanor-xdg-desktop-portal-athanor/xdg-desktop-portal-athanor-1.0.0",
-    "forge/specs/athanor-niri-ipc",
-    "system/confidential_computing/athanor-attestation",
-    "system/ebpf/ebpf-core",
-    "system/ebpf/ebpf-loader",
-    "system/athanor-agentic-kernel",
-    "system/athanor-bus-api",
-    "system/athanor-cluster-mesh",
-    "system/athanor-compositor",
-    "system/athanor-ebpf-sched",
-    "system/athanor-greeter",
-    "system/athanor-hypervisor-daemon",
-    "system/athanor-init-oracle",
-    "system/athanor-mesh-bus",
-    "system/athanor-net-unikernel",
-    "system/athanor-store",
-    "system/athanor-telemetry",
-    "system/athanor-oobe",
-    "system/athanor-updater-rs"
+  "forge/specs/athanor-backup/athanor-backup-1.0.0",
+  "forge/specs/athanor-cloud-rs/athanor-cloud-rs-1.0.0",
+  "forge/specs/athanor-doctor/athanor-doctor-1.0.0",
+  "forge/specs/athanor-gatekeeper-rs/athanor-gatekeeper-rs-1.0.0",
+  "forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0",
+  "forge/specs/athanor-lvfs-rs/athanor-lvfs-rs-1.0.0",
+  "forge/specs/athanor-mdm-rs/athanor-mdm-rs-1.0.0",
+  "forge/specs/athanor-mesh-sync/athanor-mesh-sync-1.0.0",
+  "forge/specs/athanor-recovery/athanor-recovery-1.0.0",
+  "forge/specs/athanor-sysmon-ebpf/athanor-sysmon-ebpf-1.0.0",
+  "forge/specs/athanor-xdg-desktop-portal-athanor/xdg-desktop-portal-athanor-1.0.0",
+  "forge/specs/athanor-niri-ipc",
+  "system/confidential_computing/athanor-attestation",
+  "system/ebpf/ebpf-core",
+  "system/ebpf/ebpf-loader",
+  "system/athanor-agentic-kernel",
+  "system/athanor-bus-api",
+  "system/athanor-cluster-mesh",
+  "system/athanor-compositor",
+  "system/athanor-ebpf-sched",
+  "system/athanor-greeter",
+  "system/athanor-hypervisor-daemon",
+  "system/athanor-i18n",
+  "system/athanor-init-oracle",
+  "system/athanor-mesh-bus",
+  "system/athanor-net-unikernel",
+  "system/athanor-store",
+  "system/athanor-telemetry",
+  "system/athanor-updater-rs",
 ]
 
+# Out of this workspace since 2026-09-19 (doc_shell.md, SH4): gtk4-sys declares
+# links = "gtk-4", so every GTK crate of one workspace moves together. The old shell and
+# its dock are frozen at GTK 0.7 in forge/specs/athanor-shell-rs/, a workspace of their
+# own; the other four ship nothing and are built by nothing until they are redesigned.
 exclude = [
-    "tests/fuzz"
+  "tests/fuzz",
+  "forge/tools/calmo-cosmic-theme",
+  "forge/specs/athanor-shell-rs",
+  "forge/specs/athanor-dock/athanor-dock-1.0.0",
+  "forge/specs/athanor-daemon-rs/athanor-daemon-rs-0.2.1",
+  "forge/specs/athanor-settings-rs/athanor-settings-rs-1.0.0",
+  "forge/specs/athanor-store-rs/athanor-store-rs-1.0.0",
+  "system/athanor-oobe",
 ]
 
 resolver = "2"
@@ -58,10 +65,10 @@ notify-rust = "4.11"
 reqwest = { version = "0.13.4", features = ["stream", "rustls", "json"] }
 
 # GUI, Display & Wayland Ecosystem
-gtk4 = "0.7.3"
-gtk4-layer-shell = "0.2.0"
-glib = "0.18.5"
-relm4 = "0.7.1"
+gtk4 = { version = "0.11.4", features = ["v4_18"] }
+gtk4-layer-shell = "0.8.1"
+glib = "0.22.9"
+relm4 = "0.11.0"
 smithay = { version = "0.3.0", default-features = false }
 wayland-server = "0.31.0"
 
@@ -95,7 +102,10 @@ glam = "0.29.0"
 nix = "0.29.0"
 clap = { version = "4.6.4", features = ["derive"] }
 mimalloc = { version = "0.1.43", default-features = false }
+greetd_ipc = "0.10.3"
+landlock = "0.4"
 rand = "0.8.5"
+chrono = "0.4.45"
 
 [profile.dev]
 panic = "abort"
@@ -108,7 +118,3 @@ panic = "abort"
 strip = true
 rpath = false
 overflow-checks = true
-
-
-
-

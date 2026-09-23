@@ -1,0 +1,93 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the athanor-greeter-ui package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: athanor-greeter-ui\n"
+"Report-Msgid-Bugs-To: forge@athanor.os\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: src/auth.rs:62
+#, rust-format
+msgid "The sign-in service sent a reply of {size} bytes, too large to read"
+msgstr ""
+
+#: src/auth.rs:215
+msgid "The login service cannot be reached."
+msgstr ""
+
+#: src/auth.rs:248
+msgid "Checking your credentials…"
+msgstr ""
+
+#: src/auth.rs:279
+msgid "The login service gave an unexpected answer."
+msgstr ""
+
+#: src/auth.rs:285
+msgid "Too many authentication steps."
+msgstr ""
+
+#: src/ui.rs:110
+#, rust-format
+msgid "Keyboard layout: {layout}"
+msgstr ""
+
+#: src/ui.rs:201
+msgid "The system image has not been verified yet."
+msgstr ""
+
+#: src/ui.rs:206 src/ui.rs:208
+msgid "Not verified"
+msgstr ""
+
+#: src/ui.rs:228
+msgid "%A %-d %B"
+msgstr ""
+
+#: src/ui.rs:246
+msgid "Password"
+msgstr ""
+
+#: src/ui.rs:251
+#, rust-format
+msgid "Password for {name}"
+msgstr ""
+
+#: src/ui.rs:262
+msgid "Sign in"
+msgstr ""
+
+#: src/ui.rs:306
+msgid "Signing in…"
+msgstr ""
+
+#: src/ui.rs:327
+#, rust-format
+msgid "Sign-in failed: {reason}"
+msgstr ""
+
+#: src/ui.rs:371 src/ui.rs:372
+msgid "High contrast"
+msgstr ""
+
+#: src/ui.rs:392
+msgid "Suspend"
+msgstr ""
+
+#: src/ui.rs:398
+msgid "Restart"
+msgstr ""
+
+#: src/ui.rs:404
+msgid "Shut down"
+msgstr ""

@@ -2,7 +2,7 @@
 %global crate_dir forge/specs/%{name}/%{name}-%{version}
 Name:           athanor-recovery
 Version:        1.0.0
-Release:        4%{?dist}
+Release:        5%{?dist}
 Summary:        Athanor OS Pre-Boot GUI Recovery Kiosk & Rollback Manager
 
 License:        MIT
@@ -39,6 +39,8 @@ install -D -m 0644 %{crate_dir}/systemd/greetd-recovery-fallback.conf %{buildroo
 /usr/lib/systemd/system/greetd.service.d/recovery-fallback.conf
 
 %changelog
+* Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-5
+- Build against gtk4 0.11 and relm4 0.11 (doc_shell.md, SH4). No source change was needed.
 * Thu Sep 10 2026 Athanor Forge <forge@athanor.os> - recovery on cosmic-comp
 - Run the pre-boot recovery kiosk on cosmic-comp instead of cage, the same single-client
   way the greeter and the session do. cage is no longer needed anywhere, so it leaves the

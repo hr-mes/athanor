@@ -1,0 +1,25 @@
+msgid ""
+msgstr ""
+"Language: it\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Shut down"
+msgstr "Spegni"
+
+msgid "Signing in…"
+msgstr "Accesso in corso…"
+
+msgid "{n} update"
+msgid_plural "{n} updates"
+msgstr[0] "{n} aggiornamento"
+msgstr[1] "{n} aggiornamenti"
+
+msgctxt "verb"
+msgid "Restart"
+msgstr "Riavvia"
+
+msgid "Left untranslated"
+msgstr ""

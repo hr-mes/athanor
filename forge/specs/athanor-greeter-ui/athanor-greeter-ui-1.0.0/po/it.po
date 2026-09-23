@@ -1,0 +1,85 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: athanor-greeter-ui\n"
+"Report-Msgid-Bugs-To: forge@athanor.os\n"
+"Language: it\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: src/auth.rs:62
+#, rust-format
+msgid "The sign-in service sent a reply of {size} bytes, too large to read"
+msgstr "Il servizio di accesso ha inviato una risposta di {size} byte, troppo grande da leggere"
+
+#: src/auth.rs:215
+msgid "The login service cannot be reached."
+msgstr "Il servizio di accesso non è raggiungibile."
+
+#: src/auth.rs:248
+msgid "Checking your credentials…"
+msgstr "Verifica delle credenziali…"
+
+#: src/auth.rs:279
+msgid "The login service gave an unexpected answer."
+msgstr "Il servizio di accesso ha dato una risposta inattesa."
+
+#: src/auth.rs:285
+msgid "Too many authentication steps."
+msgstr "Troppi passaggi di autenticazione."
+
+#: src/ui.rs:110
+#, rust-format
+msgid "Keyboard layout: {layout}"
+msgstr "Disposizione della tastiera: {layout}"
+
+#: src/ui.rs:201
+msgid "The system image has not been verified yet."
+msgstr "L'immagine di sistema non è ancora stata verificata."
+
+#: src/ui.rs:206 src/ui.rs:208
+msgid "Not verified"
+msgstr "Non verificato"
+
+#: src/ui.rs:228
+msgid "%A %-d %B"
+msgstr "%A %-d %B"
+
+#: src/ui.rs:246
+msgid "Password"
+msgstr "Password"
+
+#: src/ui.rs:251
+#, rust-format
+msgid "Password for {name}"
+msgstr "Password di {name}"
+
+#: src/ui.rs:262
+msgid "Sign in"
+msgstr "Accedi"
+
+#: src/ui.rs:306
+msgid "Signing in…"
+msgstr "Accesso in corso…"
+
+#: src/ui.rs:327
+#, rust-format
+msgid "Sign-in failed: {reason}"
+msgstr "Accesso non riuscito: {reason}"
+
+#: src/ui.rs:371 src/ui.rs:372
+msgid "High contrast"
+msgstr "Contrasto elevato"
+
+#: src/ui.rs:392
+msgid "Suspend"
+msgstr "Sospendi"
+
+#: src/ui.rs:398
+msgid "Restart"
+msgstr "Riavvia"
+
+#: src/ui.rs:404
+msgid "Shut down"
+msgstr "Spegni"

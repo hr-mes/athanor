@@ -240,20 +240,44 @@ def check_polkit():
 # 4. percorsi runtime — niente artefatti letti da target/ o stato in /tmp
 # --------------------------------------------------------------------------- #
 
+# Alberi congelati: codice morto che si mina e si cancella, non si sviluppa. La copia
+# congelata di athanor-style è ferma a GTK 0.7 in un workspace suo (doc_shell.md, SH4) e il
+# suo Cargo.toml dice "do not develop here", quindi un rilievo là dentro non ha niente da
+# dire — e sistemarlo contraddirebbe il congelamento. Il binario della vecchia shell,
+# accanto ad essa, resta invece spedito e quindi resta scansionato. L'esclusione sparisce
+# insieme all'albero.
+FROZEN_TREES = ("forge/specs/athanor-shell-rs/athanor-style-0.7/",)
+
+
+def is_frozen(relative_path):
+    """True se il file sta in un albero congelato: si mina e si cancella, non si sviluppa."""
+    return any(relative_path.startswith(tree) for tree in FROZEN_TREES)
+
+
+def path_problems(relative_path, text):
+    """I rilievi di percorso di un file, già formattati con riga e motivo."""
+    if is_frozen(relative_path):
+        return []
+    # un build script gira a build time: può legittimamente parlare di target/
+    is_build_script = Path(relative_path).name == "build.rs"
+    problems = []
+    for i, line in enumerate(text.split("\n"), 1):
+        code = line.split("//")[0]
+        if not is_build_script and re.search(r'"[^"]*\btarget/[a-z0-9_./-]*"', code):
+            problems.append(f"{relative_path}:{i} carica un artefatto da target/ — percorso "
+                            f"dell'albero di build, inesistente su un sistema installato")
+        if re.search(r'"/tmp/', code):
+            problems.append(f"{relative_path}:{i} percorso hard-coded in /tmp — usa "
+                            f"/run/athanor (0700) per stato privilegiato")
+    return problems
+
+
 @check("paths", "Nessun artefatto runtime da target/, nessuno stato privilegiato in /tmp")
 def check_paths():
     r = Result()
     for p in rust_files():
-        # un build script gira a build time: può legittimamente parlare di target/
-        is_build_script = p.name == "build.rs"
-        for i, line in enumerate(read(p).split("\n"), 1):
-            code = line.split("//")[0]
-            if not is_build_script and re.search(r'"[^"]*\btarget/[a-z0-9_./-]*"', code):
-                r.fail(f"{rel(p)}:{i} carica un artefatto da target/ — percorso dell'albero "
-                       f"di build, inesistente su un sistema installato")
-            if re.search(r'"/tmp/', code):
-                r.fail(f"{rel(p)}:{i} percorso hard-coded in /tmp — usa /run/athanor (0700) "
-                       f"per stato privilegiato")
+        for problem in path_problems(rel(p), read(p)):
+            r.fail(problem)
     return r
 
 
@@ -269,6 +293,39 @@ def has_binary_target(crate_dir):
     return ((crate_dir / "src" / "main.rs").exists()
             or (crate_dir / "src" / "bin").is_dir()
             or re.search(r"^\s*\[\[\s*bin\s*\]\]", read(cargo), re.M) is not None)
+
+
+COSMIC_OVERLAY = "/usr/share/athanor/cosmic-defaults"
+
+
+def cosmic_defaults_problems(root):
+    """How Calmo reaches COSMIC (doc_shell.md, SH5): a data directory of our own, first
+    in XDG_DATA_DIRS. cosmic-config resolves system defaults through that variable, so
+    the defaults are shipped only if the files exist, the package installs them, and the
+    variable is set both for the user manager and for the compositor."""
+    root = Path(root)
+    problems = []
+    generated = root / "system/athanor-style/calmo/generated/cosmic/cosmic"
+    if not generated.is_dir() or not any(p.is_file() for p in generated.rglob("*")):
+        problems.append("no generated COSMIC defaults: run forge/tools/calmo-cosmic-theme/derive.sh")
+
+    env_file = root / "forge/specs/athanor-calmo/SOURCES/usr/lib/environment.d/60-athanor-cosmic-defaults.conf"
+    env_text = read(env_file) if env_file.exists() else ""
+    if not re.search(rf"^XDG_DATA_DIRS={re.escape(COSMIC_OVERLAY)}:", env_text, re.M):
+        problems.append(f"environment.d: {COSMIC_OVERLAY} is not first in XDG_DATA_DIRS for the user manager")
+
+    session = root / "forge/specs/athanor-system-config/SOURCES/usr/bin/athanor-session"
+    session_text = read(session) if session.exists() else ""
+    if not re.search(rf'^export XDG_DATA_DIRS="?{re.escape(COSMIC_OVERLAY)}:', session_text, re.M):
+        problems.append(f"athanor-session does not export XDG_DATA_DIRS with {COSMIC_OVERLAY} first: "
+                        f"cosmic-comp and its children are not started by the user manager")
+
+    spec = root / "forge/specs/athanor-calmo/athanor-calmo.spec"
+    files = read(spec).split("%files", 1)[-1] if spec.exists() else ""
+    for shipped in (COSMIC_OVERLAY, "/usr/lib/environment.d/60-athanor-cosmic-defaults.conf"):
+        if not re.search(rf"^{re.escape(shipped)}$", files, re.M):
+            problems.append(f"athanor-calmo.spec: %files does not list {shipped}")
+    return problems
 
 
 @check("shipped", "Ogni crate del workspace è impacchettato, o è dichiarato sperimentale")
@@ -326,6 +383,9 @@ def check_shipped():
         r.fail(f"{p}: in custom_packages ma in nessun tier -> costruito e mai installato")
     for p in sorted(tiers - dag):
         r.fail(f"{p}: in un tier ma non in custom_packages -> riferimento pendente")
+
+    for problem in cosmic_defaults_problems(ROOT):
+        r.fail(problem)
 
     return r
 
