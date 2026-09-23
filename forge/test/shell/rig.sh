@@ -12,6 +12,8 @@
 #   rig.sh layer-guard      the greeter must refuse to run when the shim loads late
 #   rig.sh greeter-preview  one capture of the greeter per variant, for the eye
 #   rig.sh atspi greeter    every interactive widget has a role and a name
+#   rig.sh surface <name>          capture every case of a surface and compare with the goldens
+#   rig.sh update-goldens <name>   replace the goldens with a fresh capture, deliberately
 set -euo pipefail
 
 root=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
@@ -39,6 +41,16 @@ in_rig() { # in_rig <image> <command...>
     mkdir -p "$out"
     podman run --rm --memory 6g --security-opt label=disable \
         -v "$root:/repo:ro" -v "$out:/out" "$image" "$@"
+}
+
+# The seal icons ship inside the athanor-calmo RPM, laid out under
+# /usr/share/icons/hicolor/scalable/status the way its %install does; the rig has no
+# such package, so the overlay reproduces that one directory, not the whole RPM.
+# The greeter captures hand the overlay to scene.sh as RIG_DATA_OVERLAY=/out/greeter-icons.
+stage_greeter_icons() {
+    mkdir -p "$out/greeter-icons/icons/hicolor/scalable/status"
+    install -m 0644 "$root"/system/athanor-style/calmo/generated/icons/*.svg \
+        "$out/greeter-icons/icons/hicolor/scalable/status/"
 }
 
 case "${1:-}" in
@@ -112,16 +124,10 @@ layer-guard)
     echo "layer-guard: the greeter refused to run as an ordinary window"
     ;;
 greeter-preview)
-    # The seal icons ship inside the athanor-calmo RPM, laid out under
-    # /usr/share/icons/hicolor/scalable/status the way its %install does; the rig has no
-    # such package, so the overlay reproduces that one directory, not the whole RPM.
-    icon_overlay=$out/greeter-preview-icons
-    mkdir -p "$icon_overlay/icons/hicolor/scalable/status"
-    install -m 0644 "$root"/system/athanor-style/calmo/generated/icons/*.svg \
-        "$icon_overlay/icons/hicolor/scalable/status/"
+    stage_greeter_icons
     for variant in light dark light-hc dark-hc; do
         in_rig "$(rig_image)" env ATHANOR_GREETER_VARIANT="$variant" ATHANOR_LOGIN_USER=ermete RIG_LOCALE=en_US.UTF-8 \
-            RIG_DATA_OVERLAY=/out/greeter-preview-icons \
+            RIG_DATA_OVERLAY=/out/greeter-icons \
             dbus-run-session -- /repo/forge/test/shell/scene.sh 1920 1080 1.0 "greeter-preview-$variant" -- \
             /out/bin/athanor-greeter-ui
     done
@@ -140,8 +146,48 @@ atspi)
         bash -c 'busctl --user set-property org.a11y.Bus /org/a11y/bus org.a11y.Status IsEnabled b true \
                  && exec /out/bin/athanor-greeter-ui'
     ;;
+surface | update-goldens)
+    surface=${2:?usage: rig.sh $1 <surface>}
+    golden=$rig/golden/$surface
+    if [ "$1" = update-goldens ] && [ -n "$(git -C "$root" status --porcelain -- "$golden")" ]; then
+        echo "rig.sh: $golden has uncommitted changes; commit or discard them first" >&2
+        exit 1
+    fi
+    # Test-only catalogs: German for length, the pseudo-language for right-to-left.
+    in_rig "$(rig_image)" bash -c '
+        set -euo pipefail
+        mkdir -p /out/locale
+        msgfmt --check -o /out/locale/de.mo /repo/forge/test/shell/locale/de.po
+        python3 /repo/forge/test/shell/locale/make_pseudo_rtl.py \
+            /repo/forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/po/athanor-greeter-ui.pot /out/pseudo-rtl.po
+        msgfmt -o /out/locale/rtl.mo /out/pseudo-rtl.po'
+    stage_greeter_icons
+    tags=()
+    while IFS=$'\t' read -r tag variant scale locale catalog; do
+        tags+=("$tag")
+        override=()
+        if [ "$catalog" != - ]; then
+            override=(ATHANOR_I18N_CATALOG="/out/locale/$catalog")
+        fi
+        in_rig "$(rig_image)" env ATHANOR_GREETER_VARIANT="$variant" ATHANOR_LOGIN_USER=rig RIG_LOCALE="$locale" \
+            RIG_DATA_OVERLAY=/out/greeter-icons "${override[@]}" \
+            dbus-run-session -- /repo/forge/test/shell/scene.sh 1920 1080 "$scale" "$tag" -- \
+            /out/bin/athanor-greeter-ui
+    done < <(python3 -B "$rig/cases.py" "$surface")
+    if [ "$1" = update-goldens ]; then
+        mkdir -p "$golden"
+        for tag in "${tags[@]}"; do
+            cp "$out/$tag.png" "$golden/$tag.png"
+            echo "golden replaced: forge/test/shell/golden/$surface/$tag.png"
+        done
+        echo "review every image above before committing; say in the commit why they changed"
+    else
+        in_rig "$(rig_image)" python3 -B /repo/forge/test/shell/compare.py \
+            "/repo/forge/test/shell/golden/$surface" /out "${tags[@]}"
+    fi
+    ;;
 *)
-    sed -n '2,14p' "${BASH_SOURCE[0]}" >&2
+    sed -n '2,16p' "${BASH_SOURCE[0]}" >&2
     exit 2
     ;;
 esac

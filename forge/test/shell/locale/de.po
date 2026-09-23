@@ -1,0 +1,64 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: athanor-greeter-ui test catalog\n"
+"Report-Msgid-Bugs-To: forge@athanor.os\n"
+"Language: de\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#, rust-format
+msgid "The sign-in service sent a reply of {size} bytes, too large to read"
+msgstr "Der Anmeldedienst hat eine Antwort von {size} Bytes gesendet, zu groß zum Lesen"
+
+msgid "Not verified"
+msgstr "Nicht verifiziert"
+
+msgid "The system image has not been verified yet."
+msgstr "Das Systemabbild wurde noch nicht verifiziert."
+
+msgid "Password"
+msgstr "Passwort"
+
+msgid "Password for {name}"
+msgstr "Passwort für {name}"
+
+msgid "Sign in"
+msgstr "Anmelden"
+
+msgid "Signing in…"
+msgstr "Anmeldung läuft…"
+
+msgid "Sign-in failed: {reason}"
+msgstr "Anmeldung fehlgeschlagen: {reason}"
+
+msgid "The login service cannot be reached."
+msgstr "Der Anmeldedienst ist nicht erreichbar."
+
+msgid "Checking your credentials…"
+msgstr "Anmeldedaten werden geprüft…"
+
+msgid "The login service gave an unexpected answer."
+msgstr "Der Anmeldedienst hat unerwartet geantwortet."
+
+msgid "Too many authentication steps."
+msgstr "Zu viele Authentifizierungsschritte."
+
+msgid "High contrast"
+msgstr "Hoher Kontrast"
+
+msgid "Keyboard layout: {layout}"
+msgstr "Tastaturbelegung: {layout}"
+
+msgid "Suspend"
+msgstr "Bereitschaft"
+
+msgid "Restart"
+msgstr "Neu starten"
+
+msgid "Shut down"
+msgstr "Herunterfahren"
+
+msgid "%A %-d %B"
+msgstr "%A, %-d. %B"
