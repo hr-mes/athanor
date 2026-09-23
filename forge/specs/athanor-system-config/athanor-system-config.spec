@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:44.fc43}
+Release:        %{?autorelease}%{!?autorelease:45.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -91,6 +91,12 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) %attr(0600,root,root) /etc/usbguard/rules.d/10-athanor-baseline.conf
 
 %changelog
+* Thu Sep 24 2026 Athanor Forge <forge@athanor.os> - 1.0.0-45
+- Stop binding /dev/nvidia-uvm and /dev/nvidia-uvm-tools into the greeter's sandbox.
+  They serve CUDA only, and on the -nvidia variants they can appear with the generic
+  device_t label that xdm_t may not stat: --dev-bind-try skips a missing node but not an
+  unreadable one, so bwrap failed, greetd hit its start limit and the machine stayed at
+  a black screen.
 * Sat Sep 19 2026 Athanor Forge <forge@athanor.os> - 1.0.0-44
 - The greeter session exports the locale of /etc/locale.conf: greetd passes only PAM's
   environment, which left GTK and the date in the C locale.
