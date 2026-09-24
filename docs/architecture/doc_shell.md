@@ -98,7 +98,7 @@ COSMIC applications (`cosmic-files`, `cosmic-term`, `cosmic-edit`, `cosmic-store
 
 | Id | Display name | Style | Factory panel | Factory dock |
 |---|---|---|---|---|
-| `float` | Isola | floating rounded panel, floating centred dock; COSMIC's shipped defaults | top | visible |
+| `float` | Isola | floating rounded panel (COSMIC 1.8.0 ships an edge-to-edge one), floating centred dock as COSMIC ships it | top | visible |
 | `bar` | Barra | one edge-to-edge bar holding launcher, running applications, tray and clock | bottom | no knob |
 | `minimal` | Essenziale | thin edge-to-edge bar | top | none |
 
