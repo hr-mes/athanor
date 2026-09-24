@@ -13,6 +13,7 @@ start=${1:-install}
 [[ " ${STAGES[*]} " == *" $start "* ]] || die "unknown stage '$start': one of ${STAGES[*]}"
 
 stage_install() { # the machine starts from v1, on a reference that verifies nothing
+  point_stable v1 # where images.sh left it; an earlier run moved it on
   wait_ssh
   # The installed image does not know the throwaway registry: the first switch needs the
   # drop-in that every acceptance image ships (Containerfile).
