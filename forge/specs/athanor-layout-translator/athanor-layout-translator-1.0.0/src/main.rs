@@ -76,6 +76,10 @@ fn main() -> ExitCode {
             }
         };
     }
+    if let Err(err) = supervision::record_start(&dirs.failures, now) {
+        tracing::error!(error = %err, "cannot update the crash-loop record");
+        return ExitCode::FAILURE;
+    }
     match supervision::given_up(&dirs.failures, now) {
         Ok(true) => return give_up(&dirs),
         Ok(false) => {}

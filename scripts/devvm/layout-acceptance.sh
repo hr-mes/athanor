@@ -221,14 +221,15 @@ stage_crash-loop() {
     start_unit
     document preset=minimal
     wait_until 5 is_key Panel anchor_gap false || fail "minimal first: Panel anchor_gap $(key Panel anchor_gap)"
-    local since round pid
+    local since round pid kills=(--kill-whom=main --kill-whom=all)
     since=$(guest_ssh date '+%Y-%m-%d\ %H:%M:%S')
     for round in 1 2 3 4 5 6; do
         [[ $(unit show -p ActiveState --value) == active ]] || break
         pid=$(unit show -p MainPID --value)
-        # The main process only, as a crash: a kill of the whole cgroup also takes down the
-        # ExecStopPost that records the failure, as it starts.
-        unit kill --kill-whom=main -s SIGKILL
+        # Alternately a crash of the main process, which the ExecStopPost records, and a kill
+        # of the whole cgroup, which takes the ExecStopPost down too and is counted at the
+        # next start.
+        unit kill "${kills[round % 2]}" -s SIGKILL
         # The restart delay grows to 60 s (RestartSteps=5).
         wait_until 90 restarted_or_stopped "$pid" || fail "round $round: $(unit show -p ActiveState,SubState)"
     done

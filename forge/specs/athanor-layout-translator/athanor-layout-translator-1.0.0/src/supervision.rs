@@ -13,7 +13,7 @@ use std::io;
 use std::os::linux::net::SocketAddrExt;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::{SocketAddr, UnixDatagram};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use athanor_layout::apply::write_atomically;
 
@@ -51,9 +51,38 @@ pub fn given_up(path: &Path, now: i64) -> io::Result<bool> {
 /// The unit's ExecStopPost: counts the run that just ended when systemd says it failed.
 /// `SERVICE_RESULT` is `success` for a clean stop, and absent outside systemd.
 pub fn record_exit(path: &Path, now: i64, service_result: Option<&str>) -> io::Result<()> {
-    if service_result.is_none_or(|result| result == "success") {
-        return Ok(());
+    if service_result.is_some_and(|result| result != "success") {
+        record_failure(path, now)?;
     }
+    // The run's end is accounted for, failed or clean.
+    match fs::remove_file(running_marker(path)) {
+        Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
+        _ => Ok(()),
+    }
+}
+
+/// The unit's ExecStart, before anything else: marks the run as started, and counts the
+/// previous run as a failure if its end was never recorded. systemd runs ExecStopPost in the
+/// unit's cgroup, so a kill of the whole cgroup (`systemctl kill`, systemd-oomd) takes the
+/// ExecStopPost down with the service and leaves only this marker behind.
+pub fn record_start(path: &Path, now: i64) -> io::Result<()> {
+    let marker = running_marker(path);
+    if marker.exists() {
+        record_failure(path, now)?;
+    }
+    if let Some(dir) = marker.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    write_atomically(&marker, "")
+}
+
+/// Present from a start until its end is recorded; next to the failure record, so the
+/// session's stop clears both.
+fn running_marker(path: &Path) -> PathBuf {
+    path.with_file_name("running")
+}
+
+fn record_failure(path: &Path, now: i64) -> io::Result<()> {
     let mut stamps = recent_failures(&read_record(path)?, now);
     stamps.push(now);
     let text: String = stamps.iter().map(|stamp| format!("{stamp}\n")).collect();
@@ -117,6 +146,25 @@ mod tests {
         record_exit(&file, 10, Some("success")).expect("record");
         record_exit(&file, 11, None).expect("record");
         assert!(!file.exists());
+    }
+
+    #[test]
+    fn a_run_whose_exit_was_never_recorded_counts_at_the_next_start() {
+        let file = scratch("unrecorded").join("failures");
+        let failures = |now| recent_failures(&read_record(&file).expect("read"), now);
+        record_start(&file, 10).expect("first start");
+        assert!(failures(11).is_empty(), "a first start is not a failure");
+        // Killed with its cgroup: the ExecStopPost died with it and recorded nothing.
+        record_start(&file, 20).expect("second start");
+        assert_eq!(failures(21), [20]);
+        // A failure the ExecStopPost did record is not counted again at the next start.
+        record_exit(&file, 30, Some("signal")).expect("record");
+        record_start(&file, 31).expect("third start");
+        assert_eq!(failures(32), [20, 30]);
+        // A clean stop leaves nothing to count.
+        record_exit(&file, 40, Some("success")).expect("clean stop");
+        record_start(&file, 41).expect("fourth start");
+        assert_eq!(failures(42), [20, 30]);
     }
 
     #[test]
