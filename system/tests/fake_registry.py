@@ -40,6 +40,9 @@ def fail(message, code=1):
 
 
 def skopeo(args, fx):
+    if args[0] == "copy":
+        # Recorded in FAKE_LOG by main(); the fixture is read-only, so nothing moves.
+        return fail("fake skopeo: copy failed", 1) if args[-1].removeprefix("docker://") in fx.get("errors", []) else 0
     ref = args[-1].removeprefix("docker://")
     if ref in fx.get("errors", []):
         return fail(f'time="2026-09-17T00:00:00Z" level=fatal msg="Error parsing image name \\"docker://{ref}\\": pinging container registry: dial tcp: i/o timeout"')
