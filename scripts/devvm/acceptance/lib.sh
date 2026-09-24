@@ -88,12 +88,13 @@ expect_until() { # expect_until DESCRIPTION JQ-FILTER VALUE MINUTES
   die "FAIL  $1: $2 never became '$3' in $4 minutes (it is '$(state "$2")')"
 }
 
+# dbus-send, not busctl: an error is asserted by its name, and busctl prints only its message.
 # A call as the user of the graphical session (active, local): what the notifier is.
-call_active() { guest_ssh sudo systemd-run --quiet --wait --pipe --user --machine="$GUEST_USER@.host" busctl --system call "${UPDATE1[@]}" "$1" 2>&1; }
+call_active() { guest_ssh sudo systemd-run --quiet --wait --pipe --user --machine="$GUEST_USER@.host" dbus-send --system --print-reply --dest="${UPDATE1[0]}" "${UPDATE1[1]}" "${UPDATE1[2]}.$1" 2>&1; }
 # A call from this SSH session (inactive, no polkit agent).
-call_ssh() { guest_ssh -T busctl --system call "${UPDATE1[@]}" "$1" 2>&1; }
+call_ssh() { guest_ssh -T dbus-send --system --print-reply --dest="${UPDATE1[0]}" "${UPDATE1[1]}" "${UPDATE1[2]}.$1" 2>&1; }
 # A call as root, which polkit always authorizes: drives a scenario past a password prompt.
-call_root() { guest_ssh sudo busctl --system call "${UPDATE1[@]}" "$1" 2>&1; }
+call_root() { guest_ssh sudo dbus-send --system --print-reply --dest="${UPDATE1[0]}" "${UPDATE1[1]}" "${UPDATE1[2]}.$1" 2>&1; }
 expect_error() { # expect_error DESCRIPTION OUTPUT ERROR-NAME
   [[ $2 == *"$3"* ]] || die "FAIL  $1: expected $3, got: $2"
   pass "$1"
