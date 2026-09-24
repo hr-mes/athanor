@@ -530,6 +530,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "athanor-layout-chooser"
+version = "1.0.0"
+dependencies = [
+ "athanor-i18n",
+ "athanor-layout",
+ "athanor-style",
+ "gtk4",
+ "landlock",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "athanor-layout-translator"
 version = "1.0.0"
 dependencies = [

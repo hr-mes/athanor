@@ -9,7 +9,7 @@
 #   rig.sh cosmic-keys      every key COSMIC ships exists in our overlay
 #   rig.sh cosmic-preview   capture cosmic-panel and Settings under the Calmo defaults
 #   rig.sh build-greeter    release build of athanor-greeter-ui into <out>/bin
-#   rig.sh build-layout     clippy, tests and release build of the layout crates into <out>/bin
+#   rig.sh build-layout     clippy, tests and release build of the layout crates (translator and chooser) into <out>/bin
 #   rig.sh layer-guard      the greeter must refuse to run when the shim loads late
 #   rig.sh greeter-preview  one capture of the greeter per variant, for the eye
 #   rig.sh atspi greeter    every interactive widget has a role and a name
@@ -114,10 +114,10 @@ build-layout)
     podman run --rm --memory 6g --security-opt label=disable \
         -v "$root:/repo:ro" -v "$out:/out" -v athanor-cargo-registry:/root/.cargo/registry \
         -e CARGO_TARGET_DIR=/out/target -w /repo "$local_image:build" \
-        bash -c 'cargo clippy --locked -p athanor-layout -p athanor-layout-translator --all-targets -- -D warnings \
-                 && cargo test --locked -p athanor-layout -p athanor-layout-translator \
-                 && cargo build --release --locked -p athanor-layout-translator \
-                 && install -m 0755 /out/target/release/athanor-layout-translator /out/bin/'
+        bash -c 'cargo clippy --locked -p athanor-layout -p athanor-layout-translator -p athanor-layout-chooser --all-targets -- -D warnings \
+                 && cargo test --locked -p athanor-layout -p athanor-layout-translator -p athanor-layout-chooser \
+                 && cargo build --release --locked -p athanor-layout-translator -p athanor-layout-chooser \
+                 && install -m 0755 /out/target/release/athanor-layout-translator /out/target/release/athanor-layout-chooser /out/bin/'
     ;;
 layer-guard)
     rm -f "$out/layer-guard.status"
