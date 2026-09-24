@@ -5,6 +5,7 @@
 //! ExecStopPost: it counts a failed run towards the crash-loop limit.
 
 mod journal;
+mod resident;
 mod supervision;
 
 use std::env;
@@ -16,6 +17,7 @@ use athanor_layout::apply::{self, Applied};
 use athanor_layout::placement::Output;
 use athanor_layout::{cosmic, first_session, loader};
 use gtk4::gdk;
+use gtk4::glib;
 use gtk4::prelude::*;
 
 /// Every path the translator reads or writes.
@@ -90,11 +92,14 @@ fn main() -> ExitCode {
         tracing::error!("GTK has no default display");
         return ExitCode::FAILURE;
     };
-    if let Err(err) = pass(&dirs, &outputs(&display)) {
-        tracing::error!(error = %err, "cannot write the cosmic-panel configuration");
-        return ExitCode::FAILURE;
-    }
-    notify_ready();
+    let _resident = match resident::Resident::start(dirs, display) {
+        Ok(resident) => resident,
+        Err(err) => {
+            tracing::error!(error = %err, "cannot apply the layout");
+            return ExitCode::FAILURE;
+        }
+    };
+    glib::MainLoop::new(None, false).run();
     ExitCode::SUCCESS
 }
 
