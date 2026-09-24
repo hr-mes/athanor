@@ -282,12 +282,13 @@ jobs:
         # is pushed until all three have built.
         env:
           RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
           SECUREBOOT_SIGNING_KEY: ${{ secrets.SECUREBOOT_SIGNING_KEY }}
         run: |
           set -euo pipefail
           [[ -n ${SECUREBOOT_SIGNING_KEY:-} ]] || { echo "SECUREBOOT_SIGNING_KEY is not available to this job: check the signing environment" >&2; exit 1; }
           for gpu in none nvidia nvidia-legacy; do
-            bash system/build-image.sh --gpu "$gpu" --registry "${IMAGE_REGISTRY}" --tag "${RUN_ID}" --tag "${DEFAULT_TAG}"
+            bash system/build-image.sh --gpu "$gpu" --registry "${IMAGE_REGISTRY}" --tag "${RUN_ID}" --tag "${DEFAULT_TAG}" --serial "${RUN_NUMBER}"
           done
           df -h
 
