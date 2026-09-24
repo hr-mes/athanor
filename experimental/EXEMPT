@@ -39,5 +39,3 @@ athanor-greeter
 # runs, the fanotify group fd is inherited by sandboxed applications, and applications
 # run as root. It leaves the image until a dedicated redesign.
 athanor-gatekeeper-rs
-athanor-update
-athanor-update-notify
