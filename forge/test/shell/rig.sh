@@ -13,6 +13,7 @@
 #   rig.sh layer-guard      the greeter must refuse to run when the shim loads late
 #   rig.sh greeter-preview  one capture of the greeter per variant, for the eye
 #   rig.sh atspi <greeter|chooser>   every interactive widget has a role and a name
+#   rig.sh rig-tests        unit tests of the rig's own scripts, against the rig's tools
 #   rig.sh cosmic-panel-defaults   COSMIC's shipped panel keys equal the renderer's fixture
 #   rig.sh chooser-e2e      press a preset in the chooser and wait for the panel configuration
 #   rig.sh surface <name>          capture every case of a surface and compare with the goldens
@@ -290,6 +291,11 @@ surface | update-goldens)
         in_rig "$(rig_image)" python3 -B /repo/forge/test/shell/compare.py \
             "/repo/forge/test/shell/golden/$surface" /out "${tags[@]}"
     fi
+    ;;
+rig-tests)
+    # The tests of scripts that run in the rig and call its tools (ImageMagick 7). The lint
+    # job runs forge/test/shell/tests, which needs nothing beyond Python.
+    in_rig "$(rig_image)" python3 -B -m unittest discover -s /repo/forge/test/shell/rig_tests -v
     ;;
 cosmic-panel-defaults)
     # The renderer's tests read COSMIC's shipped keys from a committed fixture; this fails
