@@ -36,7 +36,7 @@ Before Task 1, run `/accept apri` with the verify commands listed under "Accepta
 - Translator (SH7): "It writes `entries` last"; "it therefore stays resident in the session and watches the outputs, but it rewrites nothing at login unless the result differs, and it is idempotent. It writes one dock for every output while all of them share a shape, and one dock per output otherwise."
 - SH8: "an unknown key, a newer `schema`, or a malformed file rejects the whole user document. The shell then applies the nearest preset it knows and logs at error priority"; "writes the user document only when the user changes the layout, at the current schema"; "When the rejected document has a newer schema, the chooser asks before saving and keeps the old file as `layout.toml.<schema>`"; crash-loop protection "follows the policy of `/usr/bin/athanor-cosmic-panel`": 5 failures in 600 s on `CLOCK_BOOTTIME`, then the vendor layout.
 - SH10: "When any connected output is taller than wide the pick is `float`"; otherwise "Below 800 logical pixels the pick is `bar`"; "The pick writes only the `preset` key, and nothing at all when the policy layer names a preset. A marker under `$XDG_STATE_HOME/athanor/` records that it ran."
-- SH13: 27 layout cases = 12 (3 factory presets × outputs {1, 2} × scale {1.0, 1.5}) + 11 (the other layouts, 1 output, scale 1.0) + 4 portrait (3 factory presets and `float` with the panel at the bottom, 1 output, scale 1.0, a portrait size rather than a transform). The 6 two-output cases run on a scheduled job on the KVM runner and do not gate a push. The chooser has 12 surface cases (scale × theme × text). Every interactive widget has an AT-SPI role and name. All strings go through gettext. The golden tolerance is **at most 64 differing pixels** (package 1a, `compare.py`).
+- SH13: 27 layout cases = 12 (3 factory presets × outputs {1, 2} × scale {1.0, 1.5}) + 11 (the other layouts, 1 output, scale 1.0) + 4 portrait (3 factory presets and `float` with the panel at the bottom, 1 output, scale 1.0, a portrait size rather than a transform). The 6 two-output cases run on a scheduled job on a hosted runner with KVM enabled and do not gate a push. The chooser has 12 surface cases (scale × theme × text). Every interactive widget has an AT-SPI role and name. All strings go through gettext. The golden tolerance is **at most 64 differing pixels** (package 1a, `compare.py`).
 - SH5: "Our surfaces therefore read `CosmicTheme` themselves, for the mode and for the accent, and compute the on-accent text colour against WCAG AA at run time."
 
 ## Review Focus
@@ -2516,6 +2516,8 @@ Create `src/supervision.rs` and `src/journal.rs` with these tests:
 // src/supervision.rs
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
@@ -2606,7 +2608,7 @@ use std::io;
 use std::os::linux::net::SocketAddrExt;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::{SocketAddr, UnixDatagram};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use athanor_layout::apply::write_atomically;
 
@@ -3451,7 +3453,7 @@ Above the tests in `cosmic_theme.rs`:
 use std::cell::RefCell;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use gtk4::gdk;
 
@@ -3607,7 +3609,7 @@ pub fn load_accent(display: &gdk::Display, theme: &CosmicTheme) {
 }
 ```
 
-`contrast` and `parse_accent` are private and used by the tests through `use super::*`. If clippy reports `Path` as unused outside the tests, move the `Path` import into the test module.
+`contrast` and `parse_accent` are private and used by the tests through `use super::*`. Only the tests use `Path`: import it inside `mod tests` (`use std::path::Path;`), not at the top of the module, or `clippy --all-targets -D warnings` fails on the unused import in the non-test build.
 
 - [ ] **Step 4: Add the chooser rules to the template**
 
@@ -3962,8 +3964,9 @@ use athanor_layout::preset::{DockKnob, PanelEdge, Preset};
 use athanor_layout::user::{self, Change};
 use athanor_style::{calmo, cosmic_theme};
 use gtk4::prelude::*;
+use gtk4::accessible::Relation;
 use gtk4::{
-    AccessibleRelation, AccessibleRole, AlertDialog, Application, ApplicationWindow, Box as GtkBox, Label,
+    AccessibleRole, AlertDialog, Application, ApplicationWindow, Box as GtkBox, Label,
     Orientation, ToggleButton,
 };
 
@@ -4070,7 +4073,7 @@ pub fn build_ui(app: &Application, paths: Paths) {
 fn group(content: &GtkBox, key: Key, title: &str, choices: &[(String, Change)]) -> Group {
     let container = GtkBox::builder().orientation(Orientation::Vertical).spacing(8).accessible_role(AccessibleRole::Group).build();
     let heading = Label::builder().label(title).xalign(0.0).css_classes(["layout-group-title"]).build();
-    container.update_relation(&[AccessibleRelation::LabelledBy(&[heading.upcast_ref()])]);
+    container.update_relation(&[Relation::LabelledBy(&[heading.upcast_ref()])]);
     let row = GtkBox::builder().orientation(Orientation::Horizontal).spacing(8).homogeneous(true).build();
     let buttons: Vec<(ToggleButton, Change)> = choices
         .iter()
@@ -4579,7 +4582,7 @@ exec "$@"
 
 - [ ] **Step 4: Split `surface` into per-surface capture functions and add the layout**
 
-In `forge/test/shell/rig.sh`, add these functions after `stage_greeter_icons`. `capture_greeter` is lines 156-176 of today's `surface` branch, moved unchanged:
+In `forge/test/shell/rig.sh`, add these functions after `stage_greeter_icons`. `capture_greeter` is lines 156-176 of today's `surface` branch, moved with two edits: the `cases.py` argument `"$surface"` becomes the literal `greeter`, and `tags=()` moves out to the dispatcher:
 
 ```bash
 # Each capture_<surface> runs every case of its surface and appends the tags to $tags.
@@ -5067,7 +5070,7 @@ Pass: two outputs listed.
 
 - [ ] **Step 2: Route 2: vkms with two connectors**
 
-This needs root on the runner and `CONFIG_DRM_VKMS` with configfs support: Linux 6.13 or later has `/sys/kernel/config/vkms`. It is a KMS device, so cosmic-comp would run on its KMS backend, which the hosted runner cannot give; the job would run on the KVM runner anyway.
+This needs root on the runner and `CONFIG_DRM_VKMS` with configfs support: Linux 6.13 or later has `/sys/kernel/config/vkms`. It is a KMS device, so cosmic-comp would run on its KMS backend, which the hosted runner cannot give; the job would run in a KVM guest on the hosted runner anyway.
 
 Probe on the dev VM, unsandboxed: `scripts/devvm/ssh.sh 'sudo modprobe vkms && ls /sys/kernel/config/vkms'`. If it is there, create a device with two connectors, following the kernel's `Documentation/gpu/vkms.rst` for the running kernel. Then start a second cosmic-comp on it as a separate user, and run `cosmic-randr list`.
 Pass: two connected outputs.
@@ -5082,13 +5085,13 @@ Pass: two outputs listed. This route captures a real session, not a nested one. 
 - [ ] **Step 4: Decide**
 
 - **If no route passed:** stop. Report NOTES.md to the maintainer, with each route's evidence, and ask how to proceed. The 6 cases stay listed by `cases.py` and uncaptured. Acceptance item 11 is then not met, and the report says so.
-- **If a route passed:** write `.github/workflows/shell-layout-outputs.yml`. It runs weekly (`schedule: - cron: "0 4 * * 1"`) and on `workflow_dispatch`, on the `[self-hosted, kvm]` runner labels that the ISO acceptance workflow already uses (read `.github/workflows/*acceptance*.yml` for the exact labels). Its steps are only `checkout`, `bash forge/test/shell/rig.sh build-image`, `bash forge/test/shell/rig.sh build-layout`, `RIG_LAYOUT_OUTPUTS=2 bash forge/test/shell/rig.sh surface layout`, and an artifact upload. Every route-specific step lives in rig.sh, not in the YAML. `capture_layout` reads `${RIG_LAYOUT_OUTPUTS:-1}` for `--outputs`.
+- **If a route passed:** write `.github/workflows/shell-layout-outputs.yml`. It runs weekly (`schedule: - cron: "0 4 * * 1"`) and on `workflow_dispatch`, on `runs-on: ubuntu-24.04` with `- uses: ./.github/actions/kvm` to enable KVM, as `.github/workflows/iso-acceptance.yml` does (lines 49 and 61); no self-hosted runner carries a `kvm` label. Its steps are only `checkout`, the KVM action, `bash forge/test/shell/rig.sh build-image`, `bash forge/test/shell/rig.sh build-layout`, `RIG_LAYOUT_OUTPUTS=2 bash forge/test/shell/rig.sh surface layout`, and an artifact upload. Every route-specific step lives in rig.sh, not in the YAML. `capture_layout` reads `${RIG_LAYOUT_OUTPUTS:-1}` for `--outputs`.
 
   Capture with `RIG_LAYOUT_OUTPUTS=2 bash forge/test/shell/rig.sh update-goldens layout`. Review the six images: each output has its own dock, and the panel is on both. Then commit:
 
 ```bash
 git add forge/test/shell/rig.sh .github/workflows/shell-layout-outputs.yml forge/test/shell/golden/layout
-git commit -m "test(shell): capture the six two-output layout cases on the KVM runner, weekly"
+git commit -m "test(shell): capture the six two-output layout cases in a KVM guest, weekly"
 ```
 
 ---
@@ -5097,7 +5100,7 @@ git commit -m "test(shell): capture the six two-output layout cases on the KVM r
 
 ### Task 17: Dev VM acceptance script
 
-Acceptance item 10 in a real session (tier B): units, `systemd --user`, the real cosmic-comp, rotation. It is modelled on `scripts/devvm/acceptance/run.sh`. Read its `stage_*` functions and `lib.sh` first, and reuse their helpers (logging, `guest_ssh`, waiting) instead of writing new ones.
+Acceptance item 10 in a real session (tier B): units, `systemd --user`, the real cosmic-comp, rotation. It sources only `scripts/devvm/devvm.env`, for `guest_ssh` and `die`. It does not use `scripts/devvm/acceptance/lib.sh`: that file exists only on branch `shell-1b-system`, and sourcing it creates the update acceptance's state directory and registry variables. The script defines its own three helpers: `in_session` (below), `wait_until <seconds> <command>` (polls once a second, returns 1 on timeout) and `fail <stage> <what was read>` (prints `FAIL <stage>: ...` and exits 1).
 
 **Files:**
 - Create: `scripts/devvm/layout-acceptance.sh`
@@ -5172,8 +5175,8 @@ Check `wayland-1` against `screenshot.sh`, which uses the same socket.
    - With a user document `panel = "top"` and the policy directory absent, run `sudo mkdir -p /etc/athanor/layout`, then write `/etc/athanor/layout/50-panel.toml` with `schema = 1`, `mandatory = ["panel"]` and `[output."*"]` `panel = "bottom"`.
    - Pass:
      - within 10 s the Panel anchor reads `Bottom`. GLib watches a missing directory by polling its parent, so allow the 10 s.
-     - Start `athanor-layout-chooser` in the session and take the screenshot `mandatory-chooser.png`, which must show the Panel group greyed with "Set by your administrator.".
-   - Close the chooser and remove the policy file and directory.
+     - Start the chooser detached, since its GTK main loop would hold the SSH call: `in_session 'systemd-run --user --unit=layout-chooser-acc /usr/bin/athanor-layout-chooser'`. Wait 2 s, then take the screenshot `mandatory-chooser.png`, which must show the Panel group greyed with "Set by your administrator.".
+   - Close the chooser with `in_session 'systemctl --user stop layout-chooser-acc'`, and remove the policy file and directory.
 8. **`memory`**:
    - Pass: `systemctl --user show athanor-layout -p MemoryPeak --value` is below `MemoryHigh` (64 MiB).
    - Print the measured value. The plan's limits are estimates; the report gives the number so the maintainer can set them.
@@ -5187,7 +5190,7 @@ Check `wayland-1` against `screenshot.sh`, which uses the same socket.
    - Take the screenshot `crash-loop.png`.
    - Clean up: `systemctl --user reset-failed athanor-layout`, then start the unit again.
 
-Every `Pass:` that is not met prints `FAIL <stage>: <what was read>` and exits 1. Stages can be run alone (`layout-acceptance.sh rotation`) for debugging, as `run.sh` allows.
+Every `Pass:` that is not met prints `FAIL <stage>: <what was read>` and exits 1. With no argument the script runs the nine stages in order; with arguments it runs only the named stages, in the order given (`layout-acceptance.sh rotation` for debugging). An unknown name dies before any stage runs.
 
 - [ ] **Step 2: Lint**
 
