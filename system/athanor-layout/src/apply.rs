@@ -57,17 +57,61 @@ pub fn apply(plan: &Plan, cosmic_dir: &Path, record: &Path) -> io::Result<Applie
     })
 }
 
-/// Writes `value` to `path` unless the file already holds exactly that. Returns whether
-/// it wrote.
+/// Writes `value` to `path` unless the file already holds the same RON value. Returns
+/// whether it wrote.
+///
+/// cosmic-panel 1.8.0 rewrites its configuration in pretty RON when it starts, so the
+/// comparison ignores layout: a byte compare would rewrite `entries` after every start and
+/// restart a panel with per-output docks for nothing.
 fn write_if_changed(path: &Path, value: &str) -> io::Result<bool> {
-    match fs::read(path) {
-        Ok(current) if current == value.as_bytes() => return Ok(false),
+    match fs::read_to_string(path) {
+        Ok(current) if compact(&current) == compact(value) => return Ok(false),
         Ok(_) => {}
-        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        // Missing, or not text: either way the plan's value replaces it.
+        Err(err)
+            if matches!(
+                err.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::InvalidData
+            ) => {}
         Err(err) => return Err(err),
     }
     write_atomically(path, value)?;
     Ok(true)
+}
+
+/// `text` without what RON ignores: whitespace outside strings, and a comma before a
+/// closing bracket.
+fn compact(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let (mut quoted, mut escaped) = (false, false);
+    for c in text.chars() {
+        if quoted {
+            out.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                quoted = false;
+            }
+            continue;
+        }
+        match c {
+            '"' => {
+                quoted = true;
+                out.push(c);
+            }
+            ']' | ')' | '}' => {
+                if out.ends_with(',') {
+                    out.pop();
+                }
+                out.push(c);
+            }
+            c if c.is_whitespace() => {}
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// Replaces `path` with `text` in one step: a reader sees the old file or the new one,
@@ -219,6 +263,66 @@ mod tests {
             fs::read_to_string(key(&cosmic, "Panel", "size")).expect("size"),
             "XS"
         );
+    }
+
+    /// Rewrites `entries` the way cosmic-panel 1.8.0 does when it starts: pretty RON.
+    fn pretty_print_entries(cosmic: &Path) {
+        let path = cosmic.join("com.system76.CosmicPanel/v1/entries");
+        let compact = fs::read_to_string(&path).expect("entries");
+        let names: Vec<&str> = compact
+            .trim_matches(['[', ']'])
+            .split(',')
+            .map(|name| name.trim_matches('"'))
+            .collect();
+        let pretty: String = names
+            .iter()
+            .map(|name| format!("    \"{name}\",\n"))
+            .collect();
+        fs::write(&path, format!("[\n{pretty}]")).expect("pretty entries");
+    }
+
+    #[test]
+    fn a_pretty_printed_entries_file_is_not_rewritten() {
+        let (cosmic, record) = dirs("pretty-entries");
+        let mixed = [screen("HDMI-A-1", 1920, 1080), screen("DP-1", 1080, 1920)];
+        apply(&render(&Preset::Float.factory(), &mixed), &cosmic, &record).expect("first");
+        pretty_print_entries(&cosmic);
+
+        let hidden = Layout::new(Preset::Float, PanelEdge::Top, DockKnob::AutoHide);
+        let applied = apply(&render(&hidden, &mixed), &cosmic, &record).expect("changed");
+        assert!(!applied
+            .written
+            .contains(&cosmic.join("com.system76.CosmicPanel/v1/entries")));
+        assert!(!applied.restart_panel);
+    }
+
+    #[test]
+    fn a_pretty_printed_entries_file_with_other_names_is_rewritten() {
+        let (cosmic, record) = dirs("pretty-other-entries");
+        let screens = [screen("HDMI-A-1", 1920, 1080)];
+        apply(&render(&Preset::Bar.factory(), &screens), &cosmic, &record).expect("first");
+        pretty_print_entries(&cosmic);
+
+        let applied = apply(
+            &render(&Preset::Float.factory(), &screens),
+            &cosmic,
+            &record,
+        )
+        .expect("changed");
+        assert_eq!(
+            applied.written.last(),
+            Some(&cosmic.join("com.system76.CosmicPanel/v1/entries"))
+        );
+    }
+
+    #[test]
+    fn compact_drops_only_what_ron_ignores() {
+        assert_eq!(
+            compact("[\n    \"a b\",\n    \"c,]\",\n]"),
+            "[\"a b\",\"c,]\"]"
+        );
+        assert_eq!(compact("Some( ( 1 , 2 ) )"), "Some((1,2))");
+        assert_ne!(compact("[\"Panel\"]"), compact("[\"Panel\",\"Dock\"]"));
     }
 
     #[test]
