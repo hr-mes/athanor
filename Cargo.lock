@@ -734,6 +734,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "athanor-update-notify"
+version = "1.0.0"
+dependencies = [
+ "athanor-trust-state",
+ "chrono",
+ "futures-util",
+ "landlock",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "zbus",
+]
+
+[[package]]
 name = "athanor-updater-rs"
 version = "0.1.0"
 dependencies = [

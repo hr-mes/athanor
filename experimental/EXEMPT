@@ -40,3 +40,4 @@ athanor-greeter
 # run as root. It leaves the image until a dedicated redesign.
 athanor-gatekeeper-rs
 athanor-update
+athanor-update-notify
