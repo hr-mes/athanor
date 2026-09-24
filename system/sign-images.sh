@@ -51,7 +51,9 @@ while read -r repository tag digest; do
   # no longer names the digest the build job recorded is not signed.
   now=$(bash "$retry" skopeo inspect --format '{{.Digest}}' "docker://$repository:$tag")
   [[ $now == "$digest" ]] || { echo "${0##*/}: $repository:$tag is $now, the build job recorded $digest" >&2; exit 1; }
-  bash "$retry" skopeo copy --preserve-digests --sign-by-sigstore-private-key "$work/key" --sign-passphrase-file "$work/passphrase" \
+  # skopeo writes the sigstore attachment only where registries.d enables it: the rendered
+  # one does, for exactly these repositories, and the runner's default does not.
+  bash "$retry" skopeo --registries.d "$work/policy/registries.d" copy --preserve-digests --sign-by-sigstore-private-key "$work/key" --sign-passphrase-file "$work/passphrase" \
     "docker://$repository:$tag" "docker://$repository:$tag"
 done < "$digests"
 

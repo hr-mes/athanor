@@ -34,6 +34,10 @@ STUB = textwrap.dedent("""\
             sys.exit("manifest unknown")
         print(tags[ref])
     elif "--sign-by-sigstore-private-key" in args:
+        # containers/image writes a sigstore attachment only where registries.d enables it.
+        conf = pathlib.Path(args[args.index("--registries.d") + 1]) if "--registries.d" in args else None
+        if conf is None or "use-sigstore-attachments: true" not in "".join(f.read_text() for f in conf.glob("*.yaml")):
+            sys.exit("writing signatures: writing sigstore attachments is disabled by configuration")
         key = pathlib.Path(args[args.index("--sign-by-sigstore-private-key") + 1])
         phrase = pathlib.Path(args[args.index("--sign-passphrase-file") + 1])
         for secret in (key, phrase):
