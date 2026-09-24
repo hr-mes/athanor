@@ -110,6 +110,9 @@ stage_older() { # item 9
   guest_ssh sudo bootc switch --enforce-container-sigpolicy --transport registry "${ACC_REGISTRY%/*}/elsewhere/athanor-system:v2"
   reboot_guest
   expect "9: a deployment outside the policy reads reference-out-of-scope" .verified.reason reference-out-of-scope
+  # Back at v1, not v2: this round trip leaves v2 in both deployments, and goback needs a
+  # previous deployment that holds another digest.
+  point_stable v1
   guest_ssh sudo bootc switch --enforce-container-sigpolicy --transport registry "$REPO:stable"
   reboot_guest
   expect "9: and back inside it reads verified" .verified.reason signature
@@ -117,6 +120,9 @@ stage_older() { # item 9
 
 stage_goback() { # items 5 and 13
   point_stable v2
+  check_now
+  expect "5: v2 is downloaded over v1" .update downloaded
+  request_and_reboot call_root Apply v2 "5: and applied, so the previous deployment holds v1"
   expect_error "5: GoBack() asks for administrator authentication from an SSH session" "$(call_ssh GoBack)" os.athanor.Update1.Error.NotAuthorized
   guest_ssh pkaction --verbose --action-id os.athanor.update.rollback | grep -c auth_admin$ | grep -qx 3 || die "FAIL  5: the rollback action is not auth_admin for every kind of session"
   pass "5: and the action is auth_admin for every kind of session (the prompt in the session is looked at by hand: screenshot.sh)"
