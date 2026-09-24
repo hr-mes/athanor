@@ -13,6 +13,8 @@
 #   rig.sh layer-guard      the greeter must refuse to run when the shim loads late
 #   rig.sh greeter-preview  one capture of the greeter per variant, for the eye
 #   rig.sh atspi greeter    every interactive widget has a role and a name
+#   rig.sh cosmic-panel-defaults   COSMIC's shipped panel keys equal the renderer's fixture
+#   rig.sh chooser-e2e      press a preset in the chooser and wait for the panel configuration
 #   rig.sh surface <name>          capture every case of a surface and compare with the goldens
 #   rig.sh update-goldens <name>   replace the goldens with a fresh capture, deliberately
 set -euo pipefail
@@ -52,6 +54,62 @@ stage_greeter_icons() {
     mkdir -p "$out/greeter-icons/icons/hicolor/scalable/status"
     install -m 0644 "$root"/system/athanor-style/calmo/generated/icons/*.svg \
         "$out/greeter-icons/icons/hicolor/scalable/status/"
+}
+
+# Each capture_<surface> runs every case of its surface and appends the tags to $tags.
+capture_greeter() {
+    # Test-only catalogs: German for length, the pseudo-language for right-to-left.
+    in_rig "$(rig_image)" bash -c '
+        set -euo pipefail
+        mkdir -p /out/locale
+        msgfmt --check -o /out/locale/de.mo /repo/forge/test/shell/locale/de.po
+        python3 /repo/forge/test/shell/locale/make_pseudo_rtl.py \
+            /repo/forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/po/athanor-greeter-ui.pot /out/pseudo-rtl.po
+        msgfmt -o /out/locale/rtl.mo /out/pseudo-rtl.po'
+    stage_greeter_icons
+    while IFS=$'\t' read -r tag variant scale locale catalog; do
+        tags+=("$tag")
+        override=()
+        if [ "$catalog" != - ]; then
+            override=(ATHANOR_I18N_CATALOG="/out/locale/$catalog")
+        fi
+        in_rig "$(rig_image)" env ATHANOR_GREETER_VARIANT="$variant" ATHANOR_LOGIN_USER=rig RIG_LOCALE="$locale" \
+            RIG_DATA_OVERLAY=/out/greeter-icons "${override[@]}" \
+            dbus-run-session -- /repo/forge/test/shell/scene.sh 1920 1080 "$scale" "$tag" -- \
+            /out/bin/athanor-greeter-ui
+    done < <(python3 -B "$rig/cases.py" greeter)
+}
+
+# The seed of a layout case: the user document, as a user who picked it would have it.
+seed_layout() { # seed_layout <dir> <preset> <panel> <dock or ->
+    mkdir -p "$1/athanor"
+    {
+        printf 'schema = 1\n\n[output."*"]\npreset = "%s"\npanel = "%s"\n' "$2" "$3"
+        if [ "$4" != - ]; then printf 'dock = "%s"\n' "$4"; fi
+    } > "$1/athanor/layout.toml"
+}
+
+capture_layout() {
+    while IFS=$'\t' read -r tag preset panel dock scale width height; do
+        tags+=("$tag")
+        seed_layout "$out/seed-$tag" "$preset" "$panel" "$dock"
+        # A float capture whose gap holds stale panel content is a known cosmic-panel defect
+        # (float_frame.py), not a result: capture it again, and fail after three.
+        for attempt in 1 2 3; do
+            in_rig "$(rig_image)" env RIG_SETTLE=8 RIG_LOCALE=en_US.UTF-8 RIG_CONFIG_SEED="/out/seed-$tag" \
+                RIG_DATA_OVERLAY=/repo/system/athanor-style/calmo/generated/cosmic \
+                dbus-run-session -- /repo/forge/test/shell/scene.sh "$width" "$height" "$scale" "$tag" -- \
+                /repo/forge/test/shell/layout_session.sh
+            if [ "$preset" != float ] || in_rig "$(rig_image)" python3 -B /repo/forge/test/shell/float_frame.py "/out/$tag.png"; then
+                break
+            fi
+            if [ "$attempt" = 3 ]; then
+                echo "rig.sh: $tag: stale panel content in the float gap on three captures running" >&2
+                exit 1
+            fi
+            echo "rig.sh: $tag: stale panel content in the float gap, capturing again (attempt $attempt)" >&2
+        done
+    done < <(python3 -B "$rig/cases.py" layout --outputs 1)
 }
 
 case "${1:-}" in
@@ -164,27 +222,15 @@ surface | update-goldens)
         echo "rig.sh: $golden has uncommitted changes; commit or discard them first" >&2
         exit 1
     fi
-    # Test-only catalogs: German for length, the pseudo-language for right-to-left.
-    in_rig "$(rig_image)" bash -c '
-        set -euo pipefail
-        mkdir -p /out/locale
-        msgfmt --check -o /out/locale/de.mo /repo/forge/test/shell/locale/de.po
-        python3 /repo/forge/test/shell/locale/make_pseudo_rtl.py \
-            /repo/forge/specs/athanor-greeter-ui/athanor-greeter-ui-1.0.0/po/athanor-greeter-ui.pot /out/pseudo-rtl.po
-        msgfmt -o /out/locale/rtl.mo /out/pseudo-rtl.po'
-    stage_greeter_icons
     tags=()
-    while IFS=$'\t' read -r tag variant scale locale catalog; do
-        tags+=("$tag")
-        override=()
-        if [ "$catalog" != - ]; then
-            override=(ATHANOR_I18N_CATALOG="/out/locale/$catalog")
-        fi
-        in_rig "$(rig_image)" env ATHANOR_GREETER_VARIANT="$variant" ATHANOR_LOGIN_USER=rig RIG_LOCALE="$locale" \
-            RIG_DATA_OVERLAY=/out/greeter-icons "${override[@]}" \
-            dbus-run-session -- /repo/forge/test/shell/scene.sh 1920 1080 "$scale" "$tag" -- \
-            /out/bin/athanor-greeter-ui
-    done < <(python3 -B "$rig/cases.py" "$surface")
+    case "$surface" in
+    greeter) capture_greeter ;;
+    layout) capture_layout ;;
+    *)
+        echo "rig.sh $1: unknown surface '$surface'" >&2
+        exit 2
+        ;;
+    esac
     if [ "$1" = update-goldens ]; then
         mkdir -p "$golden"
         for tag in "${tags[@]}"; do
@@ -197,8 +243,20 @@ surface | update-goldens)
             "/repo/forge/test/shell/golden/$surface" /out "${tags[@]}"
     fi
     ;;
+cosmic-panel-defaults)
+    # The renderer's tests read COSMIC's shipped keys from a committed fixture; this fails
+    # when the COSMIC in the rig ships different ones, so an update cannot drift silently.
+    # The rig has no diffutils: copy the shipped keys out and compare them on the host.
+    in_rig "$(rig_image)" bash -c 'set -euo pipefail
+        rm -rf /out/cosmic-shipped
+        mkdir /out/cosmic-shipped
+        cp -r /usr/share/cosmic/com.system76.CosmicPanel /usr/share/cosmic/com.system76.CosmicPanel.Panel \
+            /usr/share/cosmic/com.system76.CosmicPanel.Dock /out/cosmic-shipped/'
+    diff -r "$root/system/athanor-layout/fixtures/cosmic-panel-1.8.0" "$out/cosmic-shipped"
+    echo "cosmic-panel-defaults: the fixture matches the COSMIC in the rig"
+    ;;
 *)
-    sed -n '2,17p' "${BASH_SOURCE[0]}" >&2
+    sed -n '2,19p' "${BASH_SOURCE[0]}" >&2
     exit 2
     ;;
 esac
