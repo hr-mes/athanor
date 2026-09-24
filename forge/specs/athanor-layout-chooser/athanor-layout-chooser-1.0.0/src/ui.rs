@@ -141,12 +141,11 @@ pub fn build_ui(app: &Application, paths: Paths) {
     });
     for group in &chooser.groups {
         for (button, change) in &group.buttons {
-            let (weak, change) = (Rc::downgrade(&chooser), *change);
-            button.connect_clicked(move |_| {
-                if let Some(chooser) = weak.upgrade() {
-                    chooser.pick(change);
-                }
-            });
+            // A strong reference: nothing else outlives build_ui, so a weak one never
+            // upgrades. GTK drops the handler, and the cycle with it, when the window is
+            // disposed.
+            let (chooser, change) = (Rc::clone(&chooser), *change);
+            button.connect_clicked(move |_| chooser.pick(change));
         }
     }
     chooser.refresh();
