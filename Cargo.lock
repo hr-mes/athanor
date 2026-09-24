@@ -705,6 +705,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "athanor-trust-state"
+version = "1.0.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "athanor-updater-rs"
 version = "0.1.0"
 dependencies = [

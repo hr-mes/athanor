@@ -28,6 +28,7 @@ members = [
   "system/athanor-net-unikernel",
   "system/athanor-store",
   "system/athanor-telemetry",
+  "system/athanor-trust-state",
   "system/athanor-updater-rs",
 ]
 
