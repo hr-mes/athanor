@@ -79,6 +79,23 @@ class UpdateTrust(unittest.TestCase):
         self.assertEqual(built.get("athanor-update"), "athanor-update")
         self.assertEqual(built.get("athanor-update-notify"), "athanor-update")
 
+    def test_the_retired_secure_boot_daemon_must_stay_gone(self):
+        self.assertEqual([p for p in verify.update_trust_problems() if "SecureBoot" in p or "secure-boot" in p], [])
+        daemon = self.root / "forge/specs/athanor-secure-boot/athanor-secure-boot-1.0.0/src/main.rs"
+        daemon.parent.mkdir(parents=True)
+        daemon.write_text('#[interface(name = "org.athanor.SecureBoot")]\n')
+        spec = self.root / "forge/specs/athanor-secure-boot/athanor-secure-boot.spec"
+        spec.write_text("%files\n/usr/lib/systemd/system/athanor-secure-boot.service\n/usr/lib/systemd/system/athanor-tpm-luks-seal.service\n")
+        found = self.problems()
+        self.assertTrue(any("org.athanor.SecureBoot" in p for p in found))
+        self.assertTrue(any("athanor-secure-boot.service" in p for p in found))
+
+    def test_the_tpm_files_the_image_reads_must_stay(self):
+        spec = self.root / "forge/specs/athanor-secure-boot/athanor-secure-boot.spec"
+        spec.parent.mkdir(parents=True)
+        spec.write_text("%files\n")
+        self.assertTrue(any("athanor-tpm-luks-seal.sh" in p for p in self.problems()))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -415,6 +415,20 @@ def update_trust_problems(root=None):
     for literal in walk(root / "forge/specs/athanor-update", ""):
         if literal.is_file() and "target" not in literal.parts and "vectors" not in literal.parts and "ghcr.io/hr-mes" in read(literal):
             problems.append(f"{rel(literal)}: literal ghcr.io/hr-mes; the registry comes from the build's variables")
+    # D2: the Secure Boot daemon is retired, the TPM files of its package are not.
+    secure_boot = root / "forge/specs/athanor-secure-boot"
+    for source in walk(secure_boot, ".rs"):
+        if "org.athanor.SecureBoot" in read(source):
+            problems.append(f"{rel(source)}: serves org.athanor.SecureBoot, a name no bus policy lets it own (retired by D2)")
+    if (secure_boot / "athanor-secure-boot.spec").exists():
+        # The changelog may name what was retired: only what the spec installs counts.
+        text = read(secure_boot / "athanor-secure-boot.spec").split("%changelog", 1)[0]
+        if "athanor-secure-boot.service" in text:
+            problems.append("athanor-secure-boot.spec: still ships athanor-secure-boot.service (retired by D2)")
+        for kept in ("athanor-tpm-luks-seal.sh", "athanor-tpm-luks-seal.service", "athanor-tpm-rollback-check.service",
+                     "athanor-tpm-rollback-update.service", "10-rollback-check.conf"):
+            if kept not in text or not list(walk(secure_boot / "SOURCES", kept)):
+                problems.append(f"athanor-secure-boot: {kept} must stay; system/Containerfile and the rollback check use it")
     return problems
 
 
