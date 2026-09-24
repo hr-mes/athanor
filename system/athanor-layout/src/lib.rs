@@ -5,4 +5,5 @@
 //! that renders the layout for cosmic-panel and the chooser window both link it, and so
 //! will the shell that one day reads the document itself.
 
+pub mod document;
 pub mod preset;
