@@ -8,9 +8,11 @@
 pub mod apply;
 pub mod cosmic;
 pub mod document;
+pub mod first_session;
 pub mod loader;
 pub mod placement;
 pub mod preset;
+pub mod user;
 
 #[cfg(test)]
 pub(crate) mod testing {
