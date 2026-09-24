@@ -73,12 +73,16 @@ stage_apply() { # items 2, 3 and 14
 }
 
 stage_refuse() { # items 4 and 12
+  local body
   for tag in v3 v3w v3b; do
     point_stable "$tag"
     check_now
     expect "4/12: $tag is refused" .update refused
     expect "4/12: with the error code policy" .last_error policy
-    guest_ssh "! grep -Ei 'signature was required|cryptographic|http|$ACC_PORT/' /run/athanor-update/state.json" || die "FAIL  4: registry text in the state file"
+    # The deployments' image references are schema fields; every other value must be free of
+    # registry text and URLs.
+    body=$(guest_ssh cat /run/athanor-update/state.json | jq -c 'del(.booted.image, .downloaded.image, .previous.image)')
+    ! grep -Eiq "signature was required|cryptographic|http|$ACC_PORT/" <<< "$body" || die "FAIL  4: registry text in the state file: $body"
   done
   pass "4: no registry text appears in the state file"
 }
