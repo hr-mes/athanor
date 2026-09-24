@@ -15,11 +15,18 @@ pub mod preset;
 #[cfg(test)]
 pub(crate) mod testing {
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// A fresh directory for one test, unique to this process and this name.
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+    /// A fresh directory for one test. Every call gets its own, even when two modules'
+    /// tests pick the same name and run in parallel.
     pub fn scratch(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("athanor-layout-{}-{name}", std::process::id()));
+        let call = NEXT.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "athanor-layout-{}-{call}-{name}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).expect("create the scratch directory");
         dir
     }
