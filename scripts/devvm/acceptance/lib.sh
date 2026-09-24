@@ -38,9 +38,29 @@ tunnel() {
     -f -N -R "$ACC_PORT:127.0.0.1:$ACC_PORT" "$GUEST_USER@127.0.0.1"
 }
 
+boot_id() { guest_ssh cat /proc/sys/kernel/random/boot_id; }
+# Succeeds once the guest answers from a boot other than BOOT: with a deployment staged, the
+# old boot keeps answering for a while, as ostree finalizes the deployment on the way down.
+wait_reboot() { # wait_reboot BOOT
+  local now deadline=$((SECONDS + 600))
+  while ((SECONDS < deadline)); do
+    sleep 2
+    if now=$(guest_ssh -q cat /proc/sys/kernel/random/boot_id 2> /dev/null) && [[ $now != "$1" ]]; then
+      tunnel
+      return 0
+    fi
+  done
+  return 1
+}
+
 # Scheduled two seconds ahead, so the SSH command returns before the connection drops and
 # its exit status means something.
-reboot_guest() { guest_ssh sudo systemd-run --quiet --on-active=2 systemctl reboot; sleep 10; wait_ssh; }
+reboot_guest() {
+  local boot
+  boot=$(boot_id)
+  guest_ssh sudo systemd-run --quiet --on-active=2 systemctl reboot
+  wait_reboot "$boot" || die "the guest did not come back from the reboot in 10 minutes"
+}
 power_cycle() {
   guest_ssh sudo systemd-run --quiet --on-active=2 systemctl poweroff
   for _ in $(seq 60); do systemctl --user -q is-active "$UNIT" || break; sleep 2; done
@@ -82,10 +102,10 @@ expect_error() { # expect_error DESCRIPTION OUTPUT ERROR-NAME
 # A request that ends in a reboot: the bus connection may drop before the reply, so the exit
 # status of the call says nothing. What is asserted is the version that boots.
 request_and_reboot() { # request_and_reboot CALLER METHOD EXPECTED-MARKER DESCRIPTION
-  local out status=0
+  local out status=0 boot
+  boot=$(boot_id)
   out=$("$1" "$2") || status=$?
-  sleep 10
-  wait_ssh
+  wait_reboot "$boot" || die "FAIL  $4: no reboot in 10 minutes (call exit $status: $out)"
   [[ $(marker) == "$3" ]] || die "FAIL  $4: booted $(marker), expected $3 (call exit $status: $out)"
   pass "$4"
 }
