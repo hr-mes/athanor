@@ -2,7 +2,7 @@
 %global __requires_exclude ^kernel-rt$
 Name:           athanor-system-config
 Version:        1.0.0
-Release:        %{?autorelease}%{!?autorelease:45.fc43}
+Release:        %{?autorelease}%{!?autorelease:46.fc43}
 Summary:        Athanor OS athanor-system-config
 License:        MIT
 URL:            https://github.com/hr-mes/athanor-forge
@@ -91,6 +91,12 @@ mkdir -p /etc/yum.repos.d
 %config(noreplace) %attr(0600,root,root) /etc/usbguard/rules.d/10-athanor-baseline.conf
 
 %changelog
+* Thu Sep 24 2026 Athanor Forge <forge@athanor.os> - 1.0.0-46
+- Bind /sys into the greeter's sandbox by the device-tree directories (block, bus,
+  class, dev, devices), the set Flatpak exposes, instead of whole. The recursive bind
+  carried efivarfs, securityfs, tracefs, bpffs, pstore and the cgroup tree into the
+  sandbox, and SELinux refused xdm_t the remount that makes each of them read-only.
+
 * Thu Sep 24 2026 Athanor Forge <forge@athanor.os> - 1.0.0-45
 - Stop binding /dev/nvidia-uvm and /dev/nvidia-uvm-tools into the greeter's sandbox.
   They serve CUDA only, and on the -nvidia variants they can appear with the generic
