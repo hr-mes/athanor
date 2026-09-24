@@ -24,6 +24,7 @@ members = [
   "system/athanor-hypervisor-daemon",
   "system/athanor-i18n",
   "system/athanor-init-oracle",
+  "system/athanor-layout",
   "system/athanor-mesh-bus",
   "system/athanor-net-unikernel",
   "system/athanor-store",
@@ -75,6 +76,7 @@ wayland-server = "0.31.0"
 # Serialization & Error Handling
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+toml = "0.8"
 thiserror = "2.0.19"
 anyhow = "1.0.99"
 

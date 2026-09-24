@@ -522,6 +522,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "athanor-layout"
+version = "1.0.0"
+dependencies = [
+ "toml 0.8.2",
+ "tracing",
+]
+
+[[package]]
 name = "athanor-lvfs-rs"
 version = "1.0.0"
 dependencies = [
