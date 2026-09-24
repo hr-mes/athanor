@@ -215,7 +215,7 @@ Out of stage 1: our own panel, dock, launcher, notifications, lock and Settings;
 8. **Inter** is a proposal from the mockups, not yet seen on real hardware at fractional scale.
 9. **Multi-user and kiosk machines** are covered by wording (per-user notices and picks, SH9.1 without a panel), not yet by a test.
 10. **How often a user is asked to restart.** The Orchestrator builds every night, and "one notice per digest" then means one notice a day. A promoted `stable` tag that users follow, with `latest` kept for testing, would fix it; `doc_kernel_profile.md` leaves channels to release 1.1. The maintainer decides whether one hand-promoted channel comes forward into `doc_update_trust.md`.
-11. **Outputs taller than wide are not drawn yet.** The mockups of 2026-09-18 show landscape outputs only. The three presets on a quarter-turned output, and the dock stacked above a bottom panel, are drawn and looked at before the plan of 1c is written; whether cosmic-panel stacks two exclusive zones on one edge is checked on the dev VM at the same time.
+11. **Outputs taller than wide: settled on 2026-09-24.** The fourteen layouts in both shapes, and two outputs of different shape side by side, were drawn and approved by the maintainer (`.superpowers/brainstorm/89841-1789751828/content/layout-orientations.html`). cosmic-panel 1.8.0 on cosmic-comp 1.8.0 stacks the dock above the panel when both are anchored to the bottom edge with an exclusive zone; this was checked in a nested cosmic-comp (tier A of `scripts/devvm`) with the packages the image ships.
 
 ## 6. Changes to other documents
 
