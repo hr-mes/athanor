@@ -6,4 +6,18 @@
 //! will the shell that one day reads the document itself.
 
 pub mod document;
+pub mod loader;
 pub mod preset;
+
+#[cfg(test)]
+pub(crate) mod testing {
+    use std::path::PathBuf;
+
+    /// A fresh directory for one test, unique to this process and this name.
+    pub fn scratch(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("athanor-layout-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create the scratch directory");
+        dir
+    }
+}
