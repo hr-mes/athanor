@@ -25,7 +25,13 @@ for key in acc-1 acc-2 acc-3 other; do
   [[ -f $keys/$key.pub ]] || skopeo generate-sigstore-key --output-prefix "$keys/$key" --passphrase-file "$keys/empty.pass"
 done
 
-printf '[[registry]]\nlocation = "%s"\ninsecure = true\n' "${ACC_REGISTRY%%/*}" > "$ACC_STATE/registries.conf"
+# skopeo reads registries.conf from $HOME/.config/containers or /etc only (CONTAINERS_REGISTRIES_CONF
+# is podman's): the pipeline scripts run with a throwaway HOME that marks the local registry insecure.
+mkdir -p "$ACC_STATE/home/.config/containers"
+printf '[[registry]]\nlocation = "%s"\ninsecure = true\n' "${ACC_REGISTRY%%/*}" > "$ACC_STATE/home/.config/containers/registries.conf"
+# skopeo writes a sigstore attachment only where registries.d enables it.
+mkdir -p "$ACC_STATE/registries.d"
+printf 'docker:\n  %s:\n    use-sigstore-attachments: true\n' "$ACC_REGISTRY" > "$ACC_STATE/registries.d/acceptance.yaml"
 
 podman container exists athanor-acc-registry || podman run -d --name athanor-acc-registry -p "127.0.0.1:$ACC_PORT:5000" docker.io/library/registry:2
 rpm=$(find "$ACC_RPM_DIR" -name 'athanor-update-1*.x86_64.rpm' | sort -V | tail -n 1)
@@ -45,7 +51,7 @@ build() { # build TAG CREATED KEY...
   podman push --tls-verify=false "$REPO:$tag"
 }
 sign() { # sign TAG KEY
-  skopeo copy --src-tls-verify=false --dest-tls-verify=false --sign-by-sigstore-private-key "$keys/$2.private" \
+  skopeo --registries.d "$ACC_STATE/registries.d" copy --src-tls-verify=false --dest-tls-verify=false --sign-by-sigstore-private-key "$keys/$2.private" \
     --sign-passphrase-file "$keys/empty.pass" "docker://$REPO:$1" "docker://$REPO:$1"
 }
 
@@ -65,9 +71,9 @@ for name in athanor-system-nvidia athanor-system-nvidia-legacy; do
 done
 mkdir -p "$ACC_STATE/pipeline-keys"
 cp "$keys/acc-1.pub" "$ACC_STATE/pipeline-keys/athanor-image-1.pub"
-bash "$ROOT/system/image-digests.sh" --registry "$ACC_REGISTRY" --tag v2 --out "$ACC_STATE/image-digests.txt"
+HOME=$ACC_STATE/home bash "$ROOT/system/image-digests.sh" --registry "$ACC_REGISTRY" --tag v2 --out "$ACC_STATE/image-digests.txt"
 COSIGN_PRIVATE_KEY=$(< "$keys/acc-1.private") COSIGN_PASSWORD='' SIGN_KEYS_DIR=$ACC_STATE/pipeline-keys \
-  CONTAINERS_REGISTRIES_CONF=$ACC_STATE/registries.conf bash "$ROOT/system/sign-images.sh" "$ACC_STATE/image-digests.txt"
+  HOME=$ACC_STATE/home bash "$ROOT/system/sign-images.sh" "$ACC_STATE/image-digests.txt"
 
 # v3b: the only signature is what cosign 3 writes, a bundle index at sha256-<hex>.
 # cosign signs with a key pair of its own making; the image ships that public key, so the
