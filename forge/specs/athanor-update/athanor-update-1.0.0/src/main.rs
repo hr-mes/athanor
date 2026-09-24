@@ -2,7 +2,9 @@
 #![allow(dead_code)] // removed in Task 6, when the command line uses every module
 mod check;
 mod policy;
+mod requests;
 mod secureboot;
+mod serve;
 mod sigobj;
 mod store;
 mod tools;
