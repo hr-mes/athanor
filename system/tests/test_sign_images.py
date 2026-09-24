@@ -54,7 +54,9 @@ STUB = textwrap.dedent("""\
         digest = args[-2].split("@")[1]
         if digest not in signed or os.environ.get("STUB_REFUSE"):
             sys.exit("Source image rejected: A signature was required, but no signature exists")
-        pathlib.Path(args[-1].removeprefix("dir:")).mkdir()
+        pull = pathlib.Path(args[-1].removeprefix("dir:"))
+        assert not pull.is_relative_to(os.environ["XDG_RUNTIME_DIR"]), f"a whole image pulled into the memory-backed key directory: {pull}"
+        pull.mkdir()
     else:
         sys.exit(f"stub skopeo: unsupported {args}")
     """)
@@ -76,8 +78,9 @@ class SignImages(unittest.TestCase):
         (self.dir / "keys").mkdir()
         shutil.copy(A_KEY, self.dir / "keys" / "athanor-image-1.pub")
         (self.dir / "runtime").mkdir(mode=0o700)
+        (self.dir / "tmp").mkdir()
         self.env = {"PATH": f"{self.dir / 'bin'}:{os.environ['PATH']}", "STUB_STATE": str(self.state), "RETRY_ATTEMPTS": "1",
-                    "SIGN_KEYS_DIR": str(self.dir / "keys"), "XDG_RUNTIME_DIR": str(self.dir / "runtime"),
+                    "SIGN_KEYS_DIR": str(self.dir / "keys"), "XDG_RUNTIME_DIR": str(self.dir / "runtime"), "TMPDIR": str(self.dir / "tmp"),
                     "COSIGN_PRIVATE_KEY": SECRET, "COSIGN_PASSWORD": "correct horse"}
         self.file = self.dir / "artifacts" / "image-digests.txt"
 
@@ -107,6 +110,7 @@ class SignImages(unittest.TestCase):
         self.assertEqual([a[-2] for a in verified], [f"docker://{REG}/{name}@{self.tags[f'{REG}/{name}:412']}" for name in NAMES])
         self.assertTrue(all("--registries.d" in a for a in verified))
         self.assertEqual(r.stdout.count("signed and verified with the shipped policy"), 3)
+        self.assertEqual(list((self.dir / "tmp").iterdir()), [], "the verification pulls are removed")
 
     def test_the_key_reaches_skopeo_as_a_private_file_and_nowhere_else(self):
         self.digests()

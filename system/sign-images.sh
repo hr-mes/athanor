@@ -32,7 +32,10 @@ keys_dir=${SIGN_KEYS_DIR:-$root/system/keys}
 
 umask 077
 work=$(mktemp -d -p "${XDG_RUNTIME_DIR:-/dev/shm}" sign-images.XXXXXX)
-trap 'rm -rf "$work"' EXIT
+# The verification pulls whole images and holds no secret: it goes to disk, not to the
+# memory-backed directory that holds the key.
+pulls=$(mktemp -d)
+trap 'rm -rf "$work" "$pulls"' EXIT
 printf '%s' "$COSIGN_PRIVATE_KEY" > "$work/key"
 printf '%s' "$COSIGN_PASSWORD" > "$work/passphrase"
 unset COSIGN_PRIVATE_KEY COSIGN_PASSWORD
@@ -61,7 +64,7 @@ n=0
 while read -r repository _ digest; do
   n=$((n + 1))
   bash "$retry" skopeo --registries.d "$work/policy/registries.d" copy --policy "$work/policy/policy.json" \
-    "docker://$repository@$digest" "dir:$work/verified-$n"
-  rm -rf "$work/verified-$n"
+    "docker://$repository@$digest" "dir:$pulls/verified-$n"
+  rm -rf "$pulls/verified-$n"
   echo "signed and verified with the shipped policy: $repository@$digest"
 done < "$digests"
