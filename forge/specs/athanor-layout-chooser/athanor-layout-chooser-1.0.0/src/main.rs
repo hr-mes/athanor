@@ -5,6 +5,8 @@ mod i18n;
 mod sandbox;
 mod ui;
 
+use std::io::{self, IsTerminal};
+
 use athanor_layout::loader::Paths;
 use gtk4::prelude::*;
 use gtk4::{glib, Application};
@@ -30,6 +32,9 @@ fn main() -> glib::ExitCode {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
+        // Launched from the desktop, stderr goes to the journal, which stores colour codes
+        // as they come: colour only a terminal.
+        .with_ansi(io::stderr().is_terminal())
         .init();
     i18n::init();
 
