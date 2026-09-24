@@ -7,6 +7,7 @@
 
 pub mod document;
 pub mod loader;
+pub mod placement;
 pub mod preset;
 
 #[cfg(test)]
