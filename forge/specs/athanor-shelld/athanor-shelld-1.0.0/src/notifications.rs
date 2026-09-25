@@ -2,15 +2,19 @@
 //! every application, and the bar's, which answers athanor-bar.service only. Both live on
 //! one connection and share one store.
 
+use std::fmt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
+use serde::de::{IgnoredAny, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer};
 use zbus::fdo::{self, DBusProxy};
 use zbus::message::Header;
 use zbus::names::OwnedUniqueName;
 use zbus::object_server::SignalEmitter;
 use zbus::{interface, Connection};
+use zvariant::{Signature, Type};
 
 use crate::dnd;
 use crate::hints::Hints;
@@ -107,6 +111,45 @@ fn is_action_key(key: &str) -> bool {
     !key.is_empty() && key.len() <= ACTION_KEY_BYTES && !key.chars().any(text::is_hidden)
 }
 
+/// `Notify`'s `actions`, bounded while decoding: a plain `Vec<&str>` would grow to hold every
+/// element of whatever the caller sent before `content` ever gets to trim it to `MAX_ACTIONS`
+/// pairs. At most `2 * MAX_ACTIONS` strings — a whole pair per key and value — are kept; the
+/// rest are walked past, not stored.
+struct Actions<'a>(Vec<&'a str>);
+
+impl Type for Actions<'_> {
+    const SIGNATURE: &'static Signature = <Vec<&str> as Type>::SIGNATURE;
+}
+
+impl<'de> Deserialize<'de> for Actions<'de> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Actions<'de>, D::Error> {
+        deserializer.deserialize_seq(ActionsVisitor)
+    }
+}
+
+struct ActionsVisitor;
+
+impl<'de> Visitor<'de> for ActionsVisitor {
+    type Value = Actions<'de>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an array of strings")
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Actions<'de>, A::Error> {
+        let cap = 2 * MAX_ACTIONS;
+        let mut kept = Vec::new();
+        while kept.len() < cap {
+            match seq.next_element::<&str>()? {
+                Some(item) => kept.push(item),
+                None => return Ok(Actions(kept)),
+            }
+        }
+        while seq.next_element::<IgnoredAny>()?.is_some() {}
+        Ok(Actions(kept))
+    }
+}
+
 /// The bar's destination for the private interface's signals: the unique name of the last
 /// caller `List` admitted, unicast so no other client sharing the bus ever sees this content
 /// (`os.athanor.Notifications1`'s security boundary). `None` while no bar has listed yet —
@@ -179,7 +222,7 @@ impl Notifications {
         app_icon: &str,
         summary: &str,
         body: &str,
-        actions: Vec<&str>,
+        actions: Actions<'_>,
         hints: Hints,
         expire_timeout: i32,
         #[zbus(connection)] conn: &Connection,
@@ -189,7 +232,7 @@ impl Notifications {
             app_icon,
             summary,
             body,
-            &actions,
+            &actions.0,
             hints,
             expire_timeout,
         );
@@ -449,5 +492,26 @@ mod tests {
             content("a", "https://x/y.png", "s", "b", &[], Hints::default(), -1).visual,
             Visual::None
         );
+    }
+
+    #[test]
+    fn a_hundred_thousand_actions_yield_at_most_max_actions_pairs() {
+        use zvariant::serialized::Context;
+        use zvariant::{to_bytes, LE};
+
+        let many: Vec<String> = (0..100_000usize)
+            .map(|n| {
+                if n % 2 == 0 {
+                    format!("k{n}")
+                } else {
+                    "v".to_owned()
+                }
+            })
+            .collect();
+        let encoded = to_bytes(Context::new_dbus(LE, 0), &many).expect("encode");
+        let actions: Actions<'_> = encoded.deserialize().expect("decode").0;
+        assert!(actions.0.len() <= 2 * MAX_ACTIONS);
+        let made = content("app", "", "s", "b", &actions.0, Hints::default(), -1);
+        assert!(made.actions.len() <= MAX_ACTIONS);
     }
 }

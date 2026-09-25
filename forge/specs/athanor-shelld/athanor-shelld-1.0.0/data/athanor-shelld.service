@@ -20,10 +20,13 @@ RestartSec=1s
 RestartSteps=5
 RestartMaxDelaySec=60s
 Slice=session.slice
-# Budget 16 MB PSS at rest (doc_bar.md, section 5, item 17); the limits leave room for a
-# large image-data message in flight.
+# Budget 16 MB PSS at rest (doc_bar.md, section 5, item 17); MemoryHigh throttles early, well
+# above that budget, to leave room for a large image-data message in flight. MemoryMax is the
+# hard cap: the bus accepts messages up to 128 MiB and zbus buffers a whole message before any
+# parser sees it, so the cap must clear 128 MiB plus the baseline, or one maximum-size message
+# OOM-kills the daemon — and five of them switch it off for the session (crash-loop, SH8).
 MemoryHigh=48M
-MemoryMax=96M
+MemoryMax=192M
 
 # The failure record lives here and must survive a restart, not a new session.
 RuntimeDirectory=athanor-shelld
