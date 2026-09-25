@@ -72,8 +72,14 @@ launch() { # launch DESKTOP-ID
 }
 
 absent() { ! in_session test -e "$1"; }
-owned() { in_session busctl --user status "$1" > /dev/null; }
-unowned() { ! owned "$1"; }
+# One NameHasOwner call: `busctl status` looks the owner up, then its credentials, and fails
+# with ENXIO when the owner exits in between. An error is neither owned nor unowned.
+has_owner() { # has_owner NAME: prints "b true" or "b false"
+    in_session busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus \
+        NameHasOwner s "$1"
+}
+owned() { [[ $(has_owner "$1") == "b true" ]]; }
+unowned() { [[ $(has_owner "$1") == "b false" ]]; }
 
 stage_deploy() {
     "$HERE/deploy.sh" "$BIN/cc-probe:/usr/bin/cc-probe" > /dev/null
@@ -123,12 +129,15 @@ stage_terminal() {
     in_session systemctl --user stop "$unit"
 }
 
+# cc-probe open must end with the component shown, whether it was stopped (cold), already
+# shown, or running and hidden (warm). Each screenshot is named after what it must show.
 stage_openers() {
-    local opener name program
-    for opener in launcher:com.system76.CosmicLauncher:cosmic-launcher \
-        app-library:com.system76.CosmicAppLibrary:cosmic-app-library \
-        workspaces:com.system76.CosmicWorkspaces:cosmic-workspaces; do
-        IFS=: read -r opener name program <<< "$opener"
+    local opener name program hide
+    for opener in \
+        "launcher|com.system76.CosmicLauncher|cosmic-launcher|org.freedesktop.DbusActivation ActivateAction sasa{sv} '\"Close\"' 0 0" \
+        "app-library|com.system76.CosmicAppLibrary|cosmic-app-library|org.freedesktop.DbusActivation ActivateAction sasa{sv} '\"Close\"' 0 0" \
+        "workspaces|com.system76.CosmicWorkspaces|cosmic-workspaces|com.system76.CosmicWorkspaces Hide"; do
+        IFS='|' read -r opener name program hide <<< "$opener"
         # Cold: the component is not running, so the opener starts it first. Neither -x
         # nor -f: comm is truncated to 15 bytes for two of these names, and -f matches the
         # in_session shell's own "bash -c ..." command line, which carries the pattern and
@@ -138,9 +147,18 @@ stage_openers() {
         wait_until 5 unowned "$name" || fail "$name is still owned after kill"
         in_session cc-probe open "$opener" | grep -q '^{"opened"' || fail "cc-probe open $opener"
         owned "$name" || fail "$name is not owned after open"
-        shot "$opener-cold"
+        shot "$opener-shown-after-cold-open"
+        in_session cc-probe open "$opener" | grep -q '^{"opened"' || fail "cc-probe open $opener, shown"
+        shot "$opener-still-shown-after-second-open"
+        # Warm: the component closes itself through its own interface and keeps running.
+        # cosmic-app-library ignores a request to show within 100 ms of hiding, which is
+        # how a click on its panel button closes it; the pause keeps this step out of it.
+        in_session busctl --user call "$name" "/${name//.//}" "$hide" ||
+            fail "$name did not hide"
+        sleep 1
+        owned "$name" || fail "$name exited when it hid"
         in_session cc-probe open "$opener" | grep -q '^{"opened"' || fail "cc-probe open $opener, warm"
-        shot "$opener-warm"
+        shot "$opener-shown-after-warm-open"
         in_session "if pids=\$(pidof $program); then kill \$pids; fi"
     done
 }
