@@ -18,20 +18,30 @@ pub fn line(text: &str, max_chars: usize) -> String {
         .collect()
 }
 
-/// Several lines: `\n` stays, `\r` and every other control character go.
+/// Several lines: `\n` stays, `\r` and every other control character go. U+2028 LINE SEPARATOR
+/// and U+2029 PARAGRAPH SEPARATOR render as a line break too, so they fold into `\n` here
+/// instead of vanishing with the rest of `is_hidden`.
 #[must_use]
 pub fn lines(text: &str, max_chars: usize) -> String {
     text.chars()
+        .map(|c| {
+            if matches!(c, '\u{2028}' | '\u{2029}') {
+                '\n'
+            } else {
+                c
+            }
+        })
         .filter(|&c| c == '\n' || !is_hidden(c))
         .take(max_chars)
         .collect()
 }
 
-/// A control character (C0 and C1) or a bidirectional formatting character.
+/// A control character (C0 and C1), a bidirectional formatting character, or U+2028/U+2029
+/// (not `char::is_control`, category Zl/Zp, but they render as a line break all the same).
 #[must_use]
 pub fn is_hidden(c: char) -> bool {
     c.is_control()
-        || matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+        || matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{2028}' | '\u{2029}')
 }
 
 #[cfg(test)]
@@ -57,5 +67,15 @@ mod tests {
     fn truncation_counts_characters_not_bytes() {
         let cut = line(&"é".repeat(300), SUMMARY_CHARS);
         assert_eq!(cut.chars().count(), SUMMARY_CHARS);
+    }
+
+    #[test]
+    fn a_line_drops_the_unicode_separators() {
+        assert_eq!(line("a\u{2028}b\u{2029}c", 64), "abc");
+    }
+
+    #[test]
+    fn lines_fold_the_unicode_separators_into_newlines() {
+        assert_eq!(lines("one\u{2028}two\u{2029}three", 64), "one\ntwo\nthree");
     }
 }
