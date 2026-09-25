@@ -181,13 +181,18 @@ stage_crash-loop() {
     # is at 5" on the failing attempt, then a plain "Started athanor-shelld.service" with no
     # counter line on the give-up run, right where READY=1 now lands), so it reads 0 straight
     # after give-up. It must stay 0 through a settling wait, or a sixth start happened.
-    local restarts
+    # InvocationID changes on every start by definition, so it pins "no sixth start" whatever
+    # systemd does with the counter.
+    local restarts invocation
     restarts=$(unit show -p NRestarts --value)
+    invocation=$(unit show -p InvocationID --value)
     [[ $restarts == 0 ]] || fail "NRestarts is $restarts after giving up, expected exactly 0"
     sleep 5
     gave_up || fail "a sixth start ran: $(unit show -p ActiveState,Result --value | paste -sd,)"
     [[ $(unit show -p NRestarts --value) == "$restarts" ]] ||
         fail "NRestarts changed from $restarts after a 5s settle: a sixth start ran"
+    [[ $(unit show -p InvocationID --value) == "$invocation" ]] ||
+        fail "InvocationID changed after a 5s settle: a sixth start ran"
     in_session "journalctl --user -u athanor-shelld -p err -n 20 --no-pager | grep -q 'keeps failing'" ||
         fail "no 'keeps failing' in the last 20 err-priority journal lines"
 }
