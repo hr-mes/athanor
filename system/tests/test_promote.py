@@ -8,7 +8,10 @@ import unittest
 
 from test_kernel_artifacts import Tool
 
-PROMOTE = pathlib.Path(__file__).resolve().parents[2] / "system" / "promote.sh"
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+PROMOTE = ROOT / "system" / "promote.sh"
+KEY = ROOT / "system/keys/athanor-image-1.pub"
+OTHER_KEY = ROOT / "forge/specs/athanor-update/athanor-update-1.0.0/tests/vectors/made/a.pub"
 REG = "registry.example/owner"
 NAMES = ["athanor-system", "athanor-system-nvidia", "athanor-system-nvidia-legacy"]
 SIGNATURE = {"layers": [{"mediaType": "application/vnd.dev.cosign.simplesigning.v1+json"}]}
@@ -20,13 +23,14 @@ def digest(n):
 
 
 class Promote(Tool):
-    def published(self, run_created="2026-09-15T10:00:00Z", stable_created="2026-09-10T10:00:00Z", signature=SIGNATURE):
-        fx = {"tags": {}, "configs": {}, "raw": {}}
+    def published(self, run_created="2026-09-15T10:00:00Z", stable_created="2026-09-10T10:00:00Z", signature=SIGNATURE, signer=KEY):
+        fx = {"tags": {}, "configs": {}, "raw": {}, "sigstore_keys": {}}
         for i, name in enumerate(NAMES):
             new, old = digest(i + 1), digest(i + 4)
             fx["tags"][f"{REG}/{name}:412"] = new
             fx["configs"][f"{REG}/{name}@{new}"] = {"org.opencontainers.image.created": run_created}
             fx["raw"][f"{REG}/{name}:sha256-{new[7:]}.sig"] = signature
+            fx["sigstore_keys"][f"{REG}/{name}@{new}"] = str(signer)
             if stable_created:
                 fx["tags"][f"{REG}/{name}:stable"] = old
                 fx["configs"][f"{REG}/{name}@{old}"] = {"org.opencontainers.image.created": stable_created}
@@ -70,6 +74,13 @@ class Promote(Tool):
         r, copies = self.promote()
         self.assertEqual(r.returncode, 1)
         self.assertIn("no signature a machine can verify", r.stderr)
+        self.assertEqual(copies, [])
+
+    def test_a_signature_made_with_another_key_is_not_promoted(self):
+        self.published(signer=OTHER_KEY)
+        r, copies = self.promote()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("does not verify with the keys under system/keys", r.stderr)
         self.assertEqual(copies, [])
 
     def test_a_run_id_is_a_number(self):
