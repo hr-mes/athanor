@@ -35,7 +35,7 @@ Status: **revision 1, approved by the maintainer on 2026-09-25.** It is the spec
 
 1. **The entry.** `gio::DesktopAppInfo` resolves the desktop entry: `Exec`, its field codes and `Terminal=true`. A terminal application runs inside the default terminal, and the terminal is what receives the context.
 2. **The context.** Engine id `os.athanor.shell`, the desktop id as the app id, the unit name as the instance id. The listening socket lives under `$XDG_RUNTIME_DIR/athanor/`. The application inherits the close file descriptor, not the bar: the context lives as long as the application and its children, and a restart of the bar does not stop an application from opening a new connection.
-3. **The unit.** The application starts as a transient service of the user manager, `app-athanor-<escaped desktop id>-<random>.service`, the XDG convention for application units, and receives the close descriptor through `ExtraFileDescriptors`. It is a child of the user manager, not of the bar: it inherits neither the bar's Landlock ruleset, which would break it, nor its cgroup, so oomd and resource limits act on the application and never on the bar.
+3. **The unit.** The application starts as a transient service of the user manager, `app-athanor-<escaped desktop id>@<random>.service`, the XDG convention for application units, and receives the close descriptor through `ExtraFileDescriptors`. It is a child of the user manager, not of the bar: it inherits neither the bar's Landlock ruleset, which would break it, nor its cgroup, so oomd and resource limits act on the application and never on the bar.
 4. **The environment.** `WAYLAND_DISPLAY` is the absolute path of the restricted socket. `XDG_ACTIVATION_TOKEN` carries an `xdg_activation_v1` token obtained from the surface that was clicked, so the new window takes the focus.
 5. **No D-Bus activation.** An entry with `DBusActivatable=true` runs its `Exec` line: bus activation would start it with the user manager's environment, which holds the main socket.
 6. **Fail closed.** When the context cannot be created, the application does not start on the main socket. The bar sends a notification that names the application and logs the error at err priority.
@@ -168,7 +168,7 @@ Applied on 2026-09-25, with the approval of this document.
 
 ## 4. Open doubts
 
-1. **The keyboard-layout protocol** is missing from `cosmic-protocols` 0.2.0. Package 2a supplies it from a newer release or from the protocol description, inside the compositor client; until then the input-source module has no source and is not shown.
+1. **The keyboard-layout protocol**: closed on 2026-09-25. Package 2a generates it inside the compositor client from the description in `pop-os/cosmic-protocols` at the commit pinned in `system/athanor-compositor-client/protocols/README.md`.
 2. **Flatpak on our socket** is expected to pass the socket through (BR2); the plan of 2b verifies it.
 3. **Applications that escape the context** (BR2): single-instance applications already running, X11 applications, and anything started from a terminal, from cosmic-launcher or by XDG autostart. Stage 3 closes the launcher; the others need their own design.
 4. **The dbusmock templates** of BR9 are assumed present in Fedora 43; the plan confirms them.
