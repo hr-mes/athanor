@@ -37,7 +37,7 @@ PSS_BUDGET_KB = 16 * 1024
 failures = []
 
 
-def check(name, ok, detail=""):
+def check(name, ok, detail: object = ""):
     print(f"ok {name}" if ok else f"FAIL {name}: {detail}")
     if not ok:
         failures.append(name)
@@ -124,7 +124,7 @@ def main():
         Gio.DBusSignalFlags.NONE,
         lambda *a: added.append(a[5].unpack()[0]),
     )
-    notify(bus, "two\nlines", "<b>bold</b>evil\x07", {})
+    notify(bus, "two\nlines", "<b>bold</b>\u202eevil\x07", {})
     wait_for(lambda: added, 5)
     n = added[-1] if added else None
     check(
