@@ -1,6 +1,7 @@
 //! Applications started behind a security context (doc_bar.md, BR2), and the shell's own
 //! COSMIC components started on the main socket.
 
+use std::collections::HashMap;
 use std::fs::{self, DirBuilder};
 use std::os::fd::AsFd;
 use std::os::unix::fs::DirBuilderExt;
@@ -211,19 +212,49 @@ impl Opener {
     fn path(self) -> String {
         format!("/{}", self.app_id().replace('.', "/"))
     }
+
+    /// The interface, method and arguments of the call that shows the component and
+    /// leaves it shown when it already is. In COSMIC 1.8 `Activate` toggles all three, and
+    /// cosmic-launcher ignores it during its first 100 ms. The launcher and the application
+    /// library take the `Input` action with no text instead, which only shows.
+    /// cosmic-workspaces has a `Show` method, but exports it only after it takes its name;
+    /// a process started cold is hidden, so `Activate` shows it.
+    fn show_call(
+        self,
+        cold: bool,
+        platform_data: HashMap<&str, Variant>,
+    ) -> (&'static str, &'static str, Variant) {
+        match self {
+            Opener::Launcher | Opener::AppLibrary => (
+                ACTIVATION,
+                "ActivateAction",
+                (SHOW_ACTION, Vec::<String>::new(), platform_data).to_variant(),
+            ),
+            Opener::Workspaces if cold => (ACTIVATION, "Activate", (platform_data,).to_variant()),
+            Opener::Workspaces => (self.app_id(), "Show", ().to_variant()),
+        }
+    }
 }
+
+/// libcosmic's single-instance interface, exported beside the app id's name.
+const ACTIVATION: &str = "org.freedesktop.DbusActivation";
+/// A libcosmic action is the JSON form of the component's subcommand: here `Input` with no
+/// text, which cosmic-launcher and cosmic-app-library both define.
+const SHOW_ACTION: &str = r#"{"Input":{"input":null}}"#;
 
 /// How long a component has to take its name after it was started.
 const APPEAR: Duration = Duration::from_secs(5);
 const POLL: Duration = Duration::from_millis(50);
 
 impl Client {
-    /// Shows the component, starting it first when it does not run. A component started
-    /// cold only takes its name, so it is always shown through the bus (spike P4).
+    /// Shows the component, starting it first when it does not run, and leaves it shown
+    /// when it already is. A component started cold only takes its name, so it is always
+    /// shown through the bus (spike P4).
     pub async fn open(&self, opener: Opener) -> Result<(), LaunchError> {
         let bus = gio::bus_get_future(gio::BusType::Session).await?;
         let name = opener.app_id();
-        if !has_owner(&bus, name).await? {
+        let cold = !has_owner(&bus, name).await?;
+        if cold {
             self.start_component(opener).await?;
             let mut waited = Duration::ZERO;
             while !has_owner(&bus, name).await? {
@@ -234,17 +265,18 @@ impl Client {
                 waited += POLL;
             }
         }
-        let mut platform_data = std::collections::HashMap::<&str, Variant>::new();
+        let mut platform_data = HashMap::<&str, Variant>::new();
         if let Some(token) = self.activation_token(None) {
             platform_data.insert("activation-token", token.to_variant());
             platform_data.insert("desktop-startup-id", token.to_variant());
         }
+        let (interface, method, parameters) = opener.show_call(cold, platform_data);
         bus.call_future(
             Some(name),
             &opener.path(),
-            "org.freedesktop.DbusActivation",
-            "Activate",
-            Some(&(platform_data,).to_variant()),
+            interface,
+            method,
+            Some(&parameters),
             None,
             gio::DBusCallFlags::NONE,
             -1,
@@ -356,5 +388,28 @@ mod tests {
         assert_eq!(Opener::Launcher.path(), "/com/system76/CosmicLauncher");
         assert_eq!(Opener::AppLibrary.app_id(), "com.system76.CosmicAppLibrary");
         assert_eq!(Opener::Workspaces.program(), "cosmic-workspaces");
+    }
+
+    #[test]
+    fn openers_show_without_toggling() {
+        let data = || HashMap::from([("activation-token", "t".to_variant())]);
+        for opener in [Opener::Launcher, Opener::AppLibrary] {
+            for cold in [true, false] {
+                let (interface, method, parameters) = opener.show_call(cold, data());
+                assert_eq!((interface, method), (ACTIVATION, "ActivateAction"));
+                assert_eq!(parameters.type_().as_str(), "(sasa{sv})");
+                assert_eq!(parameters.child_value(0).str(), Some(SHOW_ACTION));
+                assert_eq!(parameters.child_value(2).n_children(), 1);
+            }
+        }
+        let (interface, method, parameters) = Opener::Workspaces.show_call(true, data());
+        assert_eq!((interface, method), (ACTIVATION, "Activate"));
+        assert_eq!(parameters.type_().as_str(), "(a{sv})");
+        let (interface, method, parameters) = Opener::Workspaces.show_call(false, data());
+        assert_eq!(
+            (interface, method),
+            ("com.system76.CosmicWorkspaces", "Show")
+        );
+        assert_eq!(parameters.type_().as_str(), "()");
     }
 }
