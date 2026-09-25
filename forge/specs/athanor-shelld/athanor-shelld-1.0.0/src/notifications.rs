@@ -102,20 +102,28 @@ fn is_action_key(key: &str) -> bool {
 }
 
 /// Tells both sides a notification closed: applications listen on the specification's
-/// object, the bar on its own. A failed emission is logged; the store has already changed.
+/// object, the bar on its own. The two signals are sent independently — a failure sending
+/// one must never skip the other — and each failure is logged on its own; the store has
+/// already changed regardless.
 async fn emit_closed(conn: &Connection, id: u32, reason: Reason) {
-    let result = async {
+    let public = async {
         Notifications::notification_closed(
             &SignalEmitter::new(conn, NOTIFICATIONS_PATH)?,
             id,
             reason as u32,
         )
-        .await?;
+        .await
+    }
+    .await;
+    if let Err(err) = public {
+        tracing::warn!(id, error = %err, "cannot tell applications a notification closed");
+    }
+    let private = async {
         Private::closed(&SignalEmitter::new(conn, PRIVATE_PATH)?, id, reason as u32).await
     }
     .await;
-    if let Err(err) = result {
-        tracing::warn!(id, error = %err, "cannot announce a closed notification");
+    if let Err(err) = private {
+        tracing::warn!(id, error = %err, "cannot tell the bar a notification closed");
     }
 }
 

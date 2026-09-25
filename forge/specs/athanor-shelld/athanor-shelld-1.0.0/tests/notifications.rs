@@ -126,6 +126,12 @@ async fn the_private_interface_refuses_a_process_outside_the_bar() {
             "Close",
             proxy.call::<_, _, ()>("Close", &(1u32, 2u32)).await,
         ),
+        (
+            "InvokeAction",
+            proxy
+                .call::<_, _, ()>("InvokeAction", &(1u32, "default", ""))
+                .await,
+        ),
     ] {
         assert!(
             result

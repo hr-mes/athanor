@@ -35,8 +35,12 @@ impl BarUnit {
 
     #[must_use]
     pub fn admits(&self, pid: u32) -> bool {
+        // ponytail: pid can be reused between the credentials call that gave us this pid and
+        // this read (TOCTOU); the upgrade path is the `ProcessFD` GetConnectionCredentials can
+        // give instead, holding that pidfd open and reconfirming it is still the same process
+        // after the read, rather than re-resolving a bare numeric pid.
         match fs::read_to_string(self.proc_root.join(pid.to_string()).join("cgroup")) {
-            Ok(text) => unit_of(&text) == Some(self.unit.as_str()),
+            Ok(text) => admits_path(&text, &self.unit),
             Err(err) => {
                 tracing::warn!(pid, error = %err, "cannot read the caller's cgroup; refused");
                 false
@@ -46,14 +50,41 @@ impl BarUnit {
 }
 
 /// The last component of the unified hierarchy's (`0::`) path: the unit or scope the process
-/// runs in. `None` at the root, or with no unified hierarchy.
+/// runs in. `None` at the root, or with no unified hierarchy. Not trimmed: a stray trailing
+/// character (whitespace included) is part of the name, not noise.
 #[must_use]
 pub fn unit_of(cgroup: &str) -> Option<&str> {
     cgroup
         .lines()
         .find_map(|line| line.strip_prefix("0::"))
-        .and_then(|path| path.trim_end().rsplit('/').next())
+        .and_then(|path| path.rsplit('/').next())
         .filter(|unit| !unit.is_empty())
+}
+
+/// Whether the cgroup text's unified hierarchy (`0::`) path names `unit` exactly: the path is
+/// absolute, its last component is `unit` verbatim (no trimming, no descendant of it — a
+/// delegated subtree or a scope under it is refused), and every component before it has the
+/// shape systemd gives a unit of the user manager, a `.slice` or `user@<digits>.service` —
+/// never another `.service` or a `.scope`, which would mean `unit` sits under something else.
+#[must_use]
+fn admits_path(cgroup: &str, unit: &str) -> bool {
+    let Some(path) = cgroup.lines().find_map(|line| line.strip_prefix("0::")) else {
+        return false;
+    };
+    let Some(rest) = path.strip_prefix('/') else {
+        return false;
+    };
+    let mut components = rest.split('/');
+    components.next_back() == Some(unit) && components.all(is_slice_or_user_manager)
+}
+
+/// A `.slice`, or the `user@<uid>.service` systemd gives the user manager itself.
+fn is_slice_or_user_manager(component: &str) -> bool {
+    component.ends_with(".slice")
+        || component
+            .strip_prefix("user@")
+            .and_then(|rest| rest.strip_suffix(".service"))
+            .is_some_and(|uid| !uid.is_empty() && uid.bytes().all(|b| b.is_ascii_digit()))
 }
 
 #[cfg(test)]
@@ -92,5 +123,30 @@ mod tests {
         assert!(!bar.admits(12), "a child cgroup");
         assert!(!bar.admits(13), "no such process");
         fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn a_delegated_or_malformed_path_is_refused_even_when_it_ends_in_the_bar_unit() {
+        for (label, cgroup) in [
+            (
+                "nested under a .service ancestor",
+                "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-foo.service/athanor-bar.service\n",
+            ),
+            (
+                "nested under a .scope ancestor",
+                "0::/user.slice/user-1000.slice/user@1000.service/app.slice/some.scope/athanor-bar.service\n",
+            ),
+            (
+                "a trailing space",
+                "0::/user.slice/user-1000.slice/user@1000.service/app.slice/athanor-bar.service \n",
+            ),
+            (
+                "a sibling unit with a suffix",
+                "0::/user.slice/user-1000.slice/user@1000.service/app.slice/athanor-bar.service.d\n",
+            ),
+            ("a relative path", "0::athanor-bar.service\n"),
+        ] {
+            assert!(!admits_path(cgroup, BAR_UNIT), "{label}");
+        }
     }
 }
