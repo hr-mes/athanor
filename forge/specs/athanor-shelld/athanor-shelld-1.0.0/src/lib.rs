@@ -2,6 +2,10 @@
 //! watcher, and the private interface the bar reads them through. Every module but the
 //! D-Bus layer is plain Rust, tested without a bus. The bar links this crate for `wire`.
 
+pub mod dnd;
+pub mod hints;
 pub mod icon;
 pub mod image;
+pub mod store;
 pub mod text;
+pub mod wire;
