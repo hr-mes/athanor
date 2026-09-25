@@ -3,7 +3,7 @@ mod common;
 use std::time::Duration;
 
 use athanor_shelld::server::{WATCHER_NAME, WATCHER_PATH};
-use athanor_shelld::watcher::{MAX_HOSTS, MAX_ITEMS};
+use athanor_shelld::watcher::{MAX_HOSTS, MAX_ITEMS, MAX_ITEMS_PER_OWNER};
 use common::{Bus, APP_CGROUP};
 use futures_util::StreamExt;
 use zbus::{Connection, Proxy};
@@ -125,8 +125,41 @@ async fn names_without_owner_and_garbage_are_refused() {
 async fn the_sixty_fifth_item_is_refused() {
     let bus = Bus::start("sni-cap");
     let _daemon = bus.daemon(APP_CGROUP).await;
+    // Path-form items are owned by the connection that registers them (MAX_ITEMS_PER_OWNER),
+    // so filling the global cap needs enough connections that no single one is refused first —
+    // and each must stay open for the rest of the test, or its items leave with it.
+    assert_eq!(
+        MAX_ITEMS % MAX_ITEMS_PER_OWNER,
+        0,
+        "the split below assumes this"
+    );
+    let mut owners = Vec::new();
+    let mut n = 0;
+    for _ in 0..MAX_ITEMS / MAX_ITEMS_PER_OWNER {
+        let proxy = watcher(&bus.client().await).await;
+        for _ in 0..MAX_ITEMS_PER_OWNER {
+            proxy
+                .call::<_, _, ()>("RegisterStatusNotifierItem", &(format!("/item/{n}"),))
+                .await
+                .expect("register");
+            n += 1;
+        }
+        owners.push(proxy);
+    }
     let proxy = watcher(&bus.client().await).await;
-    for n in 0..MAX_ITEMS {
+    let err = proxy
+        .call::<_, _, ()>("RegisterStatusNotifierItem", &("/item/extra",))
+        .await
+        .expect_err("full");
+    assert!(err.to_string().contains("LimitsExceeded"), "{err}");
+}
+
+#[tokio::test]
+async fn a_ninth_item_from_the_same_owner_is_refused() {
+    let bus = Bus::start("sni-owner-cap");
+    let _daemon = bus.daemon(APP_CGROUP).await;
+    let proxy = watcher(&bus.client().await).await;
+    for n in 0..MAX_ITEMS_PER_OWNER {
         proxy
             .call::<_, _, ()>("RegisterStatusNotifierItem", &(format!("/item/{n}"),))
             .await
@@ -135,7 +168,7 @@ async fn the_sixty_fifth_item_is_refused() {
     let err = proxy
         .call::<_, _, ()>("RegisterStatusNotifierItem", &("/item/extra",))
         .await
-        .expect_err("full");
+        .expect_err("owner full");
     assert!(err.to_string().contains("LimitsExceeded"), "{err}");
 }
 

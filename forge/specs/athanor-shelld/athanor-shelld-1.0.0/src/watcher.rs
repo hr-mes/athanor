@@ -13,6 +13,9 @@ use zvariant::ObjectPath;
 use crate::server::WATCHER_PATH;
 
 pub const MAX_ITEMS: usize = 64;
+/// One app never legitimately opens this many tray items; the cap keeps one owner from
+/// eating the whole MAX_ITEMS budget and starving everyone else.
+pub const MAX_ITEMS_PER_OWNER: usize = 8;
 /// Only the bar is expected to host; the cap bounds a hostile client.
 pub const MAX_HOSTS: usize = 4;
 
@@ -28,6 +31,7 @@ pub enum Added {
     New,
     Known,
     Full,
+    OwnerFull,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -44,8 +48,23 @@ impl Registry {
         if self.items.len() >= MAX_ITEMS {
             return Added::Full;
         }
+        if self
+            .items
+            .iter()
+            .filter(|(_, owner)| *owner == name)
+            .count()
+            >= MAX_ITEMS_PER_OWNER
+        {
+            return Added::OwnerFull;
+        }
         self.items.push((id, name));
         Added::New
+    }
+
+    /// Undoes a just-admitted `add_item`, for a registration that raced its own sender's
+    /// disconnection (see `register_status_notifier_item`). No-op if `id` is not there.
+    pub fn remove_item(&mut self, id: &str) {
+        self.items.retain(|(known, _)| known != id);
     }
 
     /// Registers a host, up to `MAX_HOSTS`; a known one succeeds without growing the list.
@@ -156,6 +175,22 @@ impl Watcher {
         }
         match self.registry.add_item(id.clone(), name) {
             Added::New => {
+                // A path-form item is tied to the sender's own unique name (item(), above), so
+                // no owned_by check runs for it; the sender can still disconnect between that
+                // admission and this point. Re-checking here narrows the window in which a
+                // vanished sender's item would otherwise be announced and left dangling until
+                // its eventual NameOwnerChanged. A failed check is not evidence the name is
+                // gone, so it is not treated as one.
+                if service.starts_with('/')
+                    && !DBusProxy::new(conn)
+                        .await?
+                        .name_has_owner(BusName::from(sender.to_owned()))
+                        .await
+                        .unwrap_or(true)
+                {
+                    self.registry.remove_item(&id);
+                    return Ok(());
+                }
                 Self::status_notifier_item_registered(&emitter, &id).await?;
                 self.registered_status_notifier_items_changed(&emitter)
                     .await?;
@@ -164,6 +199,9 @@ impl Watcher {
             Added::Known => Ok(()),
             Added::Full => Err(fdo::Error::LimitsExceeded(format!(
                 "{MAX_ITEMS} items are registered"
+            ))),
+            Added::OwnerFull => Err(fdo::Error::LimitsExceeded(format!(
+                "this owner already holds {MAX_ITEMS_PER_OWNER} items"
             ))),
         }
     }
@@ -190,7 +228,10 @@ impl Watcher {
                 Ok(())
             }
             Added::Known => Ok(()),
-            Added::Full => Err(fdo::Error::LimitsExceeded(format!(
+            // add_host never returns OwnerFull (only add_item does); handled here rather than
+            // with unreachable!() so a daemon call path never panics on an enum shared between
+            // the two, whatever either grows into.
+            Added::Full | Added::OwnerFull => Err(fdo::Error::LimitsExceeded(format!(
                 "{MAX_HOSTS} hosts are registered"
             ))),
         }
@@ -302,7 +343,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicates_are_known_the_cap_holds_and_owners_take_their_items() {
+    fn duplicates_are_known_and_the_global_cap_holds() {
         let mut registry = Registry::default();
         assert_eq!(
             registry.add_item("a/StatusNotifierItem".into(), "a".into()),
@@ -312,18 +353,35 @@ mod tests {
             registry.add_item("a/StatusNotifierItem".into(), "a".into()),
             Added::Known
         );
+        // Spread across enough owners that MAX_ITEMS, not MAX_ITEMS_PER_OWNER, is what's hit.
         for n in 1..MAX_ITEMS {
+            let owner = format!(":1.{}", n / MAX_ITEMS_PER_OWNER);
+            assert_eq!(
+                registry.add_item(format!("{owner}/i{n}"), owner),
+                Added::New
+            );
+        }
+        assert_eq!(
+            registry.add_item(":1.99/one-too-many".into(), ":1.99".into()),
+            Added::Full
+        );
+    }
+
+    #[test]
+    fn an_owners_items_all_leave_when_it_does() {
+        let mut registry = Registry::default();
+        assert_eq!(
+            registry.add_item("a/StatusNotifierItem".into(), "a".into()),
+            Added::New
+        );
+        for n in 0..MAX_ITEMS_PER_OWNER {
             assert_eq!(
                 registry.add_item(format!(":1.9/i{n}"), ":1.9".into()),
                 Added::New
             );
         }
-        assert_eq!(
-            registry.add_item(":1.9/one-too-many".into(), ":1.9".into()),
-            Added::Full
-        );
         let lost = registry.name_lost(":1.9");
-        assert_eq!(lost.items.len(), MAX_ITEMS - 1);
+        assert_eq!(lost.items.len(), MAX_ITEMS_PER_OWNER);
         assert_eq!(registry.items(), ["a/StatusNotifierItem"]);
     }
 
@@ -345,5 +403,40 @@ mod tests {
         }
         assert_eq!(registry.add_host("h0".into()), Added::Known);
         assert_eq!(registry.add_host("one-too-many".into()), Added::Full);
+    }
+
+    #[test]
+    fn one_owner_cannot_eat_the_whole_item_budget() {
+        let mut registry = Registry::default();
+        for n in 0..MAX_ITEMS_PER_OWNER {
+            assert_eq!(
+                registry.add_item(format!(":1.9/i{n}"), ":1.9".into()),
+                Added::New
+            );
+        }
+        assert_eq!(
+            registry.add_item(":1.9/one-too-many".into(), ":1.9".into()),
+            Added::OwnerFull
+        );
+        // A different owner is unaffected: the cap is per owner, not global (MAX_ITEMS covers
+        // that already).
+        assert_eq!(
+            registry.add_item(":1.10/i0".into(), ":1.10".into()),
+            Added::New
+        );
+        assert_eq!(registry.items().len(), MAX_ITEMS_PER_OWNER + 1);
+    }
+
+    #[test]
+    fn remove_item_undoes_a_raced_admission() {
+        let mut registry = Registry::default();
+        assert_eq!(
+            registry.add_item(":1.9/StatusNotifierItem".into(), ":1.9".into()),
+            Added::New
+        );
+        registry.remove_item(":1.9/StatusNotifierItem");
+        assert!(registry.items().is_empty());
+        // A second call, or one for an id never added, is a no-op.
+        registry.remove_item(":1.9/StatusNotifierItem");
     }
 }
