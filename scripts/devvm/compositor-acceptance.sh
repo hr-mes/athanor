@@ -79,6 +79,15 @@ has_owner() { # has_owner NAME: prints "b true" or "b false"
     in_session busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus \
         NameHasOwner s "$1" "2> /dev/null"
 }
+
+# The application units and socket directories the session holds, one per line, sorted.
+app_units() {
+    in_session "systemctl --user list-units --all --plain --no-legend 'app-athanor-*' | cut -d' ' -f1 | sort"
+}
+socket_dirs() {
+    # shellcheck disable=SC2016 # expanded by the guest's shell
+    in_session 'ls -1 "/run/user/$(id -u)/athanor" | sort'
+}
 owned() { [[ $(has_owner "$1") == "b true" ]]; }
 unowned() { [[ $(has_owner "$1") == "b false" ]]; }
 
@@ -92,7 +101,7 @@ stage_deploy() {
 }
 
 stage_restricted() {
-    local unit environment display directory seen main global
+    local unit environment display directory seen main global units dirs out
     in_session rm -f /tmp/athanor-acceptance-globals
     unit=$(launch os.athanor.AcceptanceWaylandInfo)
     [[ $unit =~ ^app-athanor-os\.athanor\.AcceptanceWaylandInfo@[0-9a-f]{32}\.service$ ]] ||
@@ -115,6 +124,17 @@ stage_restricted() {
     [[ $(in_session stat -c %a "$directory") == 700 ]] || fail "$directory has mode $(in_session stat -c %a "$directory")"
     [[ $(in_session systemctl --user show -p Type,ExitType --value "$unit" | paste -sd,) == exec,cgroup ]] ||
         fail "unit type $(in_session systemctl --user show -p Type,ExitType --value "$unit" | paste -sd,)"
+    # Fail closed: a context offers no wp_security_context_manager_v1, so a launch made from
+    # the restricted socket starts nothing and leaves no socket directory behind.
+    units=$(app_units)
+    dirs=$(socket_dirs)
+    if out=$(in_session WAYLAND_DISPLAY="$display" cc-probe launch os.athanor.AcceptanceWaylandInfo.desktop 2>&1); then
+        fail "cc-probe launch on the restricted socket succeeded: $out"
+    fi
+    [[ $out == *wp_security_context_manager_v1* ]] ||
+        fail "cc-probe launch on the restricted socket failed without naming wp_security_context_manager_v1: $out"
+    [[ $(app_units) == "$units" ]] || fail "a unit appeared after the refused launch: $(app_units)"
+    [[ $(socket_dirs) == "$dirs" ]] || fail "a socket directory appeared after the refused launch: $(socket_dirs)"
     in_session systemctl --user stop "$unit"
     wait_until 5 absent "$directory" || fail "$directory outlived its unit"
 }
