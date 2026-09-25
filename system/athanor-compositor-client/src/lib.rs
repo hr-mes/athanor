@@ -3,4 +3,11 @@
 //! context (doc_bar.md, BR2). Wayland and COSMIC types stay inside this crate; the shell
 //! sees only the types of [`model`].
 
+mod keymap;
+pub mod model;
 mod protocols;
+
+pub use model::{
+    Accessibility, Event, ScreenFilter, Tiling, Window, WindowId, WindowState, Workspace,
+    WorkspaceId,
+};
