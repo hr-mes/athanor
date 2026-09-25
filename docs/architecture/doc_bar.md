@@ -1,6 +1,6 @@
 # Athanor bar and dock
 
-Status: **revision 1, 2026-09-25, awaiting review.** It is the specification that `doc_shell.md` (revision 5, section 3) requires before package 2b is planned: our bar (2b) and our dock (2c), written after spike P4. It designs the modules, the shield's sheet, the tray, window titles in `bar`, the place of the shield under right-to-left text, how applications are launched, and the surface cases of the bar and the dock. It closes open doubt 4 of `doc_shell.md`. Section 5 refines the acceptance of stage 2 and adds to it; it removes nothing.
+Status: **revision 1, approved by the maintainer on 2026-09-25.** It is the specification that `doc_shell.md` (revision 5, section 3) requires before package 2b is planned: our bar (2b) and our dock (2c), written after spike P4. It designs the modules, the shield's sheet, the tray, window titles in `bar`, the place of the shield under right-to-left text, how applications are launched, and the surface cases of the bar and the dock. It closes open doubt 4 of `doc_shell.md`. Section 5 refines the acceptance of stage 2 and adds to it; it removes nothing.
 
 ## 1. Context
 
@@ -157,6 +157,8 @@ The notifier of UT11 offers a pending digest again at each session start "while 
 - **Memory.** The resident memory of each program is measured in the rig, at rest, with every module loaded, and checked against the budgets of section 5.
 
 ## 3. Changes to other documents
+
+Applied on 2026-09-25, with the approval of this document.
 
 - `doc_shell.md`, section 3: the module list of package 2b gains the workspaces, application-library, tiling and accessibility modules (BR3), and stage 2 gains `athanor-shelld` (BR1).
 - `doc_shell.md`, SH7: the left edge of a vertical dock is the start edge under right-to-left text (BR7).
