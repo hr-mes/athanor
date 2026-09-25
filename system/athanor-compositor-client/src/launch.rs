@@ -448,6 +448,7 @@ mod tests {
                 assert_eq!((interface, method), (ACTIVATION, "ActivateAction"));
                 assert_eq!(parameters.type_().as_str(), "(sasa{sv})");
                 assert_eq!(parameters.child_value(0).str(), Some(SHOW_ACTION));
+                assert_eq!(parameters.child_value(1).n_children(), 0);
                 assert_eq!(parameters.child_value(2).n_children(), 1);
             }
         }

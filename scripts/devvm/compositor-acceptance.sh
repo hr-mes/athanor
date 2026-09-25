@@ -73,10 +73,11 @@ launch() { # launch DESKTOP-ID
 
 absent() { ! in_session test -e "$1"; }
 # One NameHasOwner call: `busctl status` looks the owner up, then its credentials, and fails
-# with ENXIO when the owner exits in between. An error is neither owned nor unowned.
+# with ENXIO when the owner exits in between. An error is neither owned nor unowned, and its
+# message stays in the guest: the caller polls.
 has_owner() { # has_owner NAME: prints "b true" or "b false"
     in_session busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus \
-        NameHasOwner s "$1"
+        NameHasOwner s "$1" "2> /dev/null"
 }
 owned() { [[ $(has_owner "$1") == "b true" ]]; }
 unowned() { [[ $(has_owner "$1") == "b false" ]]; }
