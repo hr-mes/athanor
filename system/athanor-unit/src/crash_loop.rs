@@ -3,8 +3,10 @@
 //! next session. CLOCK_BOOTTIME keeps counting across suspend, so the window means the ten
 //! minutes it says.
 //!
-//! The record lives in the unit's runtime directory, which survives restarts
-//! (RuntimeDirectoryPreserve=restart) and is cleared when the session stops it.
+//! The record lives in the unit's runtime directory. Whether it survives a stop, not only a
+//! restart, is the unit's own choice: `RuntimeDirectoryPreserve=restart` clears it on a full
+//! stop, `=yes` keeps it until the login session itself ends and $XDG_RUNTIME_DIR goes with
+//! it — a give-up must stay a give-up across a stop wherever the unit is meant to (SH8).
 
 use std::fs;
 use std::io;

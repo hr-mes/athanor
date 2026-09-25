@@ -28,9 +28,11 @@ Slice=session.slice
 MemoryHigh=48M
 MemoryMax=192M
 
-# The failure record lives here and must survive a restart, not a new session.
+# The failure record lives here and must survive a stop, not just a restart: a clean give-up
+# exit to inactive (SH8) must still be a give-up the next time this unit starts, including
+# when the bar's unit (2b.2) starts it after a full stop. Only the session ending clears it.
 RuntimeDirectory=athanor-shelld
-RuntimeDirectoryPreserve=restart
+RuntimeDirectoryPreserve=yes
 # The do-not-disturb switch, in $XDG_STATE_HOME/athanor/shelld.
 StateDirectory=athanor
 

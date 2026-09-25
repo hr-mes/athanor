@@ -155,11 +155,15 @@ stage_crash-loop() {
     # /proc/<pid>/status, which stayed "S (sleeping)" throughout. layout-acceptance.sh's own
     # stage_crash-loop already uses SIGKILL for the same reason (an unblockable, uncaught
     # crash simulation); SH8's give-up counts failures, not which signal caused them.
-    # A stop empties the runtime directory, and with it the crash-loop record of a
-    # previous run (same reason layout-acceptance.sh's stage_crash-loop restarts first).
+    # RuntimeDirectoryPreserve=yes (final-review fix 3): unlike the translator, a stop no
+    # longer empties athanor-shelld's runtime directory, so the crash-loop record of a
+    # previous run must be cleared explicitly to start this stage clean.
     if loaded athanor-shelld; then
         unit stop || fail "stop athanor-shelld before crash-loop"
     fi
+    # shellcheck disable=SC2016 # $XDG_RUNTIME_DIR is expanded by the guest's shell
+    in_session "rm -f \$XDG_RUNTIME_DIR/athanor-shelld/failures" ||
+        fail "cannot clear the crash-loop record before crash-loop"
     unit start || fail "systemctl --user start athanor-shelld failed"
     # given_up() is checked before a restart is even allowed to reach "active" (record_start,
     # then the check, happen before serving starts): the 5th kill is the one that pushes the
@@ -195,6 +199,13 @@ stage_crash-loop() {
         fail "InvocationID changed after a 5s settle: a sixth start ran"
     in_session "journalctl --user -u athanor-shelld -p err -n 20 --no-pager | grep -q 'keeps failing'" ||
         fail "no 'keeps failing' in the last 20 err-priority journal lines"
+    # The give-up must survive a full stop, not only a restart (RuntimeDirectoryPreserve=yes,
+    # final-review fix 3): this is what the bar's unit (2b.2) relies on when it starts
+    # athanor-shelld after a stop rather than a crash.
+    unit stop || fail "stop athanor-shelld after giving up"
+    unit start || fail "systemctl --user start athanor-shelld failed after giving up"
+    wait_until 10 gave_up ||
+        fail "give-up did not survive a stop: $(unit show -p ActiveState,Result --value | paste -sd,)"
 }
 
 stage_cleanup() {
