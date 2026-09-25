@@ -4,14 +4,16 @@
 //! Steps: `snapshot`, `watch SECONDS`, `activate|minimize|unminimize|close APP_ID`,
 //! `react APP_ID` (from then on, the handler unminimizes that window from inside the callback),
 //! `tiling on|off`, `group N`, `magnifier on|off`, `filter none|greyscale|protanopia|
-//! deuteranopia|tritanopia`.
+//! deuteranopia|tritanopia`, `drain` (from then on, each step is followed, before the main
+//! loop runs again, by a second of display syncs: another reader that empties the socket).
 
 use std::process::ExitCode;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use athanor_compositor_client::{
     outputs, Client, Event, ScreenFilter, Tiling, Window, Workspace,
 };
+use gtk4::prelude::*;
 use gtk4::{gdk, glib};
 use serde_json::{json, Value};
 
@@ -60,6 +62,16 @@ fn snapshot(client: &Client, display: &gdk::Display) -> Value {
             .map(|o| json!({"connector": o.connector, "width": o.width, "height": o.height}))
             .collect::<Vec<_>>(),
     }})
+}
+
+/// GDK's roundtrips read every event on the socket, those for the client's queue included,
+/// and leave the socket empty, as the EGL and Vulkan WSI do while they swap.
+fn drain(display: &gdk::Display) {
+    let end = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < end {
+        std::thread::sleep(Duration::from_millis(10));
+        display.sync();
+    }
 }
 
 fn on(value: &str) -> Result<bool, String> {
@@ -163,11 +175,19 @@ fn main() -> ExitCode {
         let (main_loop, result) = (main_loop.clone(), result.clone());
         async move {
             let mut steps = std::env::args().skip(1);
+            let mut draining = false;
             while let Some(verb) = steps.next() {
+                if verb == "drain" {
+                    draining = true;
+                    continue;
+                }
                 if let Err(err) = step(&client, &display, &mut steps, &verb).await {
                     println!("{}", json!({"error": err, "step": verb}));
                     result.set(ExitCode::FAILURE);
                     break;
+                }
+                if draining {
+                    drain(&display);
                 }
                 // Let the compositor answer before the next step reads the state.
                 glib::timeout_future(Duration::from_millis(300)).await;

@@ -1,9 +1,12 @@
 //! The connection: GTK's own `wl_display` (doc_shell.md, P4), a private event queue on it,
 //! and the protocol events turned into our own types.
 //!
-//! The queue is read from the GLib main loop through a watch on the display's file
-//! descriptor. GDK reads the same socket in the `check` phase of its own source, before any
-//! source is dispatched, so what it reads for our queue is dispatched in the same iteration.
+//! The queue is read from the GLib main loop by a source of its own, libwayland's pattern for
+//! a second queue on a shared display. The socket has other readers: GDK's source, the EGL
+//! and Vulkan WSI dispatching their own queues while they swap, GDK's roundtrips. Each read
+//! also moves the events for our queue into it and can leave the socket empty, so a watch on
+//! the descriptor alone would sleep on them. The source looks at the queue before every poll
+//! and after it, and waits on the descriptor only while the queue is empty.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -91,14 +94,15 @@ struct Inner {
     state: RefCell<State>,
     handler: RefCell<Option<Handler>>,
     delivering: Cell<bool>,
-    source: RefCell<Option<glib::SourceId>>,
+    /// A failure met while looking at the queue outside `pump`, reported by the next `pump`.
+    failure: RefCell<Option<Error>>,
+    source: glib::Source,
 }
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        if let Some(source) = self.source.take() {
-            source.remove();
-        }
+        // Idempotent: the source may have removed itself after a failure.
+        self.source.destroy();
     }
 }
 
@@ -128,29 +132,22 @@ impl Client {
         }
         state.events.clear();
 
-        let inner = Rc::new(Inner {
+        // The source holds a `Weak<Inner>`, which must stay on this thread: refuse a default
+        // main context that another thread owns, as glib's own `*_local` sources do.
+        let context = glib::MainContext::default();
+        let _owner = context
+            .acquire()
+            .map_err(|err| Error::Connection(err.to_string()))?;
+        let fd = connection.backend().poll_fd().as_raw_fd();
+        let inner = Rc::new_cyclic(|weak| Inner {
             connection,
             queue: RefCell::new(queue),
             state: RefCell::new(state),
             handler: RefCell::new(None),
             delivering: Cell::new(false),
-            source: RefCell::new(None),
+            failure: RefCell::new(None),
+            source: queue_source::attach(weak.clone(), fd, &context),
         });
-        let fd = inner.connection.backend().poll_fd().as_raw_fd();
-        let weak = Rc::downgrade(&inner);
-        let source = glib_unix::unix_fd_add_local(fd, glib::IOCondition::IN, move |_, _| {
-            let Some(inner) = weak.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
-            if let Err(err) = inner.pump() {
-                tracing::error!("reading from the compositor failed, no further events: {err}");
-                // glib removes the source on Break; forget its id so Drop does not.
-                inner.source.take();
-                return glib::ControlFlow::Break;
-            }
-            glib::ControlFlow::Continue
-        });
-        inner.source.replace(Some(source));
         Ok(Client { inner })
     }
 
@@ -296,15 +293,48 @@ impl Client {
     }
 
     fn flush(&self) -> Result<(), Error> {
-        self.inner
-            .connection
-            .flush()
-            .map_err(|err| Error::Connection(err.to_string()))
+        self.inner.flush()
+    }
+}
+
+/// A full socket is not a failure: what could not be written stays in the shared
+/// `wl_display` buffer, which GDK flushes on every main-loop iteration and our source before
+/// every poll; a read with nothing to read is not one either.
+fn tolerate_would_block(result: Result<(), WaylandError>) -> Result<(), WaylandError> {
+    match result {
+        Err(WaylandError::Io(err)) if err.kind() == ErrorKind::WouldBlock => Ok(()),
+        other => other,
     }
 }
 
 impl Inner {
+    fn flush(&self) -> Result<(), Error> {
+        tolerate_would_block(self.connection.flush())
+            .map_err(|err| Error::Connection(err.to_string()))
+    }
+
+    /// Dispatches what other readers of the socket moved into our queue. True when there
+    /// was something to deliver, or a failure for the next `pump` to report.
+    fn collect(&self) -> bool {
+        let (Ok(mut queue), Ok(mut state)) =
+            (self.queue.try_borrow_mut(), self.state.try_borrow_mut())
+        else {
+            return false;
+        };
+        match queue.dispatch_pending(&mut state) {
+            Ok(dispatched) => dispatched > 0,
+            Err(err) => {
+                self.failure
+                    .replace(Some(Error::Connection(err.to_string())));
+                true
+            }
+        }
+    }
+
     fn pump(self: &Rc<Self>) -> Result<(), Error> {
+        if let Some(err) = self.failure.take() {
+            return Err(err);
+        }
         {
             let mut queue = self.queue.borrow_mut();
             let mut state = self.state.borrow_mut();
@@ -313,17 +343,13 @@ impl Inner {
                 .dispatch_pending(&mut state)
                 .map_err(|err| failed(&err))?;
             if let Some(guard) = queue.prepare_read() {
-                match guard.read() {
-                    Ok(_) => {}
-                    Err(WaylandError::Io(err)) if err.kind() == ErrorKind::WouldBlock => {}
-                    Err(err) => return Err(failed(&err)),
-                }
+                tolerate_would_block(guard.read().map(drop)).map_err(|err| failed(&err))?;
             }
             queue
                 .dispatch_pending(&mut state)
                 .map_err(|err| failed(&err))?;
-            self.connection.flush().map_err(|err| failed(&err))?;
         }
+        self.flush()?;
         self.deliver();
         Ok(())
     }
@@ -358,6 +384,139 @@ impl Inner {
         if slot.is_none() {
             *slot = Some(handler);
         }
+    }
+}
+
+/// The GLib source of the queue: glib 0.22 offers no safe way to write one, so this is the
+/// only module of the crate that speaks to glib's C interface.
+mod queue_source {
+    #![allow(unsafe_code)]
+
+    use std::os::raw::c_int;
+    use std::ptr;
+    use std::rc::{Rc, Weak};
+
+    use gtk4::glib;
+    use gtk4::glib::ffi::{
+        g_source_add_unix_fd, g_source_new, g_source_query_unix_fd, gboolean, gpointer, GSource,
+        GSourceFunc, GSourceFuncs, G_IO_ERR, G_IO_HUP, G_IO_IN, G_SOURCE_CONTINUE, G_SOURCE_REMOVE,
+    };
+    use gtk4::glib::translate::{from_glib_full, IntoGlib};
+
+    use super::Inner;
+
+    /// The block `g_source_new` allocates for a size of `size_of::<Block>()`: glib's header,
+    /// then our fields, zeroed. No Rust reference ever covers the header, which glib mutates.
+    #[repr(C)]
+    struct Block {
+        header: GSource,
+        fields: Fields,
+    }
+
+    /// Valid when zero.
+    struct Fields {
+        inner: Option<Box<Weak<Inner>>>,
+        /// The tag `g_source_add_unix_fd` returned for the display's descriptor.
+        fd: gpointer,
+    }
+
+    impl Fields {
+        fn client(&self) -> Option<Rc<Inner>> {
+            self.inner.as_deref().and_then(Weak::upgrade)
+        }
+    }
+
+    /// Our fields in a source's block, reached without a reference to the header.
+    fn fields_of(source: *mut GSource) -> *mut Fields {
+        source
+            .wrapping_byte_add(std::mem::offset_of!(Block, fields))
+            .cast()
+    }
+
+    static FUNCS: GSourceFuncs = GSourceFuncs {
+        prepare: Some(prepare),
+        check: Some(check),
+        dispatch: Some(dispatch),
+        finalize: Some(finalize),
+        closure_callback: None,
+        closure_marshal: None,
+    };
+
+    /// Creates the source and attaches it to `context`. It lives until `Inner` drops, which
+    /// destroys it before the connection closes, or until a failure makes it remove itself.
+    pub(super) fn attach(
+        inner: Weak<Inner>,
+        fd: c_int,
+        context: &glib::MainContext,
+    ) -> glib::Source {
+        let size = std::mem::size_of::<Block>() as u32;
+        // SAFETY: glib never writes through the table, and a static outlives every source.
+        let raw = unsafe { g_source_new(ptr::addr_of!(FUNCS).cast_mut(), size) };
+        // SAFETY: `raw` is a live source; the descriptor stays open while the connection
+        // lives, and the source is destroyed before the connection closes.
+        let tag = unsafe { g_source_add_unix_fd(raw, fd, G_IO_IN | G_IO_ERR | G_IO_HUP) };
+        // SAFETY: `raw` points to a block of `size` bytes whose fields are zeroed, a valid
+        // `Fields`; nothing else reads them while this reference lives.
+        let fields = unsafe { &mut *fields_of(raw) };
+        fields.inner = Some(Box::new(inner));
+        fields.fd = tag;
+        // SAFETY: `raw` carries the one reference `g_source_new` returned, handed over here.
+        let source: glib::Source = unsafe { from_glib_full(raw) };
+        source.attach(Some(context));
+        source
+    }
+
+    /// # Safety
+    /// `source` is a live source created by `attach`, as glib passes to our functions.
+    unsafe fn fields<'a>(source: *mut GSource) -> &'a Fields {
+        // SAFETY: the caller's contract; glib holds a reference for the duration of the call,
+        // and only `finalize` writes the fields again.
+        unsafe { &*fields_of(source) }
+    }
+
+    /// Before the poll: ready at once when other readers left events in the queue; otherwise
+    /// sends what is buffered and waits on the descriptor.
+    unsafe extern "C" fn prepare(source: *mut GSource, timeout: *mut c_int) -> gboolean {
+        // SAFETY: glib calls this with a source of ours.
+        let fields = unsafe { fields(source) };
+        let ready = fields
+            .client()
+            .is_some_and(|inner| inner.collect() || inner.flush().is_err());
+        // SAFETY: glib passes a valid pointer to this source's poll timeout.
+        unsafe { *timeout = if ready { 0 } else { -1 } };
+        ready.into_glib()
+    }
+
+    /// After the poll: ready when the descriptor is readable or reports an error, or when a
+    /// reader in another source's `check` filled the queue.
+    unsafe extern "C" fn check(source: *mut GSource) -> gboolean {
+        // SAFETY: glib calls this with a source of ours.
+        let fields = unsafe { fields(source) };
+        // SAFETY: `fields.fd` is the tag `g_source_add_unix_fd` returned for this source.
+        let revents = unsafe { g_source_query_unix_fd(source, fields.fd) };
+        let ready = revents != 0 || fields.client().is_some_and(|inner| inner.collect());
+        ready.into_glib()
+    }
+
+    unsafe extern "C" fn dispatch(source: *mut GSource, _: GSourceFunc, _: gpointer) -> gboolean {
+        // SAFETY: glib calls this with a source of ours.
+        let Some(inner) = unsafe { fields(source) }.client() else {
+            return G_SOURCE_REMOVE;
+        };
+        match inner.pump() {
+            Ok(()) => G_SOURCE_CONTINUE,
+            Err(err) => {
+                tracing::error!("reading from the compositor failed, no further events: {err}");
+                G_SOURCE_REMOVE
+            }
+        }
+    }
+
+    unsafe extern "C" fn finalize(source: *mut GSource) {
+        // SAFETY: glib calls this once, when the last reference is gone, and never again
+        // reads the block afterwards.
+        let fields = unsafe { &mut *fields_of(source) };
+        fields.inner.take();
     }
 }
 
@@ -981,3 +1140,17 @@ ignore_events!(
     ZcosmicWorkspaceManagerV2,
     ZcosmicKeyboardLayoutManagerV1,
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_full_socket_is_tolerated() {
+        let io = |kind| Err(WaylandError::Io(std::io::Error::from(kind)));
+        assert!(tolerate_would_block(Ok(())).is_ok());
+        assert!(tolerate_would_block(io(ErrorKind::WouldBlock)).is_ok());
+        assert!(tolerate_would_block(io(ErrorKind::BrokenPipe)).is_err());
+        assert!(tolerate_would_block(io(ErrorKind::ConnectionReset)).is_err());
+    }
+}

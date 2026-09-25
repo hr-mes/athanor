@@ -82,6 +82,14 @@ def cosmic_comp():
     expect("a handler that acts from inside the callback works",
            code == 0 and {"reacted": True} in lines and True in changed and changed[-1:] == [False], lines)
 
+    # Another reader (here GDK's roundtrips) empties the socket after moving the client's
+    # events into its queue: they must still arrive, with no further traffic to wake anyone.
+    code, lines = probe("drain", "minimize", FIRST, "watch", "1")
+    changed = [w["minimized"] for w in events(lines, "window_changed") if w["app_id"] == FIRST]
+    restored, _ = probe("unminimize", FIRST)
+    expect("events another reader queued for the client are delivered",
+           code == 0 and True in changed and restored == 0, lines)
+
     code, lines = probe("tiling", "on", "tiling", "off")
     tiling = [w["tiling"] for w in events(lines, "workspace_changed")]
     expect("tiling on and off arrive as workspace changes", code == 0 and tiling == ["Tiled", "Floating"],
