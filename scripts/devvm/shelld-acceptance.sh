@@ -228,6 +228,13 @@ stage_cleanup() {
             failed=1
         }
     fi
+    # The give-up record survives a stop (RuntimeDirectoryPreserve=yes): left behind, it
+    # would make the next run's stage_unit give up at once for the rest of the window.
+    # shellcheck disable=SC2016 # $XDG_RUNTIME_DIR is expanded by the guest's shell
+    in_session "rm -f \$XDG_RUNTIME_DIR/athanor-shelld/failures" || {
+        echo "cleanup: removing the crash-loop record failed" >&2
+        failed=1
+    }
     if loaded "$BUS_UNIT.service"; then
         in_session "systemctl --user stop $BUS_UNIT.service $BUS_UNIT.socket" || {
             echo "cleanup: systemctl --user stop $BUS_UNIT.service $BUS_UNIT.socket failed" >&2

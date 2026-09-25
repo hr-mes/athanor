@@ -510,8 +510,9 @@ mod tests {
             .collect();
         let encoded = to_bytes(Context::new_dbus(LE, 0), &many).expect("encode");
         let actions: Actions<'_> = encoded.deserialize().expect("decode").0;
-        assert!(actions.0.len() <= 2 * MAX_ACTIONS);
+        assert_eq!(actions.0.len(), 2 * MAX_ACTIONS);
+        assert_eq!(&actions.0[..2], ["k0", "v"]);
         let made = content("app", "", "s", "b", &actions.0, Hints::default(), -1);
-        assert!(made.actions.len() <= MAX_ACTIONS);
+        assert_eq!(made.actions.len(), MAX_ACTIONS);
     }
 }
