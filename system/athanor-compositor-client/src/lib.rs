@@ -4,10 +4,12 @@
 //! sees only the types of [`model`].
 
 mod connection;
+mod cosmic_config;
 mod keymap;
 pub mod model;
 pub mod outputs;
 mod protocols;
+pub mod theme;
 
 pub use connection::{Client, Error};
 pub use model::{

@@ -552,6 +552,7 @@ dependencies = [
 name = "athanor-layout-chooser"
 version = "1.0.0"
 dependencies = [
+ "athanor-compositor-client",
  "athanor-i18n",
  "athanor-layout",
  "athanor-style",
