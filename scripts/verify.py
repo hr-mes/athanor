@@ -433,6 +433,29 @@ def update_trust_problems(root=None):
 
 
 @check("shipped", "Ogni crate del workspace è impacchettato, o è dichiarato sperimentale")
+
+
+def image_policy_problems(root=None):
+    """system/Containerfile puts the policy in force and system/keys holds public keys only."""
+    root = root or ROOT
+    problems = []
+    containerfile = read(root / "system/Containerfile")
+    if not re.search(r"^ARG IMAGE_REGISTRY$", containerfile, re.M) or "render-policy" not in containerfile or "--link-etc /etc" not in containerfile:
+        problems.append("system/Containerfile: does not run render-policy --link-etc /etc with ARG IMAGE_REGISTRY: "
+                        "the policy is never in force and no machine verifies an image")
+    elif containerfile.index("render-policy") > containerfile.index("systemctl preset-all"):
+        problems.append("system/Containerfile: render-policy runs after preset-all")
+    if "COPY system/keys/ /usr/share/athanor/keys/" not in containerfile:
+        problems.append("system/Containerfile: does not copy system/keys to /usr/share/athanor/keys")
+    keys = sorted((root / "system/keys").glob("*")) if (root / "system/keys").is_dir() else []
+    if not any(key.suffix == ".pub" for key in keys):
+        problems.append("system/keys: no *.pub: the rendered policy would name no key")
+    for key in keys:
+        if key.suffix != ".pub":
+            problems.append(f"system/keys/{key.name}: only *.pub files belong under system/keys")
+    return problems
+
+
 def check_shipped():
     r = Result()
     cargo = ROOT / "Cargo.toml"
@@ -496,6 +519,8 @@ def check_shipped():
     for problem in cosmic_defaults_problems(ROOT):
         r.fail(problem)
     for problem in update_trust_problems():
+        r.fail(problem)
+    for problem in image_policy_problems():
         r.fail(problem)
 
     return r

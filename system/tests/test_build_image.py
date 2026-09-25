@@ -56,6 +56,7 @@ class BuildImage(unittest.TestCase):
         args = (self.dir / "podman.args").read_text().splitlines()
         self.assertIn("org.opencontainers.image.version=43.20260915.412", args)
         self.assertIn("org.opencontainers.image.created=2026-09-15T10:00:00Z", args)
+        self.assertIn("IMAGE_REGISTRY=localhost", args)
 
     def test_a_local_build_has_serial_zero_and_a_serial_is_a_number(self):
         self.artifacts_file()

@@ -96,6 +96,22 @@ class UpdateTrust(unittest.TestCase):
         spec.write_text("%files\n")
         self.assertTrue(any("athanor-tpm-luks-seal.sh" in p for p in self.problems()))
 
+    def test_the_image_build_renders_the_policy_and_links_etc(self):
+        self.assertEqual(verify.image_policy_problems(), [])
+        system = self.root / "system"
+        (system / "keys").mkdir(parents=True)
+        (system / "Containerfile").write_text("FROM scratch\nRUN systemctl preset-all\n")
+        found = verify.image_policy_problems(self.root)
+        self.assertTrue(any("render-policy" in p for p in found))
+        self.assertTrue(any("system/keys" in p for p in found))
+        (system / "keys/athanor-image-1.pub").write_text("-----BEGIN PUBLIC KEY-----\n")
+        (system / "keys/leak.key").write_text("x")
+        (system / "Containerfile").write_text(
+            "ARG IMAGE_REGISTRY\nCOPY system/keys/ /usr/share/athanor/keys/\n"
+            'RUN /usr/libexec/athanor-update/render-policy --registry "${IMAGE_REGISTRY}" --keys-dir /usr/share/athanor/keys '
+            "--out /usr/share/athanor/containers --link-etc /etc\nRUN systemctl preset-all\n")
+        self.assertEqual(verify.image_policy_problems(self.root), ["system/keys/leak.key: only *.pub files belong under system/keys"])
+
 
 if __name__ == "__main__":
     unittest.main()

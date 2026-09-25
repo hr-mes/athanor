@@ -63,7 +63,7 @@ pinned=$(bash "$ROOT/forge/specs/azoth/nvr.sh")
 [[ $nvr == "$pinned" ]] || { echo "${0##*/}: the kernel artifacts were resolved for ${nvr}, the pins give ${pinned}: run system/kernel-artifacts.sh resolve again" >&2; exit 2; }
 registry=$(artifact registry)
 kernel=$(artifact kernel_digest)
-args=(--layers --pull=newer --format docker --build-arg "AZOTH_NVR=$nvr" --build-arg "GPU=$GPU"
+args=(--layers --pull=newer --format docker --build-arg "AZOTH_NVR=$nvr" --build-arg "GPU=$GPU" --build-arg "IMAGE_REGISTRY=$REGISTRY"
   --build-arg "KERNEL_REGISTRY=$registry" --label "io.athanor.azoth.digest=$kernel")
 # Every published image has a version of its own and says when it was built (UT9). Machines
 # order images by `created`, never by the version string; bootc reports it as the
