@@ -49,18 +49,6 @@ impl BarUnit {
     }
 }
 
-/// The last component of the unified hierarchy's (`0::`) path: the unit or scope the process
-/// runs in. `None` at the root, or with no unified hierarchy. Not trimmed: a stray trailing
-/// character (whitespace included) is part of the name, not noise.
-#[must_use]
-pub fn unit_of(cgroup: &str) -> Option<&str> {
-    cgroup
-        .lines()
-        .find_map(|line| line.strip_prefix("0::"))
-        .and_then(|path| path.rsplit('/').next())
-        .filter(|unit| !unit.is_empty())
-}
-
 /// Whether the cgroup text's unified hierarchy (`0::`) path names `unit` exactly: the path is
 /// absolute, its last component is `unit` verbatim (no trimming, no descendant of it — a
 /// delegated subtree or a scope under it is refused), and every component before it has the
@@ -93,17 +81,6 @@ mod tests {
 
     const BAR: &str =
         "0::/user.slice/user-1000.slice/user@1000.service/app.slice/athanor-bar.service\n";
-
-    #[test]
-    fn the_unit_is_the_last_component_of_the_unified_path() {
-        assert_eq!(unit_of(BAR), Some("athanor-bar.service"));
-        assert_eq!(unit_of("0::/\n"), None);
-        assert_eq!(
-            unit_of("1:name=systemd:/user.slice/athanor-bar.service\n"),
-            None,
-            "v1 only"
-        );
-    }
 
     #[test]
     fn only_the_bar_unit_is_admitted() {
