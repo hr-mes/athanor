@@ -28,6 +28,7 @@ members = [
   "system/athanor-i18n",
   "system/athanor-init-oracle",
   "system/athanor-layout",
+  "system/athanor-unit",
   "system/athanor-mesh-bus",
   "system/athanor-net-unikernel",
   "system/athanor-store",
