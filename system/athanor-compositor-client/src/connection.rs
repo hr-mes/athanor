@@ -13,13 +13,13 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::ErrorKind;
 use std::ops::RangeInclusive;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, BorrowedFd, OwnedFd};
 use std::os::unix::fs::FileExt;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use gdk4_wayland::prelude::*;
-use gtk4::{gdk, glib};
+use gtk4::{gdk, gio, glib};
 use wayland_client::backend::{ObjectId, WaylandError};
 use wayland_client::globals::{registry_queue_init, GlobalList, GlobalListContents};
 use wayland_client::protocol::{wl_keyboard, wl_output, wl_registry, wl_seat};
@@ -34,6 +34,10 @@ use wayland_protocols::ext::workspace::v1::client::{
     ext_workspace_group_handle_v1::{self, ExtWorkspaceGroupHandleV1},
     ext_workspace_handle_v1::{self, ExtWorkspaceHandleV1},
     ext_workspace_manager_v1::{self, ExtWorkspaceManagerV1},
+};
+use wayland_protocols::wp::security_context::v1::client::{
+    wp_security_context_manager_v1::WpSecurityContextManagerV1,
+    wp_security_context_v1::WpSecurityContextV1,
 };
 
 use crate::keymap::{self, MAX_KEYMAP};
@@ -57,6 +61,9 @@ use crate::protocols::workspace_v2::client::{
     zcosmic_workspace_handle_v2::{self, TilingState, ZcosmicWorkspaceHandleV2},
     zcosmic_workspace_manager_v2::ZcosmicWorkspaceManagerV2,
 };
+
+/// The sandbox engine of every context the shell creates (doc_bar.md, BR2).
+pub(crate) const ENGINE: &str = "os.athanor.shell";
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -89,7 +96,9 @@ pub struct Client {
 type Handler = Box<dyn FnMut(&Client, &Event)>;
 
 struct Inner {
+    display: gdk::Display,
     connection: Connection,
+    qh: QueueHandle<State>,
     queue: RefCell<EventQueue<State>>,
     state: RefCell<State>,
     handler: RefCell<Option<Handler>>,
@@ -140,7 +149,9 @@ impl Client {
             .map_err(|err| Error::Connection(err.to_string()))?;
         let fd = connection.backend().poll_fd().as_raw_fd();
         let inner = Rc::new_cyclic(|weak| Inner {
+            display: display.clone(),
             connection,
+            qh,
             queue: RefCell::new(queue),
             state: RefCell::new(state),
             handler: RefCell::new(None),
@@ -279,6 +290,54 @@ impl Client {
             .set_screen_filter(active_state(inverted), filter);
         drop(state);
         self.flush()
+    }
+
+    /// Creates a security context listening on `listen`, alive until `close` is readable
+    /// (wp_security_context_v1). The compositor holds its own copies once this returns.
+    pub(crate) fn create_context(
+        &self,
+        listen: BorrowedFd<'_>,
+        close: BorrowedFd<'_>,
+        app_id: &str,
+        instance_id: &str,
+    ) -> Result<(), Error> {
+        let state = self.inner.state.borrow();
+        let manager = state
+            .globals
+            .security_context
+            .as_ref()
+            .ok_or(Error::Unavailable("wp_security_context_manager_v1"))?;
+        let context = manager.create_listener(listen, close, &self.inner.qh, ());
+        context.set_sandbox_engine(ENGINE.into());
+        context.set_app_id(app_id.into());
+        context.set_instance_id(instance_id.into());
+        context.commit();
+        context.destroy();
+        drop(state);
+        self.flush()
+    }
+
+    /// An `xdg_activation_v1` token from the surface that received the last input event,
+    /// so the window it starts takes the focus. GDK waits for the token on its own queue;
+    /// what it read for ours meanwhile is dispatched here.
+    pub(crate) fn activation_token(&self, app: Option<&gio::AppInfo>) -> Option<String> {
+        let token = self
+            .inner
+            .display
+            .app_launch_context()
+            .startup_notify_id(app, &[])
+            .map(String::from);
+        if let Err(err) = self.pump() {
+            tracing::warn!("reading from the compositor after the activation token failed: {err}");
+        }
+        token
+    }
+
+    /// Dispatches what GDK read for this queue outside the main loop's own reading, such
+    /// as during the roundtrip of an activation token. Flushes through `Inner::flush`, so
+    /// a full socket is not a failure.
+    pub(crate) fn pump(&self) -> Result<(), Error> {
+        self.inner.pump()
     }
 
     fn toplevel_request(
@@ -537,6 +596,7 @@ struct Globals {
     seat: Option<wl_seat::WlSeat>,
     keyboard_layouts: Option<ZcosmicKeyboardLayoutManagerV1>,
     a11y: Option<CosmicA11yManagerV1>,
+    security_context: Option<WpSecurityContextManagerV1>,
 }
 
 struct Toplevel {
@@ -605,6 +665,7 @@ impl State {
             keyboard_layouts: bind(globals, qh, 1..=1),
             // Version 3 deprecates the screen filter events of version 2.
             a11y: bind(globals, qh, 2..=2),
+            security_context: bind(globals, qh, 1..=1),
             seat: bind(globals, qh, 1..=7),
             workspace_manager: bind(globals, qh, 1..=1),
         };
@@ -1139,6 +1200,8 @@ ignore_events!(
     ZcosmicToplevelManagerV1,
     ZcosmicWorkspaceManagerV2,
     ZcosmicKeyboardLayoutManagerV1,
+    WpSecurityContextManagerV1,
+    WpSecurityContextV1,
 );
 
 #[cfg(test)]

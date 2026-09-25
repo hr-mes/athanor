@@ -5,13 +5,14 @@
 //! `react APP_ID` (from then on, the handler unminimizes that window from inside the callback),
 //! `tiling on|off`, `group N`, `magnifier on|off`, `filter none|greyscale|protanopia|
 //! deuteranopia|tritanopia`, `drain` (from then on, each step is followed, before the main
-//! loop runs again, by a second of display syncs: another reader that empties the socket).
+//! loop runs again, by a second of display syncs: another reader that empties the socket),
+//! `launch DESKTOP_ID`, `open launcher|app-library|workspaces`.
 
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use athanor_compositor_client::{
-    outputs, Client, Event, ScreenFilter, Tiling, Window, Workspace,
+    outputs, Client, Event, Opener, ScreenFilter, Tiling, Window, Workspace,
 };
 use gtk4::prelude::*;
 use gtk4::{gdk, glib};
@@ -146,6 +147,22 @@ async fn step(
                 other => return Err(format!("no filter named {other}")),
             };
             client.set_screen_filter(false, filter).map_err(|e| error(&e))?;
+        }
+        "launch" => {
+            let id = arg()?;
+            let app = gio_unix::DesktopAppInfo::new(&id).ok_or(format!("no desktop entry {id}"))?;
+            let unit = client.launch(&app).await.map_err(|e| error(&e))?;
+            println!("{}", json!({"launched": unit}));
+        }
+        "open" => {
+            let opener = match arg()?.as_str() {
+                "launcher" => Opener::Launcher,
+                "app-library" => Opener::AppLibrary,
+                "workspaces" => Opener::Workspaces,
+                other => return Err(format!("no opener named {other}")),
+            };
+            client.open(opener).await.map_err(|e| error(&e))?;
+            println!("{}", json!({"opened": format!("{opener:?}")}));
         }
         other => return Err(format!("no step named {other}")),
     }
