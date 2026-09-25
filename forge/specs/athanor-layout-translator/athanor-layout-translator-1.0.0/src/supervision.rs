@@ -13,7 +13,7 @@ use std::io;
 use std::os::linux::net::SocketAddrExt;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::{SocketAddr, UnixDatagram};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use athanor_layout::apply::write_atomically;
 
@@ -48,44 +48,49 @@ pub fn given_up(path: &Path, now: i64) -> io::Result<bool> {
     Ok(recent_failures(&read_record(path)?, now).len() >= GIVE_UP_AFTER)
 }
 
-/// The unit's ExecStopPost: counts the run that just ended when systemd says it failed.
-/// `SERVICE_RESULT` is `success` for a clean stop, and absent outside systemd.
+/// The unit's ExecStopPost: counts the run that just ended when systemd says it failed,
+/// and ends the run, in one write. `SERVICE_RESULT` is `success` for a clean stop, and
+/// absent outside systemd.
 pub fn record_exit(path: &Path, now: i64, service_result: Option<&str>) -> io::Result<()> {
-    if service_result.is_some_and(|result| result != "success") {
-        record_failure(path, now)?;
+    let text = read_record(path)?;
+    let failed = service_result.is_some_and(|result| result != "success");
+    if !failed && !is_running(&text) {
+        return Ok(());
     }
-    // The run's end is accounted for, failed or clean.
-    match fs::remove_file(running_marker(path)) {
-        Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
-        _ => Ok(()),
+    let mut stamps = recent_failures(&text, now);
+    if failed {
+        stamps.push(now);
     }
+    write_record(path, &stamps, false)
 }
 
 /// The unit's ExecStart, before anything else: marks the run as started, and counts the
 /// previous run as a failure if its end was never recorded. systemd runs ExecStopPost in the
 /// unit's cgroup, so a kill of the whole cgroup (`systemctl kill`, systemd-oomd) takes the
-/// ExecStopPost down with the service and leaves only this marker behind.
+/// ExecStopPost down with the service and leaves the run marked as running.
 pub fn record_start(path: &Path, now: i64) -> io::Result<()> {
-    let marker = running_marker(path);
-    if marker.exists() {
-        record_failure(path, now)?;
+    let text = read_record(path)?;
+    let mut stamps = recent_failures(&text, now);
+    if is_running(&text) {
+        stamps.push(now);
     }
-    if let Some(dir) = marker.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    write_atomically(&marker, "")
+    write_record(path, &stamps, true)
 }
 
-/// Present from a start until its end is recorded; next to the failure record, so the
-/// session's stop clears both.
-fn running_marker(path: &Path) -> PathBuf {
-    path.with_file_name("running")
+/// The run state is a line of the failure record, not a file of its own, so every change
+/// of state is a single atomic write. `recent_failures` skips the line.
+const RUNNING: &str = "running";
+
+fn is_running(text: &str) -> bool {
+    text.lines().any(|line| line.trim() == RUNNING)
 }
 
-fn record_failure(path: &Path, now: i64) -> io::Result<()> {
-    let mut stamps = recent_failures(&read_record(path)?, now);
-    stamps.push(now);
-    let text: String = stamps.iter().map(|stamp| format!("{stamp}\n")).collect();
+fn write_record(path: &Path, stamps: &[i64], running: bool) -> io::Result<()> {
+    let mut text: String = stamps.iter().map(|stamp| format!("{stamp}\n")).collect();
+    if running {
+        text.push_str(RUNNING);
+        text.push('\n');
+    }
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
@@ -165,6 +170,29 @@ mod tests {
         record_exit(&file, 40, Some("success")).expect("clean stop");
         record_start(&file, 41).expect("fourth start");
         assert_eq!(failures(42), [20, 30]);
+    }
+
+    #[test]
+    fn the_run_state_lives_in_the_failure_record() {
+        let dir = scratch("one-file");
+        let file = dir.join("failures");
+        let entries = || {
+            let mut names: Vec<_> = fs::read_dir(&dir)
+                .expect("list")
+                .map(|entry| entry.expect("entry").file_name())
+                .collect();
+            names.sort();
+            names
+        };
+        record_start(&file, 10).expect("start");
+        assert_eq!(entries(), ["failures"]);
+        assert_eq!(read_record(&file).expect("read"), "running\n");
+        // One write both counts the failure and ends the run: no kill can land in between.
+        record_exit(&file, 20, Some("signal")).expect("record");
+        assert_eq!(read_record(&file).expect("read"), "20\n");
+        record_start(&file, 21).expect("restart");
+        assert_eq!(read_record(&file).expect("read"), "20\nrunning\n");
+        assert_eq!(entries(), ["failures"]);
     }
 
     #[test]
