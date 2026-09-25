@@ -18,7 +18,6 @@ members = [
   "system/athanor-agentic-kernel",
   "system/athanor-bus-api",
   "system/athanor-cluster-mesh",
-  "system/athanor-compositor",
   "system/athanor-ebpf-sched",
   "system/athanor-greeter",
   "system/athanor-hypervisor-daemon",
@@ -69,8 +68,6 @@ gtk4 = { version = "0.11.4", features = ["v4_18"] }
 gtk4-layer-shell = "0.8.1"
 glib = "0.22.9"
 relm4 = "0.11.0"
-smithay = { version = "0.3.0", default-features = false }
-wayland-server = "0.31.0"
 
 # Serialization & Error Handling
 serde = { version = "1.0.229", features = ["derive"] }
@@ -98,7 +95,6 @@ subtle = "2.6.1"
 aya = "0.13.1"
 
 # System Utilities & CLI
-glam = "0.29.0"
 nix = "0.29.0"
 clap = { version = "4.6.4", features = ["derive"] }
 mimalloc = { version = "0.1.43", default-features = false }
