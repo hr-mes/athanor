@@ -13,6 +13,7 @@ use crate::dnd;
 use crate::notifications::{Notifications, Private, State};
 use crate::sender::BarUnit;
 use crate::store::Store;
+use crate::watcher::{self, Watcher};
 
 pub const NOTIFICATIONS_NAME: &str = "org.freedesktop.Notifications";
 pub const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
@@ -45,9 +46,11 @@ pub async fn start(builder: Builder<'_>, config: Config) -> zbus::Result<Connect
                 bar: config.bar,
             },
         )?
+        .serve_at(WATCHER_PATH, Watcher::default())?
         .build()
         .await?;
-    for name in [NOTIFICATIONS_NAME] {
+    watcher::follow_owners(&conn).await?;
+    for name in [NOTIFICATIONS_NAME, WATCHER_NAME] {
         conn.request_name_with_flags(name, RequestNameFlags::DoNotQueue.into())
             .await?;
     }
