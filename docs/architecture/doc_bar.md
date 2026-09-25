@@ -34,19 +34,23 @@ Status: **revision 1, approved by the maintainer on 2026-09-25.** It is the spec
 **BR2. Applications start behind a security context.** The bar and the dock start every application they start, from the favourites and from the running-application list, on a `wp_security_context_v1` socket. The code lives in `athanor-compositor-client`, because it needs the Wayland connection; the protocol is a standard one (SH2).
 
 1. **The entry.** `gio::DesktopAppInfo` resolves the desktop entry: `Exec`, its field codes and `Terminal=true`. A terminal application runs inside the default terminal, and the terminal is what receives the context.
-2. **The context.** Engine id `os.athanor.shell`, the desktop id as the app id, the unit name as the instance id. The listening socket lives under `$XDG_RUNTIME_DIR/athanor/`. The application inherits the close file descriptor, not the bar: the context lives as long as the application and its children, and a restart of the bar does not stop an application from opening a new connection.
+2. **The context.** Engine id `os.athanor.shell`, the desktop id without `.desktop` as the app id, the unit name as the instance id. The listening socket lives under `$XDG_RUNTIME_DIR/athanor/`. The application inherits the close file descriptor, not the bar: the context lives as long as the application and its children, and a restart of the bar does not stop an application from opening a new connection.
 3. **The unit.** The application starts as a transient service of the user manager, `app-athanor-<escaped desktop id>@<random>.service`, the XDG convention for application units, and receives the close descriptor through `ExtraFileDescriptors`. It is a child of the user manager, not of the bar: it inherits neither the bar's Landlock ruleset, which would break it, nor its cgroup, so oomd and resource limits act on the application and never on the bar.
 4. **The environment.** `WAYLAND_DISPLAY` is the absolute path of the restricted socket. `XDG_ACTIVATION_TOKEN` carries an `xdg_activation_v1` token obtained from the surface that was clicked, so the new window takes the focus.
 5. **No D-Bus activation.** An entry with `DBusActivatable=true` runs its `Exec` line: bus activation would start it with the user manager's environment, which holds the main socket.
 6. **Fail closed.** When the context cannot be created, the application does not start on the main socket. The bar sends a notification that names the application and logs the error at err priority.
 
 - **The shell's own components keep the main socket.** cosmic-launcher, cosmic-app-library and cosmic-workspaces, opened by the bar until their stages, are part of the shell and need layer shell.
-- **Who reads window titles.** Titles and app ids reach a client only through the privileged globals, which only the main socket offers. The bar and the dock read them; the bar shows them in `bar` and uses them as accessible names. An application started from the bar or the dock cannot read the titles of other windows.
+- **Who reads window titles.** Titles and app ids reach a client only through the privileged globals, which only the main socket offers. The bar and the dock read them; the bar shows them in `bar` and uses them as accessible names. The context confines what an application started from the bar or the dock reaches through the `WAYLAND_DISPLAY` it is given: on that socket it cannot read the titles of other windows.
 - **Declared limits,** not guarantees:
   - An application with one instance that is already running opens the new window in its existing process, with the socket that process started with.
   - X11 applications reach cosmic-comp through XWayland, outside any context.
   - Applications started from a terminal, from cosmic-launcher until stage 3 and by XDG autostart still hold the main socket, and can read every title and the clipboard.
   - A Flatpak application started on our socket cannot create its own context, because a context offers no security-context manager; it is expected to pass our socket through. The plan of 2b verifies it.
+  - The context confines a socket, not the application. The application runs as the user, so it can still connect by path to the main socket, `$XDG_RUNTIME_DIR/wayland-1`, or to another application's `$XDG_RUNTIME_DIR/athanor/<id>/wayland`.
+  - The application reaches the session bus. It can put a process on the main socket through the user manager, with `StartTransientUnit`, or read the main socket's name with `systemctl --user show-environment`.
+  - A terminal that hands its window to an existing server process, such as gnome-terminal or ptyxis, draws on that server's socket, not on the one its unit received.
+  - Real confinement, a filesystem and bus sandbox for launched applications, is a later design entry and is not designed here.
 
 **BR3. The modules of the bar.** Each module reads a system service. A module whose service or hardware is absent, such as a battery on a desktop or a Bluetooth adapter, is not shown: a greyed control with no source is a facade (SH1). Each does at least what the COSMIC applet it replaces does.
 
