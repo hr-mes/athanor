@@ -5,6 +5,7 @@
 
 mod connection;
 mod cosmic_config;
+pub mod favorites;
 mod keymap;
 pub mod model;
 pub mod outputs;
