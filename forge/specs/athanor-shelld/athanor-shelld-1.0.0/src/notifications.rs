@@ -8,6 +8,7 @@ use std::time::Instant;
 
 use zbus::fdo::{self, DBusProxy};
 use zbus::message::Header;
+use zbus::names::OwnedUniqueName;
 use zbus::object_server::SignalEmitter;
 use zbus::{interface, Connection};
 
@@ -29,6 +30,10 @@ pub struct State {
     pub store: Store,
     started: Instant,
     state_dir: PathBuf,
+    /// The unique name of the last caller `List` admitted (BR1): the bar's own connection,
+    /// which the private interface's signals are unicast to. `None` — no bar has listed yet —
+    /// means they go nowhere: this content is never for a wider audience than that.
+    bar_destination: Option<OwnedUniqueName>,
 }
 
 impl State {
@@ -37,6 +42,7 @@ impl State {
             store,
             started: Instant::now(),
             state_dir,
+            bar_destination: None,
         }
     }
 
@@ -101,11 +107,27 @@ fn is_action_key(key: &str) -> bool {
     !key.is_empty() && key.len() <= ACTION_KEY_BYTES && !key.chars().any(text::is_hidden)
 }
 
+/// The bar's destination for the private interface's signals: the unique name of the last
+/// caller `List` admitted, unicast so no other client sharing the bus ever sees this content
+/// (`os.athanor.Notifications1`'s security boundary). `None` while no bar has listed yet —
+/// nothing is sent, rather than broadcasting it.
+async fn bar_emitter(
+    state: &Shared,
+    conn: &Connection,
+) -> zbus::Result<Option<SignalEmitter<'static>>> {
+    let Some(destination) = lock(state).bar_destination.clone() else {
+        return Ok(None);
+    };
+    Ok(Some(
+        SignalEmitter::new(conn, PRIVATE_PATH)?.set_destination(destination.into()),
+    ))
+}
+
 /// Tells both sides a notification closed: applications listen on the specification's
-/// object, the bar on its own. The two signals are sent independently — a failure sending
-/// one must never skip the other — and each failure is logged on its own; the store has
-/// already changed regardless.
-async fn emit_closed(conn: &Connection, id: u32, reason: Reason) {
+/// object, the bar on its own, unicast. The two signals are sent independently — a failure
+/// sending one must never skip the other — and each failure is logged on its own; the store
+/// has already changed regardless.
+async fn emit_closed(conn: &Connection, state: &Shared, id: u32, reason: Reason) {
     let public = async {
         Notifications::notification_closed(
             &SignalEmitter::new(conn, NOTIFICATIONS_PATH)?,
@@ -119,7 +141,10 @@ async fn emit_closed(conn: &Connection, id: u32, reason: Reason) {
         tracing::warn!(id, error = %err, "cannot tell applications a notification closed");
     }
     let private = async {
-        Private::closed(&SignalEmitter::new(conn, PRIVATE_PATH)?, id, reason as u32).await
+        match bar_emitter(state, conn).await? {
+            Some(emitter) => Private::closed(&emitter, id, reason as u32).await,
+            None => Ok(()),
+        }
     }
     .await;
     if let Err(err) = private {
@@ -176,14 +201,13 @@ impl Notifications {
             (outcome, wire)
         };
         for id in &outcome.evicted {
-            emit_closed(conn, *id, Reason::Expired).await;
+            emit_closed(conn, &self.state, *id, Reason::Expired).await;
         }
         let result = async {
-            let emitter = SignalEmitter::new(conn, PRIVATE_PATH)?;
-            if outcome.replaced {
-                Private::replaced(&emitter, &wire).await
-            } else {
-                Private::added(&emitter, &wire).await
+            match bar_emitter(&self.state, conn).await? {
+                Some(emitter) if outcome.replaced => Private::replaced(&emitter, &wire).await,
+                Some(emitter) => Private::added(&emitter, &wire).await,
+                None => Ok(()),
             }
         }
         .await;
@@ -202,7 +226,7 @@ impl Notifications {
         if closed.is_none() {
             return Err(fdo::Error::InvalidArgs(format!("no notification {id}")));
         }
-        emit_closed(conn, id, Reason::Closed).await;
+        emit_closed(conn, &self.state, id, Reason::Closed).await;
         Ok(())
     }
 
@@ -234,7 +258,9 @@ pub struct Private {
 }
 
 impl Private {
-    async fn admit(&self, header: &Header<'_>, conn: &Connection) -> fdo::Result<()> {
+    /// The caller's unique name, once admitted: `list` records it as the private signals'
+    /// destination.
+    async fn admit(&self, header: &Header<'_>, conn: &Connection) -> fdo::Result<OwnedUniqueName> {
         let sender = header
             .sender()
             .ok_or_else(|| fdo::Error::AccessDenied("a call with no sender".into()))?;
@@ -246,7 +272,7 @@ impl Private {
             fdo::Error::AccessDenied("the bus gave no process id for the caller".into())
         })?;
         if self.bar.admits(pid) {
-            Ok(())
+            Ok(sender.to_owned().into())
         } else {
             Err(fdo::Error::AccessDenied(format!(
                 "only {} may call this interface",
@@ -258,14 +284,17 @@ impl Private {
 
 #[interface(name = "os.athanor.Notifications1")]
 impl Private {
-    /// The do-not-disturb switch, and every notification held, oldest first.
+    /// The do-not-disturb switch, and every notification held, oldest first. Admitting this
+    /// call is also what makes the caller the private signals' destination (BR1): the bar
+    /// lists on start and on restart, so this is where its unique name is (re)recorded.
     async fn list(
         &self,
         #[zbus(header)] header: Header<'_>,
         #[zbus(connection)] conn: &Connection,
     ) -> fdo::Result<(bool, Vec<WireNotification>)> {
-        self.admit(&header, conn).await?;
-        let state = lock(&self.state);
+        let sender = self.admit(&header, conn).await?;
+        let mut state = lock(&self.state);
+        state.bar_destination = Some(sender);
         let (now, dnd) = (state.now_ms(), state.store.dnd());
         Ok((
             dnd,
@@ -298,7 +327,7 @@ impl Private {
         if lock(&self.state).store.close(id).is_none() {
             return Err(fdo::Error::InvalidArgs(format!("no notification {id}")));
         }
-        emit_closed(conn, id, reason).await;
+        emit_closed(conn, &self.state, id, reason).await;
         Ok(())
     }
 
@@ -338,7 +367,7 @@ impl Private {
         }
         Notifications::action_invoked(&public, id, action_key).await?;
         if !resident && lock(&self.state).store.close(id).is_some() {
-            emit_closed(conn, id, Reason::Dismissed).await;
+            emit_closed(conn, &self.state, id, Reason::Dismissed).await;
         }
         Ok(())
     }

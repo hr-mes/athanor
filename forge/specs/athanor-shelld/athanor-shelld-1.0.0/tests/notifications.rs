@@ -1,6 +1,7 @@
 mod common;
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use athanor_shelld::server::{NOTIFICATIONS_NAME, NOTIFICATIONS_PATH, PRIVATE_PATH};
 use athanor_shelld::store::CAPACITY;
@@ -149,6 +150,12 @@ async fn the_bar_lists_clean_text_and_hears_added_replaced_closed() {
     let _daemon = bus.daemon(BAR_CGROUP).await;
     let client = bus.client().await;
     let (public, private) = (public(&client).await, private(&client).await);
+    // The bar lists on start (BR1): only after that is its unique name the private signals'
+    // destination.
+    private
+        .call::<_, _, (bool, Vec<WireNotification>)>("List", &())
+        .await
+        .expect("List");
     let mut added = private.receive_signal("Added").await.expect("subscribe");
     let mut replaced = private.receive_signal("Replaced").await.expect("subscribe");
     let mut closed = private.receive_signal("Closed").await.expect("subscribe");
@@ -204,6 +211,79 @@ async fn the_bar_lists_clean_text_and_hears_added_replaced_closed() {
             .is_err(),
         "reason 3 belongs to the application"
     );
+}
+
+#[tokio::test]
+async fn private_signals_reach_only_the_bar_that_listed() {
+    let bus = Bus::start("unicast");
+    let _daemon = bus.daemon(BAR_CGROUP).await;
+    let client = bus.client().await;
+    let (public, private) = (public(&client).await, private(&client).await);
+    private
+        .call::<_, _, (bool, Vec<WireNotification>)>("List", &())
+        .await
+        .expect("List");
+    let mut added = private.receive_signal("Added").await.expect("subscribe");
+
+    // A second connection with a broad match rule for the private interface, but never
+    // admitted (it never called List): without unicast it would see every notification's
+    // content, exactly what BR1's private interface must never hand out.
+    let bystander = bus.client().await;
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("os.athanor.Notifications1")
+        .expect("interface")
+        .build();
+    let mut eavesdrop = zbus::MessageStream::for_match_rule(rule, &bystander, None)
+        .await
+        .expect("match rule");
+
+    let id = notify(&public, 0, "secret", "body", &[], HashMap::new()).await;
+    let heard: WireNotification = added
+        .next()
+        .await
+        .expect("Added")
+        .body()
+        .deserialize()
+        .expect("wire");
+    assert_eq!(heard.id, id, "the bar still hears it");
+
+    let nothing = tokio::time::timeout(Duration::from_millis(300), eavesdrop.next()).await;
+    assert!(
+        nothing.is_err(),
+        "a connection outside the bar received a private signal"
+    );
+}
+
+#[tokio::test]
+async fn no_private_signal_is_sent_before_any_bar_has_listed() {
+    let bus = Bus::start("unlisted");
+    let _daemon = bus.daemon(BAR_CGROUP).await;
+    let client = bus.client().await;
+    let (public, private) = (public(&client).await, private(&client).await);
+    // No List call yet: the daemon has no destination for the private interface's signals,
+    // so it must emit none at all, fail closed rather than broadcast.
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("os.athanor.Notifications1")
+        .expect("interface")
+        .build();
+    let mut eavesdrop = zbus::MessageStream::for_match_rule(rule, &client, None)
+        .await
+        .expect("match rule");
+
+    notify(&public, 0, "s", "b", &[], HashMap::new()).await;
+
+    let nothing = tokio::time::timeout(Duration::from_millis(300), eavesdrop.next()).await;
+    assert!(
+        nothing.is_err(),
+        "a private signal was sent while no bar had listed"
+    );
+    // The notification itself is unaffected: it is still held.
+    private
+        .call::<_, _, (bool, Vec<WireNotification>)>("List", &())
+        .await
+        .expect("List");
 }
 
 #[tokio::test]
