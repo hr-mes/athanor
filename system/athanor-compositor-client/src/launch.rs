@@ -135,6 +135,7 @@ impl Client {
     /// behind a security context, and returns the unit's name. When the context cannot be
     /// created the application does not start (BR2.6).
     pub async fn launch(&self, app: &gio_unix::DesktopAppInfo) -> Result<String, LaunchError> {
+        self.live()?;
         let entry = |reason: &str| LaunchError::Entry {
             app: app.name().to_string(),
             reason: reason.to_owned(),
@@ -298,6 +299,7 @@ impl Client {
     /// when it already is. A component started cold only takes its name, so it is always
     /// shown through the bus (spike P4).
     pub async fn open(&self, opener: Opener) -> Result<(), LaunchError> {
+        self.live()?;
         let bus = gio::bus_get_future(gio::BusType::Session).await?;
         let name = opener.app_id();
         let cold = !has_owner(&bus, name).await?;

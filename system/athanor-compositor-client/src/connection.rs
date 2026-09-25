@@ -8,7 +8,7 @@
 //! the descriptor alone would sleep on them. The source looks at the queue before every poll
 //! and after it, and waits on the descriptor only while the queue is empty.
 
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, Ref, RefCell};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::ErrorKind;
@@ -80,6 +80,8 @@ pub enum Error {
     NoWorkspace,
     #[error("invalid argument: {0}")]
     InvalidArgument(&'static str),
+    #[error("the display was closed")]
+    Closed,
 }
 
 /// Ids are handed out in creation order across every client of the process, so an id is
@@ -106,13 +108,19 @@ struct Inner {
     delivering: Cell<bool>,
     /// A failure met while looking at the queue outside `pump`, reported by the next `pump`.
     failure: RefCell<Option<Error>>,
+    /// Set for good when the display closes: every later call returns [`Error::Closed`].
+    closed: Cell<bool>,
+    closed_handler: Option<glib::SignalHandlerId>,
     source: glib::Source,
 }
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        // Idempotent: the source may have removed itself after a failure.
+        // Idempotent: the source may have removed itself after a failure or a close.
         self.source.destroy();
+        if let Some(handler) = self.closed_handler.take() {
+            self.display.disconnect(handler);
+        }
     }
 }
 
@@ -149,16 +157,25 @@ impl Client {
             .acquire()
             .map_err(|err| Error::Connection(err.to_string()))?;
         let fd = connection.backend().poll_fd().as_raw_fd();
-        let inner = Rc::new_cyclic(|weak| Inner {
-            display: display.clone(),
-            connection,
-            qh,
-            queue: RefCell::new(queue),
-            state: RefCell::new(state),
-            handler: RefCell::new(None),
-            delivering: Cell::new(false),
-            failure: RefCell::new(None),
-            source: queue_source::attach(weak.clone(), fd, &context),
+        let inner = Rc::new_cyclic(|weak: &std::rc::Weak<Inner>| {
+            let closing = weak.clone();
+            Inner {
+                display: display.clone(),
+                connection,
+                qh,
+                queue: RefCell::new(queue),
+                state: RefCell::new(state),
+                handler: RefCell::new(None),
+                delivering: Cell::new(false),
+                failure: RefCell::new(None),
+                closed: Cell::new(false),
+                closed_handler: Some(display.connect_closed(move |_, _| {
+                    if let Some(inner) = closing.upgrade() {
+                        inner.close();
+                    }
+                })),
+                source: queue_source::attach(weak.clone(), fd, &context),
+            }
         });
         Ok(Client { inner })
     }
@@ -205,7 +222,7 @@ impl Client {
     }
 
     pub fn activate(&self, window: WindowId) -> Result<(), Error> {
-        let state = self.inner.state.borrow();
+        let state = self.inner.live_state()?;
         let manager = state.toplevel_manager()?;
         let seat = state
             .globals
@@ -230,7 +247,7 @@ impl Client {
     }
 
     pub fn set_tiling(&self, workspace: WorkspaceId, tiling: Tiling) -> Result<(), Error> {
-        let state = self.inner.state.borrow();
+        let state = self.inner.live_state()?;
         let manager = state
             .globals
             .workspace_manager
@@ -255,7 +272,7 @@ impl Client {
 
     /// The compositor ignores a group beyond the configured layouts.
     pub fn set_keyboard_group(&self, group: u32) -> Result<(), Error> {
-        let state = self.inner.state.borrow();
+        let state = self.inner.live_state()?;
         state
             .keyboard_layout
             .as_ref()
@@ -266,7 +283,7 @@ impl Client {
     }
 
     pub fn set_magnifier(&self, enabled: bool) -> Result<(), Error> {
-        let state = self.inner.state.borrow();
+        let state = self.inner.live_state()?;
         state.a11y()?.set_magnifier(active_state(enabled));
         drop(state);
         self.flush()
@@ -285,7 +302,7 @@ impl Client {
                 ))
             }
         };
-        let state = self.inner.state.borrow();
+        let state = self.inner.live_state()?;
         state
             .a11y()?
             .set_screen_filter(active_state(inverted), filter);
@@ -302,7 +319,7 @@ impl Client {
         app_id: &str,
         instance_id: &str,
     ) -> Result<(), Error> {
-        let state = self.inner.state.borrow();
+        let state = self.inner.live_state()?;
         let manager = state
             .globals
             .security_context
@@ -322,6 +339,9 @@ impl Client {
     /// so the window it starts takes the focus. GDK waits for the token on its own queue;
     /// what it read for ours meanwhile is dispatched here.
     pub(crate) fn activation_token(&self, app: Option<&gio::AppInfo>) -> Option<String> {
+        if self.inner.closed.get() {
+            return None;
+        }
         let token = self
             .inner
             .display
@@ -341,10 +361,16 @@ impl Client {
         self.inner.pump()
     }
 
+    /// [`Error::Closed`] once the display closed.
+    pub(crate) fn live(&self) -> Result<(), Error> {
+        self.inner.live()
+    }
+
     /// The compositor's socket as `WAYLAND_DISPLAY` names it for a client the shell starts:
     /// the path this connection is connected to. A connection inherited through
     /// `WAYLAND_SOCKET` has no path; GDK's name for the display is then the only one.
     pub(crate) fn display_name(&self) -> Result<String, Error> {
+        self.inner.live()?;
         let fd = self
             .inner
             .connection
@@ -366,7 +392,7 @@ impl Client {
         window: WindowId,
         request: impl FnOnce(&ZcosmicToplevelManagerV1, &ZcosmicToplevelHandleV1),
     ) -> Result<(), Error> {
-        let state = self.inner.state.borrow();
+        let state = self.inner.live_state()?;
         request(state.toplevel_manager()?, state.cosmic_toplevel(window)?);
         drop(state);
         self.flush()
@@ -388,7 +414,34 @@ fn tolerate_would_block(result: Result<(), WaylandError>) -> Result<(), WaylandE
 }
 
 impl Inner {
+    fn live(&self) -> Result<(), Error> {
+        if self.closed.get() {
+            Err(Error::Closed)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// The state, to send a request through its proxies: refused once the display closed.
+    fn live_state(&self) -> Result<Ref<'_, State>, Error> {
+        self.live()?;
+        Ok(self.state.borrow())
+    }
+
+    /// GDK closes the display: libwayland's connection goes with it, so the source stops
+    /// polling its descriptor and nothing touches the connection again.
+    fn close(&self) {
+        self.closed.set(true);
+        self.source.destroy();
+        // wayland-backend destroys its proxies and its queue through libwayland when the
+        // last reference to the connection drops, which now would be freed memory. That
+        // reference is kept for the rest of the process.
+        std::mem::forget(self.connection.clone());
+        tracing::warn!("the display closed: the compositor client stops");
+    }
+
     fn flush(&self) -> Result<(), Error> {
+        self.live()?;
         tolerate_would_block(self.connection.flush())
             .map_err(|err| Error::Connection(err.to_string()))
     }
@@ -412,6 +465,7 @@ impl Inner {
     }
 
     fn pump(self: &Rc<Self>) -> Result<(), Error> {
+        self.live()?;
         if let Some(err) = self.failure.take() {
             return Err(err);
         }
@@ -522,8 +576,8 @@ mod queue_source {
         closure_marshal: None,
     };
 
-    /// Creates the source and attaches it to `context`. It lives until `Inner` drops, which
-    /// destroys it before the connection closes, or until a failure makes it remove itself.
+    /// Creates the source and attaches it to `context`. It lives until `Inner` drops or the
+    /// display closes, either of which destroys it, or until a failure makes it remove itself.
     pub(super) fn attach(
         inner: Weak<Inner>,
         fd: c_int,
