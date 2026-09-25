@@ -147,13 +147,23 @@ stage_crash-loop() {
     # previous run (same reason layout-acceptance.sh's stage_crash-loop restarts first).
     unit stop || true
     unit start || fail "systemctl --user start athanor-shelld failed"
+    # given_up() is checked before a restart is even allowed to reach "active" (record_start,
+    # then the check, happen before serving starts): the 5th kill is the one that pushes the
+    # failure count to 5, so it's the *next* start attempt that gives up, not one more active
+    # process. Rounds 1-4 each still produce a new, active MainPID; the 5th kill goes straight
+    # to the give-up wait below, with no 6th start expected.
     local round pid
-    for round in 1 2 3 4 5; do
+    for round in 1 2 3 4; do
         pid=$(unit show -p MainPID --value)
         unit kill --kill-whom=main -s SIGKILL
         wait_until 90 new_main_pid "$pid" || fail "round $round: no new MainPID after killing $pid"
     done
+    unit kill --kill-whom=main -s SIGKILL
     wait_until 90 gave_up || fail "the unit ended $(unit show -p ActiveState,Result --value | paste -sd,)"
+    # given_up() now reports READY before this clean exit, so Restart=on-failure has nothing to
+    # restart on; settle a moment and recheck, to catch a sixth start flapping back in.
+    sleep 5
+    gave_up || fail "a sixth start ran: $(unit show -p ActiveState,Result --value | paste -sd,)"
     in_session "journalctl --user -u athanor-shelld -p err -n 20 --no-pager | grep -q 'keeps failing'" ||
         fail "no 'keeps failing' in the last 20 err-priority journal lines"
 }

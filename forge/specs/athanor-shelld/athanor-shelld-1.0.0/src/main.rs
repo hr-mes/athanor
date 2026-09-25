@@ -45,7 +45,12 @@ fn main() -> ExitCode {
                 window_seconds = crash_loop::FAILURE_WINDOW_SECONDS,
                 "athanor-shelld keeps failing; notifications and the tray stay off until the next session"
             );
-            // A clean exit: Restart=on-failure does not start it again.
+            // Type=notify: exiting without READY=1 is Result=protocol, which Restart=on-failure
+            // restarts on same as any other failure. Reporting ready right before this clean
+            // exit is what actually lets the unit settle at inactive/Result=success.
+            if let Err(err) = notify::notify_ready() {
+                tracing::error!(error = %err, "cannot tell systemd the daemon gave up");
+            }
             return ExitCode::SUCCESS;
         }
         Err(err) => {
