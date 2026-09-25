@@ -12,7 +12,7 @@ Status: **revision 1, approved by the maintainer on 2026-09-25.** It is the spec
   - cosmic-launcher and cosmic-app-library open from their shortcuts with cosmic-panel stopped.
   - A GTK popover opens from a top-level layer surface. A bar of one button and one popover on the Cairo renderer holds 16 MB PSS, 18 MB with the popover open.
 - **What the panel shows today.** The translator of package 1c places, beside the clock, the applets of `system/athanor-layout/src/cosmic.rs`: input sources, accessibility, status area (the tray), tiling, audio, Bluetooth, network, battery, notifications and power, and on the other side the workspaces and application-library buttons. The dock holds the launcher, workspaces and application-library buttons, the application list and the minimised windows. The module list of package 2b does not name the workspaces, application-library, tiling, accessibility or minimised-windows applets; BR3 adds them, because the replacement rule (SH1) forbids a switch that takes a control away.
-- **What this document does not decide.** The licence of `cosmic-client-toolkit` and `cosmic-protocols` (GPL-3.0-only) is decided at the start of package 2a (`doc_shell.md`, section 3). The input-source module needs a keyboard-layout protocol that `cosmic-protocols` 0.2.0 lacks; package 2a supplies it.
+- **What this document does not decide.** The licence of the compositor client and the source of its keyboard-layout protocol, both recorded in `doc_shell.md`, section 3, row 2a (decided 2026-09-25): no GPL-3.0-only crate is linked, and the protocol is generated inside package 2a (open doubt 1).
 
 ## 2. Decisions
 
