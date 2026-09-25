@@ -78,6 +78,16 @@ new_main_pid() { # new_main_pid OLD-PID: active, with a different, real MainPID
 }
 gave_up() { [[ $(unit show -p ActiveState,Result --value | paste -sd,) == inactive,success ]]; }
 
+# loaded UNIT: systemd knows this unit's file (LoadState=loaded) — false before deploy has
+# run, or after deploy.sh's file was removed, when `stop` itself would fail ("not loaded").
+loaded() { [[ $(in_session systemctl --user show -p LoadState --value "$1") == loaded ]]; }
+
+# athanor-shelld is in ActiveState=failed. reset-failed itself refuses ("not loaded") on any
+# other state, inactive included — LoadState=loaded is not enough: systemd only keeps a unit
+# with nothing failed and no job pending resident long enough for a *second*, separate
+# `reset-failed` call to find it, even moments after a `show` reported it loaded.
+unit_failed() { [[ $(unit show -p ActiveState --value) == failed ]]; }
+
 stage_deploy() {
     "$HERE/deploy.sh" \
         "$BIN/athanor-shelld:/usr/bin/athanor-shelld" \
@@ -103,7 +113,9 @@ stage_deploy() {
 }
 
 stage_unit() {
-    unit reset-failed || true
+    if unit_failed; then
+        unit reset-failed || fail "reset-failed athanor-shelld"
+    fi
     unit start || fail "systemctl --user start athanor-shelld failed"
     [[ $(unit is-active) == active ]] || fail "is-active: $(unit is-active)"
     owned org.freedesktop.Notifications || fail "org.freedesktop.Notifications has no owner on the private bus"
@@ -145,7 +157,9 @@ stage_crash-loop() {
     # crash simulation); SH8's give-up counts failures, not which signal caused them.
     # A stop empties the runtime directory, and with it the crash-loop record of a
     # previous run (same reason layout-acceptance.sh's stage_crash-loop restarts first).
-    unit stop || true
+    if loaded athanor-shelld; then
+        unit stop || fail "stop athanor-shelld before crash-loop"
+    fi
     unit start || fail "systemctl --user start athanor-shelld failed"
     # given_up() is checked before a restart is even allowed to reach "active" (record_start,
     # then the check, happen before serving starts): the 5th kill is the one that pushes the
@@ -161,20 +175,59 @@ stage_crash-loop() {
     unit kill --kill-whom=main -s SIGKILL
     wait_until 90 gave_up || fail "the unit ended $(unit show -p ActiveState,Result --value | paste -sd,)"
     # given_up() now reports READY before this clean exit, so Restart=on-failure has nothing to
-    # restart on; settle a moment and recheck, to catch a sixth start flapping back in.
+    # restart on. ActiveState/Result alone would not catch a sixth start that itself ended
+    # inactive/success; NRestarts is the guard for that, but not at 5 — systemd resets the
+    # counter the moment a start reaches "Started" (confirmed in the journal: "restart counter
+    # is at 5" on the failing attempt, then a plain "Started athanor-shelld.service" with no
+    # counter line on the give-up run, right where READY=1 now lands), so it reads 0 straight
+    # after give-up. It must stay 0 through a settling wait, or a sixth start happened.
+    local restarts
+    restarts=$(unit show -p NRestarts --value)
+    [[ $restarts == 0 ]] || fail "NRestarts is $restarts after giving up, expected exactly 0"
     sleep 5
     gave_up || fail "a sixth start ran: $(unit show -p ActiveState,Result --value | paste -sd,)"
+    [[ $(unit show -p NRestarts --value) == "$restarts" ]] ||
+        fail "NRestarts changed from $restarts after a 5s settle: a sixth start ran"
     in_session "journalctl --user -u athanor-shelld -p err -n 20 --no-pager | grep -q 'keeps failing'" ||
         fail "no 'keeps failing' in the last 20 err-priority journal lines"
 }
 
 stage_cleanup() {
     CLEANED=1
-    in_session "systemctl --user stop athanor-shelld $BUS_UNIT.service $BUS_UNIT.socket" || true
-    unit reset-failed || true
+    local failed=0
+    # Only the units a stage actually created: an early failure in deploy, or a standalone
+    # run of a later stage, must not turn a missing unit into a cleanup failure. reset-failed
+    # first, while the unit is still failed and so still resident; then stop, guarded on
+    # LoadState alone since a static unit (a real file on disk, unlike the transient probe
+    # units systemd garbage-collects the moment they go idle) stays loaded either way.
+    if unit_failed; then
+        unit reset-failed || {
+            echo "cleanup: systemctl --user reset-failed athanor-shelld failed" >&2
+            failed=1
+        }
+    fi
+    if loaded athanor-shelld; then
+        unit stop || {
+            echo "cleanup: systemctl --user stop athanor-shelld failed" >&2
+            failed=1
+        }
+    fi
+    if loaded "$BUS_UNIT.service"; then
+        in_session "systemctl --user stop $BUS_UNIT.service $BUS_UNIT.socket" || {
+            echo "cleanup: systemctl --user stop $BUS_UNIT.service $BUS_UNIT.socket failed" >&2
+            failed=1
+        }
+    fi
     in_session "rm -f ~/.config/systemd/user/athanor-shelld.service.d/acceptance.conf \
-    ~/.config/systemd/user/$BUS_UNIT.socket ~/.config/systemd/user/$BUS_UNIT.service"
-    in_session systemctl --user daemon-reload
+    ~/.config/systemd/user/$BUS_UNIT.socket ~/.config/systemd/user/$BUS_UNIT.service" || {
+        echo "cleanup: removing the drop-in and the private-bus unit files failed" >&2
+        failed=1
+    }
+    in_session systemctl --user daemon-reload || {
+        echo "cleanup: systemctl --user daemon-reload failed" >&2
+        failed=1
+    }
+    return "$failed"
 }
 
 cleanup_on_exit() {
