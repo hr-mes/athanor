@@ -2,10 +2,13 @@
 //! COSMIC components started on the main socket.
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fs::{self, DirBuilder};
+use std::io::{self, ErrorKind};
 use std::os::fd::AsFd;
 use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::net::UnixListener;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use gtk4::gio::{self, prelude::*};
@@ -32,6 +35,8 @@ pub enum LaunchError {
     Bus(#[from] glib::Error),
     #[error("{0} did not appear on the session bus")]
     NoAnswer(&'static str),
+    #[error("{unit} did not start: its start job ended with \"{result}\"")]
+    Start { unit: String, result: String },
 }
 
 /// What the field codes of an `Exec` line expand to. No file or URL is ever passed.
@@ -94,6 +99,37 @@ fn resolve(program: &str) -> Result<String, LaunchError> {
         .ok_or_else(|| LaunchError::Missing(program.to_owned()))
 }
 
+/// `<runtime>/athanor/<random>`, the directory of an application's socket. `athanor` is
+/// created private when missing and must be a directory, not a symbolic link; the leaf must
+/// not exist yet, so no one else prepared it. `runtime` is `$XDG_RUNTIME_DIR`, refused when
+/// unset or not absolute: the home directory GLib falls back to is not private to a session.
+fn socket_dir(runtime: Option<OsString>, random: &str) -> Result<PathBuf, LaunchError> {
+    let runtime = runtime
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .ok_or_else(|| {
+            io::Error::new(
+                ErrorKind::NotFound,
+                "XDG_RUNTIME_DIR is not set to an absolute path",
+            )
+        })?;
+    let parent = runtime.join("athanor");
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&parent)?;
+    if !fs::symlink_metadata(&parent)?.is_dir() {
+        return Err(io::Error::new(
+            ErrorKind::NotADirectory,
+            format!("{} is not a directory", parent.display()),
+        )
+        .into());
+    }
+    let dir = parent.join(random);
+    DirBuilder::new().mode(0o700).create(&dir)?;
+    Ok(dir)
+}
+
 impl Client {
     /// Starts `app` in a transient service of the user manager, on a socket of its own
     /// behind a security context, and returns the unit's name. When the context cannot be
@@ -123,20 +159,26 @@ impl Client {
         if app.boolean("Terminal") {
             argv.insert(0, TERMINAL.to_owned());
         }
-        argv[0] = resolve(&argv[0])?;
+        let (program, arguments) = argv
+            .split_first()
+            .ok_or_else(|| entry("the Exec line names no program"))?;
+        let argv = [vec![resolve(program)?], arguments.to_vec()].concat();
 
         let random = unit::random();
         let unit_name =
             unit::app_unit_name(&id, &random).ok_or_else(|| entry("its desktop id is too long"))?;
         let runtime_directory = format!("athanor/{random}");
-        let dir = glib::user_runtime_dir().join(&runtime_directory);
-        DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
+        let dir = socket_dir(std::env::var_os("XDG_RUNTIME_DIR"), &random)?;
         let result = self
             .start_in_context(app, &id, argv, unit_name, runtime_directory, &dir)
             .await;
         if result.is_err() {
-            if let Err(err) = fs::remove_dir_all(&dir) {
-                tracing::warn!(dir = %dir.display(), "the socket directory was not removed: {err}");
+            // systemd removes it too when the unit it started stops.
+            match fs::remove_dir_all(&dir) {
+                Err(err) if err.kind() != ErrorKind::NotFound => {
+                    tracing::warn!(dir = %dir.display(), "the socket directory was not removed: {err}");
+                }
+                _ => {}
             }
         }
         result
@@ -157,7 +199,12 @@ impl Client {
         // The compositor keeps its own copies; ours close when this function returns. The
         // context lasts until every copy of the write end is closed: the user manager
         // holds one for as long as the unit runs.
-        self.create_context(listener.as_fd(), close_read.as_fd(), id, &unit_name)?;
+        self.create_context(
+            listener.as_fd(),
+            close_read.as_fd(),
+            unit::app_id(id),
+            &unit_name,
+        )?;
 
         let mut environment = vec![format!("WAYLAND_DISPLAY={}", socket.display())];
         if let Some(token) = self.activation_token(Some(app.upcast_ref())) {
@@ -286,10 +333,8 @@ impl Client {
     }
 
     async fn start_component(&self, opener: Opener) -> Result<(), LaunchError> {
-        let mut environment = Vec::new();
-        if let Some(display) = std::env::var_os("WAYLAND_DISPLAY") {
-            environment.push(format!("WAYLAND_DISPLAY={}", display.to_string_lossy()));
-        }
+        // The socket this client is connected to, whatever the process's environment says.
+        let environment = vec![format!("WAYLAND_DISPLAY={}", self.display_name()?)];
         let random = unit::random();
         let unit = Unit {
             name: unit::app_unit_name(opener.app_id(), &random).ok_or_else(|| {
@@ -327,6 +372,8 @@ async fn has_owner(bus: &gio::DBusConnection, name: &str) -> Result<bool, glib::
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
     use super::*;
 
     const FIELDS: Fields<'static> = Fields {
@@ -411,5 +458,57 @@ mod tests {
             ("com.system76.CosmicWorkspaces", "Show")
         );
         assert_eq!(parameters.type_().as_str(), "()");
+    }
+
+    /// A directory of its own under the system's temporary directory, removed on drop.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Scratch {
+            let dir = std::env::temp_dir().join(format!("cc-{name}-{}", unit::random()));
+            fs::create_dir(&dir).unwrap();
+            Scratch(dir)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_socket_directory_is_new_and_private() {
+        let runtime = Scratch::new("runtime");
+        let dir = socket_dir(Some(runtime.0.clone().into()), "leaf").unwrap();
+        assert_eq!(dir, runtime.0.join("athanor/leaf"));
+        for path in [&dir, &runtime.0.join("athanor")] {
+            let mode = fs::metadata(path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o700, "{}", path.display());
+        }
+        // A second preparation of the same leaf is refused: someone else holds it.
+        let again = socket_dir(Some(runtime.0.clone().into()), "leaf").unwrap_err();
+        assert!(
+            matches!(&again, LaunchError::Socket(err) if err.kind() == ErrorKind::AlreadyExists),
+            "{again}"
+        );
+    }
+
+    #[test]
+    fn a_symlinked_socket_parent_is_refused() {
+        let runtime = Scratch::new("runtime");
+        let elsewhere = Scratch::new("elsewhere");
+        std::os::unix::fs::symlink(&elsewhere.0, runtime.0.join("athanor")).unwrap();
+        let err = socket_dir(Some(runtime.0.clone().into()), "leaf").unwrap_err();
+        assert!(matches!(err, LaunchError::Socket(_)), "{err}");
+        assert!(!elsewhere.0.join("leaf").exists());
+    }
+
+    #[test]
+    fn a_missing_runtime_directory_is_refused() {
+        for runtime in [None, Some(OsString::new()), Some("relative/run".into())] {
+            let err = socket_dir(runtime.clone(), "leaf").unwrap_err();
+            assert!(matches!(err, LaunchError::Socket(_)), "{runtime:?}: {err}");
+        }
     }
 }

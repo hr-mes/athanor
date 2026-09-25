@@ -377,6 +377,7 @@ dependencies = [
  "athanor-layout",
  "athanor-style",
  "bitflags 2.13.1",
+ "futures-util",
  "gdk4-wayland",
  "gio-unix",
  "gtk4",

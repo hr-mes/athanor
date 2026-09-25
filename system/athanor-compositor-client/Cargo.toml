@@ -10,6 +10,7 @@ authors = ["Athanor Forge <forge@athanor.os>"]
 athanor-layout = { path = "../athanor-layout" }
 athanor-style = { path = "../athanor-style" }
 bitflags = { workspace = true }
+futures-util = { workspace = true }
 gdk4-wayland = { workspace = true }
 gio-unix = { workspace = true }
 gtk4 = { workspace = true }

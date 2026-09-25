@@ -15,6 +15,7 @@ use std::io::ErrorKind;
 use std::ops::RangeInclusive;
 use std::os::fd::{AsRawFd, BorrowedFd, OwnedFd};
 use std::os::unix::fs::FileExt;
+use std::os::unix::net::UnixStream;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -338,6 +339,26 @@ impl Client {
     /// a full socket is not a failure.
     pub(crate) fn pump(&self) -> Result<(), Error> {
         self.inner.pump()
+    }
+
+    /// The compositor's socket as `WAYLAND_DISPLAY` names it for a client the shell starts:
+    /// the path this connection is connected to. A connection inherited through
+    /// `WAYLAND_SOCKET` has no path; GDK's name for the display is then the only one.
+    pub(crate) fn display_name(&self) -> Result<String, Error> {
+        let fd = self
+            .inner
+            .connection
+            .backend()
+            .poll_fd()
+            .try_clone_to_owned()
+            .map_err(|err| Error::Connection(err.to_string()))?;
+        let peer = UnixStream::from(fd)
+            .peer_addr()
+            .map_err(|err| Error::Connection(err.to_string()))?;
+        Ok(peer
+            .as_pathname()
+            .and_then(|path| path.to_str())
+            .map_or_else(|| self.inner.display.name().to_string(), str::to_owned))
     }
 
     fn toplevel_request(

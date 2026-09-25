@@ -4,18 +4,33 @@
 
 use std::os::fd::OwnedFd;
 
+use futures_util::StreamExt;
 use gtk4::gio::{self, prelude::*};
-use gtk4::glib::{self, variant::Handle, Variant};
+use gtk4::glib::{self, variant::Handle, variant::ObjectPath, Variant};
+
+use crate::launch::LaunchError;
 
 /// systemd's `UNIT_NAME_MAX`.
 const NAME_MAX: usize = 255;
+
+const SYSTEMD: &str = "org.freedesktop.systemd1";
+const MANAGER: &str = "org.freedesktop.systemd1.Manager";
+const MANAGER_PATH: &str = "/org/freedesktop/systemd1";
+/// The error the manager answers a client that subscribed already.
+const ALREADY_SUBSCRIBED: &str = "org.freedesktop.systemd1.AlreadySubscribed";
+
+/// The application id a desktop id stands for: without `.desktop`, as the unit name and
+/// Wayland's `app_id` carry it.
+pub(crate) fn app_id(desktop_id: &str) -> &str {
+    desktop_id.strip_suffix(".desktop").unwrap_or(desktop_id)
+}
 
 /// A desktop id as unit names carry it: without `.desktop`, escaped as `systemd-escape`
 /// does. `/` becomes `-` (a desktop id never holds one), a leading `.` and every other byte
 /// outside `[A-Za-z0-9:_.]` become `\xNN`. The dash is escaped too, so the id reads back
 /// unambiguously from between the name's dashes.
 pub(crate) fn escape(desktop_id: &str) -> String {
-    let id = desktop_id.strip_suffix(".desktop").unwrap_or(desktop_id);
+    let id = app_id(desktop_id);
     let mut escaped = String::with_capacity(id.len());
     for (index, byte) in id.bytes().enumerate() {
         match byte {
@@ -60,18 +75,24 @@ pub(crate) struct Unit {
 impl Unit {
     /// The parameters of `StartTransientUnit`. With `pass_fd`, the first descriptor of the
     /// call's descriptor list reaches the service through `ExtraFileDescriptors`; the
-    /// manager holds it until the unit stops.
-    pub(crate) fn parameters(&self, pass_fd: bool) -> Variant {
+    /// manager holds it until the unit stops. An empty `argv` is refused.
+    pub(crate) fn parameters(&self, pass_fd: bool) -> Result<Variant, glib::Error> {
+        let (program, _) = self.argv.split_first().ok_or_else(|| {
+            glib::Error::new(
+                gio::IOErrorEnum::InvalidArgument,
+                "a unit needs a program to run",
+            )
+        })?;
         let mut properties: Vec<(&str, Variant)> = vec![
             ("Description", self.description.to_variant()),
             (
                 "ExecStart",
-                vec![(self.argv[0].clone(), self.argv.clone(), false)].to_variant(),
+                vec![(program.as_str(), self.argv.clone(), false)].to_variant(),
             ),
             ("Environment", self.environment.to_variant()),
             ("WorkingDirectory", self.working_directory.to_variant()),
-            // The start fails when the program cannot be executed, not only when
-            // systemd cannot fork.
+            // The start job fails when the program cannot be executed, not only when
+            // systemd cannot fork: `start` waits for that job.
             ("Type", "exec".to_variant()),
             // The unit, and so the descriptor, lasts while any of its processes does.
             ("ExitType", "cgroup".to_variant()),
@@ -88,37 +109,95 @@ impl Unit {
             ));
         }
         let aux: Vec<(&str, Vec<(&str, Variant)>)> = Vec::new();
-        (self.name.as_str(), "fail", properties, aux).to_variant()
+        Ok((self.name.as_str(), "fail", properties, aux).to_variant())
     }
 
-    /// Asks the user manager to start the unit, and returns once the job is queued.
-    /// ponytail: the job's result is not awaited, so a program that fails to execute is
-    /// reported in the journal only; subscribe to `JobRemoved` when the bar needs it.
-    pub(crate) async fn start(&self, fd: Option<OwnedFd>) -> Result<(), glib::Error> {
-        if self.argv.is_empty() {
-            return Err(glib::Error::new(
-                gio::IOErrorEnum::InvalidArgument,
-                "a unit needs a program to run",
-            ));
-        }
+    /// Asks the user manager to start the unit, and returns when its start job ends. With
+    /// `Type=exec` the job ends once the program runs, so a program that cannot be executed
+    /// is an error, as is any other result than `done`. The wait never blocks the main loop.
+    pub(crate) async fn start(&self, fd: Option<OwnedFd>) -> Result<(), LaunchError> {
+        let parameters = self.parameters(fd.is_some())?;
         let fds = gio::UnixFDList::new();
         if let Some(fd) = &fd {
             fds.append(fd)?;
         }
         let bus = gio::bus_get_future(gio::BusType::Session).await?;
-        bus.call_with_unix_fd_list_future(
-            Some("org.freedesktop.systemd1"),
-            "/org/freedesktop/systemd1",
-            "org.freedesktop.systemd1.Manager",
-            "StartTransientUnit",
-            Some(&self.parameters(fd.is_some())),
+        // Subscribed before the job exists: the stream keeps what arrives before the reply
+        // names the job, so its end cannot be missed.
+        let mut removed = bus.receive_signal_parameters::<(u32, ObjectPath, String, String)>(
+            Some(SYSTEMD),
+            Some(MANAGER),
+            Some("JobRemoved"),
+            Some(MANAGER_PATH),
+            None,
+            gio::DBusSignalFlags::NONE,
+        );
+        subscribe(&bus).await?;
+        let (reply, _) = bus
+            .call_with_unix_fd_list_future(
+                Some(SYSTEMD),
+                MANAGER_PATH,
+                MANAGER,
+                "StartTransientUnit",
+                Some(&parameters),
+                None,
+                gio::DBusCallFlags::NONE,
+                -1,
+                Some(&fds),
+            )
+            .await?;
+        let job = reply.child_value(0);
+        let job = job.str().ok_or_else(|| {
+            glib::Error::new(
+                gio::IOErrorEnum::InvalidData,
+                "StartTransientUnit answered with no job",
+            )
+        })?;
+        while let Some(signal) = removed.next().await {
+            match signal {
+                Ok((_, path, unit, result)) if path.as_str() == job => {
+                    return if result == "done" {
+                        Ok(())
+                    } else {
+                        Err(LaunchError::Start { unit, result })
+                    };
+                }
+                Ok(_) => {}
+                Err(err) => tracing::warn!("a JobRemoved signal was ignored: {err}"),
+            }
+        }
+        // The stream ends only with its subscription, which it owns.
+        Err(LaunchError::Start {
+            unit: self.name.clone(),
+            result: "unknown".to_owned(),
+        })
+    }
+}
+
+/// The manager sends its signals only while a client is subscribed. A subscription lasts
+/// as long as the bus connection, which the process shares, so a second one is refused
+/// with an error that means success.
+async fn subscribe(bus: &gio::DBusConnection) -> Result<(), glib::Error> {
+    match bus
+        .call_future(
+            Some(SYSTEMD),
+            MANAGER_PATH,
+            MANAGER,
+            "Subscribe",
+            None,
             None,
             gio::DBusCallFlags::NONE,
             -1,
-            Some(&fds),
         )
-        .await?;
-        Ok(())
+        .await
+    {
+        Err(err)
+            if gio::DBusError::remote_error(&err)
+                .is_some_and(|name| name == ALREADY_SUBSCRIBED) =>
+        {
+            Ok(())
+        }
+        result => result.map(drop),
     }
 }
 
@@ -167,7 +246,7 @@ mod tests {
             working_directory: "~".into(),
             runtime_directory: Some("athanor/1".into()),
         };
-        let with_fd = unit.parameters(true);
+        let with_fd = unit.parameters(true).unwrap();
         assert_eq!(with_fd.type_().as_str(), "(ssa(sv)a(sa(sv)))");
         let text = with_fd.print(false);
         assert!(
@@ -186,7 +265,34 @@ mod tests {
         );
         assert!(!unit
             .parameters(false)
+            .unwrap()
             .print(false)
             .contains("ExtraFileDescriptors"));
+    }
+
+    #[test]
+    fn a_unit_with_no_program_is_refused() {
+        let unit = Unit {
+            name: "app-athanor-x@1.service".into(),
+            description: "X".into(),
+            argv: Vec::new(),
+            environment: Vec::new(),
+            working_directory: "~".into(),
+            runtime_directory: None,
+        };
+        assert!(unit.parameters(false).is_err());
+    }
+
+    #[test]
+    fn the_app_id_is_the_desktop_id_without_its_suffix() {
+        assert_eq!(
+            app_id("org.gnome.TextEditor.desktop"),
+            "org.gnome.TextEditor"
+        );
+        assert_eq!(
+            app_id("com.system76.CosmicLauncher"),
+            "com.system76.CosmicLauncher"
+        );
+        assert_eq!(app_id("x.desktop.desktop"), "x.desktop");
     }
 }
