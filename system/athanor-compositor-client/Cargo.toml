@@ -12,7 +12,6 @@ athanor-style = { path = "../athanor-style" }
 bitflags = { workspace = true }
 gdk4-wayland = { workspace = true }
 gio-unix = { workspace = true }
-glib-unix = { workspace = true }
 gtk4 = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
