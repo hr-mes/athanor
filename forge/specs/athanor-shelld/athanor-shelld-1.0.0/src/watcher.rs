@@ -13,6 +13,8 @@ use zvariant::ObjectPath;
 use crate::server::WATCHER_PATH;
 
 pub const MAX_ITEMS: usize = 64;
+/// Only the bar is expected to host; the cap bounds a hostile client.
+pub const MAX_HOSTS: usize = 4;
 
 #[derive(Debug, Default)]
 pub struct Registry {
@@ -46,13 +48,16 @@ impl Registry {
         Added::New
     }
 
-    /// True when this is the first host.
-    pub fn add_host(&mut self, name: String) -> bool {
-        let first = self.hosts.is_empty();
-        if !self.hosts.contains(&name) {
-            self.hosts.push(name);
+    /// Registers a host, up to `MAX_HOSTS`; a known one succeeds without growing the list.
+    pub fn add_host(&mut self, name: String) -> Added {
+        if self.hosts.contains(&name) {
+            return Added::Known;
         }
-        first && !self.hosts.is_empty()
+        if self.hosts.len() >= MAX_HOSTS {
+            return Added::Full;
+        }
+        self.hosts.push(name);
+        Added::New
     }
 
     #[must_use]
@@ -101,9 +106,32 @@ pub struct Watcher {
     registry: Registry,
 }
 
-async fn has_owner(conn: &Connection, name: &str) -> fdo::Result<bool> {
-    let name = BusName::try_from(name).map_err(|err| fdo::Error::InvalidArgs(err.to_string()))?;
-    DBusProxy::new(conn).await?.name_has_owner(name).await
+/// Refuses a caller that names a bus name it does not own: a well-known name it does not
+/// currently hold, or another connection's unique name. A unique name is trusted only against
+/// the sender itself, since a connection cannot claim one that is not its own; a well-known
+/// name is resolved through the bus. Without this, any client could attribute an item or a
+/// host to a long-lived name it does not own and hold a slot forever, since that name's real
+/// owner never leaves.
+async fn owned_by(conn: &Connection, service: &str, sender: &str) -> fdo::Result<()> {
+    let name =
+        BusName::try_from(service).map_err(|err| fdo::Error::InvalidArgs(err.to_string()))?;
+    let owner = if service.starts_with(':') {
+        service.to_owned()
+    } else {
+        DBusProxy::new(conn)
+            .await?
+            .get_name_owner(name)
+            .await
+            .map_err(|err| fdo::Error::AccessDenied(format!("{service} has no owner: {err}")))?
+            .to_string()
+    };
+    if owner == sender {
+        Ok(())
+    } else {
+        Err(fdo::Error::AccessDenied(format!(
+            "{service} is not owned by its caller"
+        )))
+    }
 }
 
 #[interface(name = "org.kde.StatusNotifierWatcher")]
@@ -123,10 +151,8 @@ impl Watcher {
                 "{service:?} is neither a bus name nor an object path"
             ))
         })?;
-        if !has_owner(conn, &name).await? {
-            return Err(fdo::Error::InvalidArgs(format!(
-                "{name} has no owner on the bus"
-            )));
+        if !service.starts_with('/') {
+            owned_by(conn, service, sender.as_str()).await?;
         }
         match self.registry.add_item(id.clone(), name) {
             Added::New => {
@@ -145,20 +171,29 @@ impl Watcher {
     async fn register_status_notifier_host(
         &mut self,
         service: &str,
+        #[zbus(header)] header: Header<'_>,
         #[zbus(connection)] conn: &Connection,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> fdo::Result<()> {
-        if !has_owner(conn, service).await? {
-            return Err(fdo::Error::InvalidArgs(format!(
-                "{service} has no owner on the bus"
-            )));
+        let sender = header
+            .sender()
+            .ok_or_else(|| fdo::Error::InvalidArgs("a call with no sender".into()))?;
+        owned_by(conn, service, sender.as_str()).await?;
+        let had_host = self.registry.has_host();
+        match self.registry.add_host(service.to_owned()) {
+            Added::New => {
+                if !had_host {
+                    Self::status_notifier_host_registered(&emitter).await?;
+                    self.is_status_notifier_host_registered_changed(&emitter)
+                        .await?;
+                }
+                Ok(())
+            }
+            Added::Known => Ok(()),
+            Added::Full => Err(fdo::Error::LimitsExceeded(format!(
+                "{MAX_HOSTS} hosts are registered"
+            ))),
         }
-        if self.registry.add_host(service.to_owned()) {
-            Self::status_notifier_host_registered(&emitter).await?;
-            self.is_status_notifier_host_registered_changed(&emitter)
-                .await?;
-        }
-        Ok(())
     }
 
     #[zbus(property)]
@@ -295,10 +330,20 @@ mod tests {
     #[test]
     fn the_last_host_leaving_is_reported_once() {
         let mut registry = Registry::default();
-        assert!(registry.add_host("h1".into()));
-        assert!(!registry.add_host("h2".into()));
+        assert_eq!(registry.add_host("h1".into()), Added::New);
+        assert_eq!(registry.add_host("h2".into()), Added::New);
         assert!(!registry.name_lost("h1").last_host_gone);
         assert!(registry.name_lost("h2").last_host_gone);
         assert!(!registry.name_lost("h2").last_host_gone);
+    }
+
+    #[test]
+    fn a_host_beyond_the_cap_is_refused_and_a_known_one_does_not_grow_the_list() {
+        let mut registry = Registry::default();
+        for n in 0..MAX_HOSTS {
+            assert_eq!(registry.add_host(format!("h{n}")), Added::New);
+        }
+        assert_eq!(registry.add_host("h0".into()), Added::Known);
+        assert_eq!(registry.add_host("one-too-many".into()), Added::Full);
     }
 }

@@ -3,7 +3,7 @@ mod common;
 use std::time::Duration;
 
 use athanor_shelld::server::{WATCHER_NAME, WATCHER_PATH};
-use athanor_shelld::watcher::MAX_ITEMS;
+use athanor_shelld::watcher::{MAX_HOSTS, MAX_ITEMS};
 use common::{Bus, APP_CGROUP};
 use futures_util::StreamExt;
 use zbus::{Connection, Proxy};
@@ -180,4 +180,122 @@ async fn the_host_is_announced_and_leaves_with_its_owner() {
         .get_property::<bool>("IsStatusNotifierHostRegistered")
         .await
         .expect("property"));
+}
+
+#[tokio::test]
+async fn an_item_cannot_be_registered_under_a_name_the_caller_does_not_own() {
+    let bus = Bus::start("sni-item-impersonate");
+    let _daemon = bus.daemon(APP_CGROUP).await;
+    let owner = bus.client().await;
+    owner
+        .request_name("org.kde.StatusNotifierItem-owned-1")
+        .await
+        .expect("name");
+    let attacker = bus.client().await;
+    let err = watcher(&attacker)
+        .await
+        .call::<_, _, ()>(
+            "RegisterStatusNotifierItem",
+            &("org.kde.StatusNotifierItem-owned-1",),
+        )
+        .await
+        .expect_err("not the owner");
+    assert!(err.to_string().contains("AccessDenied"), "{err}");
+    let observer = watcher(&bus.client().await).await;
+    assert!(items(&observer).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_host_cannot_be_registered_under_a_name_the_caller_does_not_own() {
+    let bus = Bus::start("sni-host-impersonate");
+    let _daemon = bus.daemon(APP_CGROUP).await;
+    let owner = bus.client().await;
+    owner
+        .request_name("org.kde.StatusNotifierHost-owned")
+        .await
+        .expect("name");
+    let attacker = bus.client().await;
+    let err = watcher(&attacker)
+        .await
+        .call::<_, _, ()>(
+            "RegisterStatusNotifierHost",
+            &("org.kde.StatusNotifierHost-owned",),
+        )
+        .await
+        .expect_err("not the owner");
+    assert!(err.to_string().contains("AccessDenied"), "{err}");
+    let observer = watcher(&bus.client().await).await;
+    assert!(!observer
+        .get_property::<bool>("IsStatusNotifierHostRegistered")
+        .await
+        .expect("property"));
+}
+
+#[tokio::test]
+async fn an_owner_may_register_its_own_well_known_name() {
+    let bus = Bus::start("sni-owned");
+    let _daemon = bus.daemon(APP_CGROUP).await;
+    let app = bus.client().await;
+    app.request_name("org.kde.StatusNotifierItem-owner-2")
+        .await
+        .expect("item name");
+    app.request_name("org.kde.StatusNotifierHost-owner-2")
+        .await
+        .expect("host name");
+    let proxy = watcher(&app).await;
+    proxy
+        .call::<_, _, ()>(
+            "RegisterStatusNotifierItem",
+            &("org.kde.StatusNotifierItem-owner-2",),
+        )
+        .await
+        .expect("register item");
+    proxy
+        .call::<_, _, ()>(
+            "RegisterStatusNotifierHost",
+            &("org.kde.StatusNotifierHost-owner-2",),
+        )
+        .await
+        .expect("register host");
+    assert_eq!(
+        items(&proxy).await,
+        ["org.kde.StatusNotifierItem-owner-2/StatusNotifierItem"]
+    );
+    assert!(proxy
+        .get_property::<bool>("IsStatusNotifierHostRegistered")
+        .await
+        .expect("property"));
+}
+
+#[tokio::test]
+async fn a_fifth_distinct_host_is_refused() {
+    let bus = Bus::start("sni-host-cap");
+    let _daemon = bus.daemon(APP_CGROUP).await;
+    let mut hosts = Vec::new();
+    for n in 0..MAX_HOSTS {
+        let host = bus.client().await;
+        let name = format!("org.kde.StatusNotifierHost-{n}");
+        host.request_name(name.as_str()).await.expect("name");
+        watcher(&host)
+            .await
+            .call::<_, _, ()>("RegisterStatusNotifierHost", &(name.as_str(),))
+            .await
+            .expect("register");
+        hosts.push(host);
+    }
+    let extra = bus.client().await;
+    extra
+        .request_name("org.kde.StatusNotifierHost-extra")
+        .await
+        .expect("name");
+    let err = watcher(&extra)
+        .await
+        .call::<_, _, ()>(
+            "RegisterStatusNotifierHost",
+            &("org.kde.StatusNotifierHost-extra",),
+        )
+        .await
+        .expect_err("full");
+    assert!(err.to_string().contains("LimitsExceeded"), "{err}");
+    drop(hosts);
 }
