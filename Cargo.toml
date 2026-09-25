@@ -10,6 +10,8 @@ members = [
   "forge/specs/athanor-mesh-sync/athanor-mesh-sync-1.0.0",
   "forge/specs/athanor-recovery/athanor-recovery-1.0.0",
   "forge/specs/athanor-sysmon-ebpf/athanor-sysmon-ebpf-1.0.0",
+  "forge/specs/athanor-update/athanor-update-1.0.0",
+  "forge/specs/athanor-update/athanor-update-notify-1.0.0",
   "forge/specs/athanor-xdg-desktop-portal-athanor/xdg-desktop-portal-athanor-1.0.0",
   "forge/specs/athanor-niri-ipc",
   "system/confidential_computing/athanor-attestation",
@@ -28,6 +30,7 @@ members = [
   "system/athanor-net-unikernel",
   "system/athanor-store",
   "system/athanor-telemetry",
+  "system/athanor-trust-state",
   "system/athanor-updater-rs",
 ]
 
