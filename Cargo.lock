@@ -696,6 +696,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "athanor-shelld"
+version = "1.0.0"
+dependencies = [
+ "athanor-unit",
+ "futures-util",
+ "serde",
+ "tokio",
+ "tracing",
+ "zbus",
+ "zvariant",
+]
+
+[[package]]
 name = "athanor-store"
 version = "0.1.0"
 dependencies = [

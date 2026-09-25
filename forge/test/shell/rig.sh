@@ -11,6 +11,7 @@
 #   rig.sh build-greeter    release build of athanor-greeter-ui into <out>/bin
 #   rig.sh build-layout     clippy, tests and release build of the layout crates (translator and chooser) and athanor-unit into <out>/bin
 #   rig.sh build-compositor-client  clippy, tests and release build of cc-probe into <out>/bin
+#   rig.sh build-shelld     clippy and tests of athanor-shelld; from Task 6 also its release build into <out>/bin
 #   rig.sh compositor-e2e   the compositor client against cosmic-comp, and against sway without the COSMIC globals
 #   rig.sh layer-guard      the greeter must refuse to run when the shim loads late
 #   rig.sh greeter-preview  one capture of the greeter per variant, for the eye
@@ -215,6 +216,14 @@ build-compositor-client)
                  && cargo test --locked -p athanor-compositor-client \
                  && cargo build --release --locked -p athanor-compositor-client --example cc-probe \
                  && install -m 0755 /out/target/release/examples/cc-probe /out/bin/'
+    ;;
+build-shelld)
+    mkdir -p "$out/bin" "$out/target"
+    podman run --rm --memory 6g --security-opt label=disable \
+        -v "$root:/repo:ro" -v "$out:/out" -v athanor-cargo-registry:/root/.cargo/registry \
+        -e CARGO_TARGET_DIR=/out/target -w /repo "$local_image:build" \
+        bash -c 'cargo clippy --locked -p athanor-unit -p athanor-shelld --all-targets -- -D warnings \
+                 && cargo test --locked -p athanor-unit -p athanor-shelld'
     ;;
 compositor-e2e)
     # cosmic-comp reads the keyboard layouts from its configuration: two, so the switch shows.
