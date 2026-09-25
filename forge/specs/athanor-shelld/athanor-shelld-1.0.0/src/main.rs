@@ -3,6 +3,7 @@
 //! run towards the crash-loop limit (doc_shell.md SH8).
 
 use std::env;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -118,20 +119,38 @@ async fn serve(state_dir: PathBuf) -> ExitCode {
     std::future::pending::<ExitCode>().await
 }
 
+/// `None` if `value` is unset, empty, or relative: the XDG Base Directory spec says a relative
+/// value for one of these variables must be treated as though it were not set at all, not
+/// resolved as a relative path.
+fn xdg_absolute(value: Option<OsString>) -> Option<PathBuf> {
+    value.map(PathBuf::from).filter(|dir| dir.is_absolute())
+}
+
 /// `$XDG_STATE_HOME/athanor/shelld` for the do-not-disturb switch, and the crash-loop record
 /// in the unit's runtime directory.
 fn dirs() -> Option<(PathBuf, PathBuf)> {
-    let state = env::var_os("XDG_STATE_HOME")
-        .filter(|dir| !dir.is_empty())
-        .map(PathBuf::from)
+    let state = xdg_absolute(env::var_os("XDG_STATE_HOME"))
         .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))
         .filter(|dir| dir.is_absolute())?
         .join("athanor/shelld");
-    let runtime = env::var_os("RUNTIME_DIRECTORY")
-        .map(PathBuf::from)
-        .or_else(|| {
-            env::var_os("XDG_RUNTIME_DIR").map(|dir| PathBuf::from(dir).join("athanor-shelld"))
-        })
-        .filter(|dir| dir.is_absolute())?;
+    let runtime = xdg_absolute(env::var_os("RUNTIME_DIRECTORY")).or_else(|| {
+        xdg_absolute(env::var_os("XDG_RUNTIME_DIR")).map(|dir| dir.join("athanor-shelld"))
+    })?;
     Some((state, runtime.join("failures")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn xdg_absolute_rejects_missing_empty_and_relative_values() {
+        assert_eq!(xdg_absolute(None), None);
+        assert_eq!(xdg_absolute(Some(OsString::from(""))), None);
+        assert_eq!(xdg_absolute(Some(OsString::from("relative/path"))), None);
+        assert_eq!(
+            xdg_absolute(Some(OsString::from("/absolute/path"))),
+            Some(PathBuf::from("/absolute/path"))
+        );
+    }
 }
