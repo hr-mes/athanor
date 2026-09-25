@@ -10,14 +10,14 @@ The crates published from that repository (`cosmic-protocols`, `cosmic-client-to
 are GPL-3.0-only and this crate does not link them. Each description carries its own
 licence in its `<copyright>` element:
 
-| File                                         | Licence           | Copyright                                                                 |
-| -------------------------------------------- | ----------------- | ------------------------------------------------------------------------- |
-| `cosmic-a11y-unstable-v1.xml`                | MIT               | 2025 System76                                                             |
-| `cosmic-keyboard-layout-unstable-v1.xml`     | HPND-sell-variant | 2026 System76, Inc                                                        |
-| `cosmic-toplevel-info-unstable-v1.xml`       | HPND-sell-variant | 2018 Ilia Bozhinov, 2020 Isaac Freund, 2024 Victoria Brekenfeld           |
-| `cosmic-toplevel-management-unstable-v1.xml` | HPND-sell-variant | 2018 Ilia Bozhinov, 2020 Isaac Freund, 2022 wb9688                        |
-| `cosmic-workspace-unstable-v1.xml`           | HPND-sell-variant | 2019 Christopher Billington, 2020 Ilia Bozhinov, 2022 Victoria Brekenfeld |
-| `cosmic-workspace-unstable-v2.xml`           | HPND-sell-variant | 2025 System76                                                             |
+| File                                         | Licence           | Copyright                                                                    |
+| -------------------------------------------- | ----------------- | ---------------------------------------------------------------------------- |
+| `cosmic-a11y-unstable-v1.xml`                | MIT               | 2025 System76                                                                |
+| `cosmic-keyboard-layout-unstable-v1.xml`     | HPND-sell-variant | 2026 System76, Inc                                                           |
+| `cosmic-toplevel-info-unstable-v1.xml`       | HPND-sell-variant | 2018 Ilia Bozhinov, 2020 Isaac Freund, 2024 Victoria Brekenfeld              |
+| `cosmic-toplevel-management-unstable-v1.xml` | HPND-sell-variant | 2018 Ilia Bozhinov, 2020 Isaac Freund, 2022 wb9688, 2024 Victoria Brekenfeld |
+| `cosmic-workspace-unstable-v1.xml`           | HPND-sell-variant | 2019 Christopher Billington, 2020 Ilia Bozhinov, 2022 Victoria Brekenfeld    |
+| `cosmic-workspace-unstable-v2.xml`           | HPND-sell-variant | 2025 System76                                                                |
 
 To move to a newer commit: download the six files from that commit, check the licence
 of each, update this table, the commit above and `SHA256SUMS`, then run the client's
