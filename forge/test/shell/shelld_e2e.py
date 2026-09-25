@@ -2,9 +2,17 @@
 """shelld_e2e.py - package 2b.1 in the rig: the athanor-shelld binary on the session bus of
 dbus-run-session, driven the way applications drive it. Checks its names, the public
 notifications interface, the refusal of the private one to a process outside
-athanor-bar.service, the cleaning of untrusted text and images, the tray watcher in both
-registration forms, its restart, its log priorities and its memory at rest. Prints one line
-per check and exits 1 if any fails.
+athanor-bar.service (including its signals, unicast to the bar that listed and never
+broadcast, BR1), the tray watcher in both registration forms, its restart, its log priorities
+and its memory at rest. Prints one line per check and exits 1 if any fails.
+
+Nothing here runs as athanor-bar.service: this container has no writable cgroup hierarchy to
+place a process in one (rootless podman, no systemd), and faking that in the shipped binary
+would defeat the check it exists to make. The text filter, image scaling/rejection and the
+bounded hint skip that a real bar would see are covered where a caller CAN legitimately
+become one, through the fake-cgroup harness in tests/notifications.rs
+(the_bar_lists_clean_text_and_hears_added_replaced_closed,
+images_are_scaled_and_bad_ones_dropped_without_failing_the_call).
 """
 
 import os
@@ -114,6 +122,9 @@ def main():
         "capabilities", caps == ["actions", "body", "icon-static", "persistence"], caps
     )
 
+    # A non-bar connection's AddMatch on the private interface: it must hear nothing, ever
+    # (BR1) — the signals below are unicast to whichever caller List last admitted, and this
+    # process (confirmed by "private refused") is never that caller.
     added = []
     bus.signal_subscribe(
         None,
@@ -125,13 +136,6 @@ def main():
         lambda *a: added.append(a[5].unpack()[0]),
     )
     notify(bus, "two\nlines", "<b>bold</b>\u202eevil\x07", {})
-    wait_for(lambda: added, 5)
-    n = added[-1] if added else None
-    check(
-        "plain text",
-        n is not None and n[2] == "twolines" and n[3] == "<b>bold</b>evil",
-        n and n[2:4],
-    )
 
     try:
         call(bus, PRIVATE, "List", None, "(ba(usssa(ss)ybbsssuuayuu))")
@@ -143,11 +147,12 @@ def main():
     except GLib.Error as err:
         check("private refused", "AccessDenied" in err.message, err.message)
 
+    # Still exercised for their own sake (rejection, scaling, the bounded hint skip all run,
+    # and feed the memory-at-rest check below), just not observable from here.
     big = GLib.Variant("(iiibiiay)", (100000, 1, 400000, True, 8, 4, b"\0" * 16))
     good = GLib.Variant(
         "(iiibiiay)", (512, 256, 2048, True, 8, 4, b"\xff" * (512 * 256 * 4))
     )
-    added.clear()
     notify(
         bus,
         "bad image",
@@ -158,20 +163,11 @@ def main():
     notify(
         bus, "huge hint", "", {"x-huge": GLib.Variant("ay", b"\0" * (8 * 1024 * 1024))}
     )
-    wait_for(lambda: len(added) >= 3, 10)
-    by_summary = {a[2]: a for a in added}
-    bad, fine = by_summary.get("bad image"), by_summary.get("good image")
+    # Pumps the main loop long enough that a wrongly-broadcast signal would have arrived.
+    wait_for(lambda: added, 2)
     check(
-        "image refused",
-        bad is not None and bad[11] == 0 and bad[10] == "" and bad[9] == "",
-        bad and bad[9:13],
+        "private signals stay unicast, never reach a non-bar caller", not added, added
     )
-    check(
-        "image scaled",
-        fine is not None and (fine[11], fine[12]) == (96, 48),
-        fine and fine[11:13],
-    )
-    check("huge hint", "huge hint" in by_summary, sorted(by_summary))
 
     # The tray watcher, both forms, and an item leaving with its owner.
     address = os.environ["DBUS_SESSION_BUS_ADDRESS"]
