@@ -4,7 +4,7 @@
 %global sources forge/specs/%{name}/SOURCES
 Name:           athanor-update
 Version:        1.0.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Athanor system image updates and trust state
 
 License:        MIT
@@ -72,6 +72,10 @@ install -D -m 0644 forge/specs/%{name}/RECOVERY.md %{buildroot}/usr/share/doc/at
 %doc /usr/share/doc/athanor-update/RECOVERY.md
 
 %changelog
+* Wed Sep 30 2026 Athanor Forge <forge@athanor.os> - 1.0.0-2
+- `athanor-update go-back`: the console client of GoBack(), for an administrator at a text
+  console (`sudo athanor-update go-back`). It calls the service the notifier calls and
+  reports what the service answers; run as any other user it says to use sudo.
 * Thu Sep 24 2026 Athanor Forge <forge@athanor.os> - 1.0.0-1
 - First release: update check timer, os.athanor.Update1 with Apply and GoBack, one-time
   migration to the signed reference, trust state file, notifier, signature policy templates
