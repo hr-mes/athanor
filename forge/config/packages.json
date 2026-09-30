@@ -28,7 +28,6 @@
     "update",
     "xdg-desktop-portal-athanor",
     "secure-boot",
-    "lvfs-rs",
     "tetragon",
     "qa",
     "antigravity",
@@ -93,7 +92,6 @@
     "backup",
     "update",
     "xdg-desktop-portal-athanor",
-    "lvfs-rs",
     "qa",
     "athanor-semantic-db"
   ],
